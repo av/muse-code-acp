@@ -123,6 +123,12 @@ npm run check         # eslint + prettier
 
 The work board lives in `.pm/` (workstream w1).
 
+Repository development skills live in `.agents/skills/`:
+
+- [`$pm`](.agents/skills/pm/SKILL.md) inspects and maintains the board.
+- [`$loop-worker w1`](.agents/skills/loop-worker/SKILL.md) triages and works through
+  the queue, continuing to independent milestones when work is blocked.
+
 ## Roadmap
 
 - Host pooling and further CLI-helper reductions after the SDK default cutover.
