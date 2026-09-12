@@ -1,0 +1,205 @@
+import {
+  MuseClient,
+  MspError,
+  readSessionDurability,
+  spawnMspConnection,
+  type Session,
+} from "@muse-code/sdk";
+import { realpathSync } from "node:fs";
+import packageJson from "../package.json" with { type: "json" };
+import type { MuseSdkOptions } from "./muse-sdk.js";
+import { museCliPath } from "./muse-cli.js";
+import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
+
+type HostOptions = Pick<
+  MuseSdkOptions,
+  "sessionId" | "cwd" | "model" | "readOnly" | "env" | "museBinary" | "logger" | "checkHost"
+> & {
+  idleTimeoutMs?: number;
+  maxTurns?: number;
+  onClose?: () => void | Promise<void>;
+};
+type InitializedHost = Awaited<ReturnType<ReturnType<typeof spawnMspConnection>["initialize"]>>;
+interface HostLease {
+  host: InitializedHost;
+  client: MuseClient;
+  session: Session;
+}
+
+/** A single ACP session owns this process and its spawn-time configuration. */
+export class MuseSdkHost {
+  private handshake?: ReturnType<typeof spawnMspConnection>;
+  private initialized?: Promise<HostLease>;
+  private lease?: HostLease;
+  private closing?: Promise<void>;
+  private stopped = false;
+  private busy = false;
+  private completedTurns = 0;
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private finalStderr = "";
+  private failActive?: (error: unknown) => void;
+
+  constructor(private readonly options: HostOptions) {}
+  get closed(): boolean {
+    return this.stopped;
+  }
+  get reusable(): boolean {
+    return !this.stopped && !this.busy;
+  }
+  get stderr(): string {
+    return this.handshake?.child.stderrTail.join("\n").trim() ?? this.finalStderr;
+  }
+
+  async acquire(options: MuseSdkOptions, fail: (error: unknown) => void): Promise<HostLease> {
+    if (!this.reusable) throw new Error("Muse SDK host is closed or already serving a turn");
+    if (
+      options.sessionId !== this.options.sessionId ||
+      realpathSync(options.cwd) !== realpathSync(this.options.cwd) ||
+      options.model !== this.options.model ||
+      options.readOnly !== this.options.readOnly
+    ) {
+      throw new Error("Muse SDK host configuration is incompatible with this turn");
+    }
+    this.busy = true;
+    this.failActive = fail;
+    clearTimeout(this.idleTimer);
+    this.initialized ??= this.open();
+    const lease = await this.initialized;
+    if (this.stopped) throw new Error("Muse SDK host closed during startup");
+    return lease;
+  }
+
+  async release(keepAlive: boolean): Promise<void> {
+    this.busy = false;
+    this.failActive = undefined;
+    if (this.lease) {
+      this.lease.session.onApproval(async () => {
+        throw new Error("No active ACP turn accepts permissions");
+      });
+      this.lease.session.onApprovalError(() => {});
+      this.lease.session.onGapError(() => {});
+    }
+    if (keepAlive) this.completedTurns++;
+    const fold = this.lease?.session.fold;
+    const safeToReuse =
+      fold?.current &&
+      !fold.activeTurnId &&
+      fold.pendingApprovals().length === 0 &&
+      fold.pendingUserInputs().length === 0;
+    if (
+      !keepAlive ||
+      !safeToReuse ||
+      this.stopped ||
+      this.completedTurns >= (this.options.maxTurns ?? 32)
+    ) {
+      await this.close();
+      return;
+    }
+    this.idleTimer = setTimeout(() => void this.close(), this.options.idleTimeoutMs ?? 60_000);
+    this.idleTimer.unref();
+  }
+
+  close(): Promise<void> {
+    if (!this.closing) {
+      this.stopped = true;
+      clearTimeout(this.idleTimer);
+      this.failActive?.(new Error("Muse SDK host closed during the turn"));
+      this.closing = (async () => {
+        try {
+          if (this.lease) await this.lease.client.close().catch(() => {});
+          else await this.handshake?.close().catch(() => {});
+          await this.initialized?.catch(() => {});
+        } finally {
+          this.failActive = undefined;
+          this.finalStderr = this.stderr;
+          this.lease = undefined;
+          this.initialized = undefined;
+          this.handshake = undefined;
+          await this.options.onClose?.();
+        }
+      })();
+    }
+    return this.closing;
+  }
+
+  private async open(): Promise<HostLease> {
+    const options = this.options;
+    if (options.checkHost !== false) assertSdkHostSupport(options.env, options.museBinary);
+    const binary = options.museBinary ?? museCliPath(options.env);
+    const args = ["serve", ...(options.readOnly ? ["--disable-write", "--disable-shell"] : [])];
+    options.logger.log(`muse-sdk spawn: ${binary} ${args.join(" ")}`);
+    const handshake = (this.handshake = spawnMspConnection({
+      command: binary,
+      args,
+      cwd: options.cwd,
+      env: options.env as Record<string, string>,
+      shutdownTimeoutMs: 1000,
+      onStderr: (chunk) => options.logger.log(`muse-sdk stderr: ${chunk.trimEnd()}`),
+    }));
+    void handshake.child.exit.then((exit) => {
+      if (!this.stopped) {
+        this.failActive?.(
+          new Error(
+            sdkHostExitMessage(handshake.child.stderrTail.join("\n")) ??
+              `Muse SDK host exited (${exit.kind})`,
+          ),
+        );
+        void this.close();
+      }
+    });
+    const host = await handshake.initialize({
+      clientInfo: { name: "muse_code_acp", version: packageJson.version },
+    });
+    if (host.fingerprintWarning) options.logger.log(`muse-sdk: ${host.fingerprintWarning.message}`);
+    const client = new MuseClient(host.connection, {
+      durability: readSessionDurability(host.initializeResult),
+      host,
+    });
+    let session: Session;
+    let startedFresh = false;
+    try {
+      session = await client.resumeSession({ sessionId: options.sessionId, excludeItems: true });
+    } catch (error) {
+      if (!(error instanceof MspError) || error.code !== -32020) throw error;
+      session = await client.startSession({
+        sessionId: options.sessionId,
+        workspaceRoot: options.cwd,
+        modelId: options.model,
+        approvalMode: "onRequest",
+      });
+      startedFresh = true;
+    }
+    if (!startedFresh)
+      await host.connection.command("session/setApprovalMode", {
+        sessionId: options.sessionId,
+        mode: "onRequest",
+      });
+    const opening = session.opening;
+    const saved =
+      opening?.verb === "session/resume"
+        ? opening.result.session
+        : opening?.verb === "session/start"
+          ? opening.result.session
+          : undefined;
+    if (!saved || saved.sessionId !== options.sessionId)
+      throw new Error("Muse SDK returned a different session ID");
+    if (saved.workspaceRoot && realpathSync(saved.workspaceRoot) !== realpathSync(options.cwd))
+      throw new Error("Muse SDK cannot switch a saved session to a different workspace");
+    const pending =
+      opening?.verb === "session/resume" ? (opening.result.pendingRequests ?? []) : [];
+    if (saved.activeTurnId || pending.length)
+      throw new Error(
+        "The saved Muse session has an unfinished turn or pending input; resolve it in Muse before continuing",
+      );
+    if (saved.modelId !== options.model)
+      await host.connection.command("session/setModel", {
+        sessionId: options.sessionId,
+        model: { modelId: options.model },
+      });
+    if (this.stopped) {
+      await client.close().catch(() => {});
+      throw new Error("Muse SDK host closed during startup");
+    }
+    return (this.lease = { host, client, session });
+  }
+}

@@ -174,7 +174,7 @@ describe("SDK backend over ACP", () => {
     ).resolves.toEqual({ stopReason: "max_turn_requests" });
   });
 
-  it("passes read-only flags and the private MCP overlay to serve, then removes the overlay", async () => {
+  it("passes read-only flags and the private MCP overlay to serve, then removes the retained overlay on close", async () => {
     const root = mkdtempSync(join(tmpdir(), "muse-sdk-mcp-"));
     const capture = join(root, "capture.json");
     const binary = join(fixturesDir, "fake-msp.cjs");
@@ -198,7 +198,10 @@ describe("SDK backend over ACP", () => {
     const captured = JSON.parse(readFileSync(capture, "utf8"));
     expect(captured.args).toEqual(["serve", "--disable-write", "--disable-shell"]);
     expect(captured.settings.mcp_servers.test.command).toBe("test-mcp");
+    expect(existsSync(captured.configHome)).toBe(true);
+    await ctx.request(methods.agent.session.close, { sessionId });
     expect(existsSync(captured.configHome)).toBe(false);
+    await client.agent.dispose();
   });
 });
 

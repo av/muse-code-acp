@@ -1,11 +1,7 @@
 import { spawnMspConnection } from "@muse-code/sdk";
-import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
 import packageJson from "../package.json" with { type: "json" };
 import type { Logger } from "./logger.js";
-import { museAuthJsonPath } from "./auth.js";
-import { museCliPath } from "./muse-cli.js";
-import { museSettingsPath } from "./muse-settings.js";
+import { museHostIdentity } from "./host-identity.js";
 
 export interface DiscoveredModel {
   id: string;
@@ -83,31 +79,11 @@ export class MuseModelDiscovery {
     if (this.disposed) return fallback("Model discovery is disposed");
     try {
       const env = { ...this.options.env };
-      const binary = realpathSync(this.options.museBinary ?? museCliPath(env));
-      const workspace = realpathSync(cwd);
-      const info = statSync(binary);
-      const hash = createHash("sha256");
-      hash.update(
-        JSON.stringify([
-          binary,
-          info.size,
-          info.mtimeMs,
-          info.ctimeMs,
-          workspace,
-          Object.entries(env).sort(([a], [b]) => a.localeCompare(b)),
-        ]),
-      );
-      for (const path of [museSettingsPath(env), museAuthJsonPath(env)]) {
-        hash.update(path);
-        try {
-          const content = readFileSync(path);
-          hash.update(String(content.length));
-          hash.update(content);
-        } catch {
-          hash.update("unavailable");
-        }
-      }
-      const key = hash.digest("hex");
+      const {
+        binary,
+        cwd: workspace,
+        identity: key,
+      } = museHostIdentity(cwd, env, this.options.museBinary, true);
       const cached = this.cache.get(key);
       if (cached && cached.until > Date.now()) {
         this.cache.delete(key);

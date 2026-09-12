@@ -1,21 +1,21 @@
 # w1 · m10 — Reusable SDK hosts and mid-turn steering
 
-**Worker:** worker1 **Goal:** Allow corrections during active work and reduce repeated startup through safely scoped host reuse. **Status:** todo
+**Worker:** worker1 **Goal:** Allow corrections during active work and reduce repeated startup through safely scoped host reuse. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                        | est | depends_on               |
-| ---- | ------------------------------------------------------------ | --- | ------------------------ |
-| t001 | Verify host reuse boundaries and steering contract           | 45m | w1/m9/t009               |
-| t002 | Introduce a session-owned reusable SDK host                  | 45m | w1/m10/t001              |
-| t003 | Preserve settings, MCP and permission isolation during reuse | 45m | w1/m10/t002              |
-| t004 | Implement negotiated serialized steering                     | 45m | w1/m10/t003              |
-| t005 | Verify steering races and host reuse end to end              | 45m | w1/m10/t004              |
-| t006 | Simplify milestone changes                                   | 30m | w1/m10/t005              |
-| t007 | CI and behavior coverage                                     | 45m | w1/m10/t005, w1/m10/t006 |
-| t008 | Close out the milestone                                      | 15m | w1/m10/t007              |
+| id   | title                                                                   | est | depends_on               |
+| ---- | ----------------------------------------------------------------------- | --- | ------------------------ |
+| t001 | Verify host reuse boundaries and steering contract — **DONE**           | 45m | w1/m8/t007               |
+| t002 | Introduce a session-owned reusable SDK host — **DONE**                  | 45m | w1/m10/t001              |
+| t003 | Preserve settings, MCP and permission isolation during reuse — **DONE** | 45m | w1/m10/t002              |
+| t004 | Implement negotiated serialized steering — **DONE**                     | 45m | w1/m10/t003              |
+| t005 | Verify steering races and host reuse end to end — **DONE**              | 45m | w1/m10/t004              |
+| t006 | Simplify milestone changes — **DONE**                                   | 30m | w1/m10/t005              |
+| t007 | CI and behavior coverage — **DONE**                                     | 45m | w1/m10/t005, w1/m10/t006 |
+| t008 | Close out the milestone — **DONE**                                      | 15m | w1/m10/t007              |
 
-Estimated total: 5h 15m across 8 tasks. Priority: P1 steering; supporting host lifecycle. Scheduled after w1/m9/t009; cross-milestone dependencies refer to logical task IDs even after archival.
+Estimated total: 5h 15m across 8 tasks. Priority: P1 steering; supporting host lifecycle. Scheduled after w1/m8/t007; cross-milestone dependencies refer to logical task IDs even after archival.
 
 ## Definition of done
 
@@ -45,4 +45,10 @@ Estimated total: 5h 15m across 8 tasks. Priority: P1 steering; supporting host l
 
 ## Validation evidence
 
-Pending implementation. The source comparison inspected code and installed SDK declarations; it did not establish real-host acceptance of the proposed features.
+User authorized skipping blocked m9 on 2026-09-12; m10 now depends on shipped m8. It does not require m9 compaction or observability and does not mark those delivered.
+
+Raw public SDK probe against Muse 1.1.1-R2514.1 with dummy loopback credentials verified accepted turn/steer into the exact active turn, correction consumed at the next tool/model boundary, completed turn and two consecutive turns with one host retaining context. An early probe during a final text-only response was admitted but had no later provider call; acceptance is not a guarantee of another model call or that output already streaming changes.
+
+Simplify completed with independent reuse, quality and efficiency reviews. Extracted shared host identity hashing with distinct discovery/execution error policies, replaced fixture rewriting with explicit scenarios, released closed-owner references, and bounded hosts to 32 successful turns and steering queues to 16 waiting requests. Deterministic tests cover configuration replacement, cross-session MCP isolation, exact targets, FIFO, startup/cancel/close/host death, malformed or rejected acknowledgements and completion before acknowledgement. Validation on 2026-09-12, macOS, Muse Code 1.1.1-R2514.1 and SDK 0.1.1: clean `npm ci` (zero vulnerabilities), `npm run check`, `npm run build`, full deterministic unit suite (245 tests), required `MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback` (14 tests, zero skips), and `npm run test:pack-smoke` all passed. The unit run includes the acknowledgement-deadline regression and all 8 owner tests. Loopback credentials were dummy and no paid provider ran. Real-host provider input verifies two corrections in order and context continuity across two turns with one execution-host spawn.
+
+Regression fixes preserve gap-fill item identity, close the previous writer before cross-client load, isolate test stores/executable fixtures, dispose retained test hosts and retire any host whose turn completes before a pending steering acknowledgement. No latency percentage or paid-provider acceptance is claimed. m9 remains blocked and open; m11 is next.

@@ -45,7 +45,7 @@ export function museMcpServers(mcpServers: McpServer[]): Record<string, unknown>
 
 /**
  * Muse 0.2.1 only reads MCP servers from $XDG_CONFIG_HOME/muse/settings.json.
- * Create a private, per-turn overlay so ACP-provided servers can be injected
+ * Create a private overlay owned by the execution host so ACP-provided servers can be injected
  * without changing the user's settings or leaking across concurrent sessions.
  * Existing XDG entries are symlinked into the overlay; only settings.json is a
  * temporary merged copy.

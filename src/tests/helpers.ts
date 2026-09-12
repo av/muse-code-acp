@@ -9,12 +9,20 @@ import {
   RequestPermissionResponse,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
+import { afterEach } from "vitest";
 import { chmodSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAgentConnection, Logger, MuseAcpAgent, MuseAgentOptions } from "../acp-agent.js";
 import { museCliPath } from "../muse-cli.js";
+
+const agents = new Set<MuseAcpAgent>();
+afterEach(async () => {
+  const owned = [...agents];
+  agents.clear();
+  await Promise.all(owned.map((agent) => agent.dispose()));
+});
 
 export const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -101,6 +109,7 @@ export function connectTestClient(
     .onConnect((conn) => resolveCtx(conn.agent));
 
   const { agent } = createAgentConnection(clientApp, logger, options);
+  agents.add(agent);
   return {
     updates,
     permissionRequests,

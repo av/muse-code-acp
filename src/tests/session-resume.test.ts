@@ -196,7 +196,12 @@ describe("session/resume", () => {
   );
 
   it("rejects unknown sessions and relative workspaces", async () => {
-    const testClient = fakeClient();
+    const storeRoot = mkdtempSync(join(tmpdir(), "muse-resume-empty-store-"));
+    const testClient = connectTestClient({
+      backend: "exec",
+      museBinary: fakeMuseBinary(),
+      env: { ...process.env, XDG_DATA_HOME: storeRoot },
+    });
     const ctx = await testClient.connect();
     await ctx.request(methods.agent.initialize, { protocolVersion: 1 });
 

@@ -60,7 +60,7 @@ import { Logger } from "./logger.js";
 import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery.js";
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
-import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession } from "./muse-sdk.js";
+import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from "./muse-sdk.js";
 import { readSessionEffort, writeSessionEffort } from "./session-preferences.js";
 import { createMuseMcpOverlay, MuseMcpOverlay } from "./mcp-overlay.js";
 import { readMuseSettings } from "./muse-settings.js";
@@ -69,6 +69,14 @@ import { convertPromptContent } from "./prompt-content.js";
 import { exportToUpdates, runMuseExport } from "./session-export.js";
 import { listStoredSessions } from "./session-store.js";
 import { listMuseSkills, skillsToCommands } from "./skills.js";
+import { sdkHostConfiguration } from "./host-configuration.js";
+import { SteeringQueue } from "./steering-queue.js";
+import {
+  parseSteeringRequest,
+  STEER_METHOD,
+  STEERING_CAPABILITY,
+  supportsSteering,
+} from "./steering-protocol.js";
 import { TurnTranslator } from "./translate.js";
 import { nodeToWebReadable, nodeToWebWritable, unreachable } from "./utils.js";
 
@@ -126,6 +134,8 @@ export interface SessionState {
   mcpServers: McpServer[];
   /** Live per-turn Muse configuration overlay, if this session uses MCP. */
   activeMcpOverlay: MuseMcpOverlay | null;
+  sdkHost?: { owner: MuseSdkHost; identity: string; overlay: MuseMcpOverlay };
+  steering?: SteeringQueue<MuseSdkHandle, { turnId: string; status: string }>;
 }
 
 /**
@@ -222,6 +232,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && supportsSteering(this.clientCapabilities)
+          ? { [STEERING_CAPABILITY]: { version: 1, method: STEER_METHOD } }
+          : {}),
         "bex.security/capabilities": {
           delegatedWorkers: false,
           usage: "unavailable",
@@ -384,6 +397,11 @@ export class MuseAcpAgent {
         `session ${params.sessionId} belongs to a different workspace`,
       );
 
+    await this.sessions.get(params.sessionId)?.sdkHost?.owner.close();
+    const previousSession = this.sessions.get(params.sessionId);
+    previousSession?.steering?.close();
+    if (previousSession) previousSession.steering = undefined;
+    this.assertRunning();
     const doc = await runMuseExport(params.sessionId, env, this.options.museBinary).catch((err) => {
       this.logger.error(`session load: export failed: ${err}`);
       throw RequestError.internalError(undefined, `could not export session history: ${err}`);
@@ -562,6 +580,35 @@ export class MuseAcpAgent {
     return {};
   }
 
+  async steer(
+    params: ReturnType<typeof parseSteeringRequest>,
+  ): Promise<{ turnId: string; status: string }> {
+    if (this.backend !== "sdk" || !supportsSteering(this.clientCapabilities))
+      throw RequestError.invalidRequest(
+        undefined,
+        "steering was not negotiated for the SDK backend",
+      );
+    const session = this.requireSession(params.sessionId);
+    const handle = session.activeTurn;
+    if (
+      !handle ||
+      !("steer" in handle) ||
+      handle.activeTurnId !== params.expectedTurnId ||
+      session.cancelRequested
+    )
+      throw RequestError.invalidRequest(undefined, "no matching active turn accepts steering");
+    session.steering ??= new SteeringQueue({
+      isCurrent: (target, id) =>
+        !this.disposed &&
+        this.sessions.get(params.sessionId) === session &&
+        !session.cancelRequested &&
+        session.activeTurn === target &&
+        target.activeTurnId === id,
+      dispatch: (target, id, input) => target.steer(input, id),
+    });
+    return session.steering.enqueue(handle, params.expectedTurnId, params.input);
+  }
+
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const session = this.requireSession(params.sessionId);
     if (session.turnFinished) {
@@ -583,15 +630,10 @@ export class MuseAcpAgent {
     let mcpOverlay: MuseMcpOverlay | null = null;
     try {
       const baseEnv = this.options.env ?? process.env;
-      mcpOverlay =
-        this.backend === "sdk" || session.mcpServers.length > 0
-          ? createMuseMcpOverlay(
-              session.mcpServers,
-              baseEnv,
-              this.backend === "sdk" ? session.config : undefined,
-            )
-          : null;
-      session.activeMcpOverlay = mcpOverlay;
+      if (this.backend === "exec" && session.mcpServers.length > 0) {
+        mcpOverlay = createMuseMcpOverlay(session.mcpServers, baseEnv);
+        session.activeMcpOverlay = mcpOverlay;
+      }
       if (this.backend === "sdk") {
         if (this.options.provider === "echo") {
           throw RequestError.invalidParams(
@@ -599,6 +641,38 @@ export class MuseAcpAgent {
             "The SDK backend requires a configured Muse provider; use the exec backend for echo",
           );
         }
+        const identity = sdkHostConfiguration(
+          session.cwd,
+          session.config,
+          session.modeId,
+          session.mcpServers,
+          baseEnv,
+          this.options.museBinary,
+        );
+        if (
+          session.sdkHost &&
+          (session.sdkHost.identity !== identity || !session.sdkHost.owner.reusable)
+        ) {
+          await session.sdkHost.owner.close();
+          session.sdkHost = undefined;
+        }
+        if (session.cancelRequested || this.disposed) return { stopReason: "cancelled" };
+        if (!session.sdkHost) {
+          const overlay = createMuseMcpOverlay(session.mcpServers, baseEnv, session.config);
+          const owner = new MuseSdkHost({
+            sessionId: session.museSessionId,
+            cwd: session.cwd,
+            model: session.config.model,
+            readOnly: session.modeId === "readOnly",
+            museBinary: this.options.museBinary,
+            env: overlay.env,
+            logger: this.logger,
+            checkHost: !this.options.skipSdkHostCheck,
+            onClose: () => overlay.cleanup(),
+          });
+          session.sdkHost = { owner, identity, overlay };
+        }
+        session.activeMcpOverlay = session.sdkHost.overlay;
         const handle = spawnMuseSdkTurn({
           sessionId: session.museSessionId,
           cwd: session.cwd,
@@ -607,7 +681,9 @@ export class MuseAcpAgent {
           reasoningEffort: session.config.reasoningEffort,
           readOnly: session.modeId === "readOnly",
           museBinary: this.options.museBinary,
-          env: mcpOverlay?.env ?? baseEnv,
+          env: session.sdkHost.overlay.env,
+          hostOwner: session.sdkHost.owner,
+          steering: supportsSteering(this.clientCapabilities),
           logger: this.logger,
           checkHost: this.options.skipSdkHostCheck ? false : undefined,
           acpClient: this.client,
@@ -621,6 +697,9 @@ export class MuseAcpAgent {
           }
           const response = await handle.done;
           return session.cancelRequested ? { stopReason: "cancelled" } : response;
+        } catch (error) {
+          await session.sdkHost?.owner.close();
+          throw error;
         } finally {
           handle.kill();
           await handle.done.catch(() => {});
@@ -745,10 +824,11 @@ export class MuseAcpAgent {
     this.sessions.delete(params.sessionId);
     session.cancelRequested = true;
     session.activeTurn?.kill();
+    session.steering?.close();
     const finished = Promise.withResolvers<void>();
     this.bindingSessions.set(params.sessionId, finished.promise);
     try {
-      await session.turnFinished;
+      await Promise.all([session.turnFinished, session.sdkHost?.owner.close()]);
     } finally {
       this.bindingSessions.delete(params.sessionId);
       finished.resolve();
@@ -779,9 +859,11 @@ export class MuseAcpAgent {
     for (const session of sessions) {
       session.cancelRequested = true;
       session.activeTurn?.kill();
+      session.steering?.close();
     }
     this.disposal = Promise.all([
       ...sessions.map((session) => session.turnFinished),
+      ...sessions.map((session) => session.sdkHost?.owner.close()),
       ...this.bindingSessions.values(),
       ...this.backgroundTasks,
       this.modelDiscovery.dispose(),
@@ -816,6 +898,7 @@ export function createAgentConnection(
     .onRequest(methods.agent.session.setConfigOption, (ctx) =>
       agent.setSessionConfigOption(ctx.params),
     )
+    .onRequest(STEER_METHOD, parseSteeringRequest, (ctx) => agent.steer(ctx.params))
     .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
     .onNotification(methods.agent.session.cancel, (ctx) => agent.cancel(ctx.params))
     .connect(target as Stream);

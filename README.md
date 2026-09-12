@@ -153,3 +153,9 @@ adapter session state. Native Muse history is retained for later loading.
 `session/resume` rebinds an existing or retained session without replaying its
 transcript. It refreshes MCP servers, preserves live settings, and restores saved
 SDK model/effort after close or restart. The original workspace is required.
+
+The SDK retains a session's host between compatible turns and expires it after
+60 seconds idle. Close the session before moving its native conversation to a
+second client. Clients may explicitly negotiate mid-turn steering; it targets
+an exact active turn and does not change ordinary busy-prompt behavior.
+See [host lifecycle and steering](docs/sdk-migration.md#session-owned-hosts-and-steering).

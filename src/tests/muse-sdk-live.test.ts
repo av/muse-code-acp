@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { museCliPath } from "../muse-cli.js";
-import { connectTestClient, initialized, museAvailable } from "./helpers.js";
+import { connectTestClient, initialized, museAvailable, capturingLogger } from "./helpers.js";
 
 const available = museAvailable() && spawnSync(museCliPath(), ["serve", "--help"]).status === 0;
 const requireMuse = process.env.MUSE_CODE_ACP_REQUIRE_MUSE === "1";
@@ -138,6 +138,8 @@ describe.skipIf(!available)("SDK live host (no external API)", () => {
         "sdk live replysdk live reply",
       );
 
+      // A retained host owns the native writer lease until close/idle expiry.
+      await ctx.request(methods.agent.session.close, { sessionId });
       const loaded = await initialized(second);
       const listing = await loaded.request(methods.agent.session.list, { cwd });
       expect(listing.sessions.some((s) => s.sessionId === sessionId)).toBe(true);
@@ -369,4 +371,114 @@ describe.skipIf(!available)("SDK discovered capabilities and embedded context", 
       await rm(provider.root, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+describe.skipIf(!available)("SDK retained host and steering", () => {
+  it("delivers ordered corrections to the provider and reuses a host across compatible turns", async () => {
+    const provider = await startLoopbackProvider({
+      scriptedToolCallWhen: ["m10-action"],
+      scriptedToolCallCommand: "printf m10-probe",
+      holdMs: 700,
+    });
+    const cwd = join(provider.root, "workspace");
+    mkdirSync(cwd);
+    const logs: string[] = [];
+    const client = connectTestClient(
+      {
+        backend: "sdk",
+        env: {
+          HOME: provider.home,
+          PATH: process.env.PATH,
+          XDG_CONFIG_HOME: join(provider.root, "config"),
+          XDG_DATA_HOME: join(provider.root, "data"),
+          TBH_CREDENTIAL_BACKEND: "file",
+          TBH_DISABLE_TELEMETRY: "1",
+        },
+      },
+      capturingLogger(logs),
+    );
+    client.setPermissionResponder((request) => ({
+      outcome: {
+        outcome: "selected",
+        optionId: request.options.find((o) => o.kind === "allow_once")!.optionId,
+      },
+    }));
+    try {
+      const ctx = await initialized(client, { _meta: { "muse/steering": 1 } });
+      const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+      const running = ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "m10-action" }],
+      });
+      await expect
+        .poll(
+          () => provider.requests().some((r) => JSON.stringify(r.input).includes("m10-action")),
+          { timeout: 10000 },
+        )
+        .toBe(true);
+      await expect
+        .poll(
+          () =>
+            client.agent.sessions.get(sessionId)?.activeTurn &&
+            "activeTurnId" in client.agent.sessions.get(sessionId)!.activeTurn!
+              ? (client.agent.sessions.get(sessionId)!.activeTurn as { activeTurnId?: string })
+                  .activeTurnId
+              : undefined,
+          { timeout: 10000 },
+        )
+        .toEqual(expect.any(String));
+      const expectedTurnId = client.updates
+        .map((n) => n.update._meta?.["muse/activeTurnId"])
+        .findLast((v) => typeof v === "string");
+      expect(expectedTurnId).toEqual(expect.any(String));
+      const results = await Promise.all(
+        ["m10-first-correction", "m10-second-correction"].map((text) =>
+          ctx.request("_muse/steer", {
+            sessionId,
+            expectedTurnId,
+            prompt: [{ type: "text", text }],
+          }),
+        ),
+      );
+      expect(results).toEqual([
+        { status: "accepted", turnId: expectedTurnId },
+        { status: "accepted", turnId: expectedTurnId },
+      ]);
+      expect(await running).toEqual({ stopReason: "end_turn" });
+      const correction = provider
+        .requests()
+        .map((r) => JSON.stringify(r.input))
+        .find(
+          (input) =>
+            input.includes("m10-first-correction") && input.includes("m10-second-correction"),
+        );
+      expect(correction).toBeDefined();
+      expect(correction!.indexOf("m10-first-correction")).toBeLessThan(
+        correction!.indexOf("m10-second-correction"),
+      );
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "m10-second-turn" }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      expect(
+        provider.requests().some((r) => {
+          const input = JSON.stringify(r.input);
+          return (
+            input.includes("m10-second-turn") &&
+            input.includes("m10-action") &&
+            input.includes("m10-second-correction")
+          );
+        }),
+      ).toBe(true);
+      expect(logs.filter((line) => line.startsWith("muse-sdk spawn:"))).toHaveLength(1);
+      await ctx.request(methods.agent.session.close, { sessionId });
+      expect(client.agent.sessions.size).toBe(0);
+    } finally {
+      await client.agent.dispose();
+      await provider.close();
+      await rm(provider.root, { recursive: true, force: true });
+    }
+  }, 90_000);
 });

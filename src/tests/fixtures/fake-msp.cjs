@@ -132,7 +132,7 @@ rl.on("line", async (line) => {
       if (barrier === "ack") {
         await sleep(60_000);
       }
-      const item = { itemId: "message", turnId, kind: "agentMessage", revision: 1, status: "inProgress", text: "" };
+      const item = { itemId: `message-${turnId}`, turnId, kind: "agentMessage", revision: 1, status: "inProgress", text: "" };
       notify("turn/started", { turnId, commandId: params.commandId, sourceRange: { start: 0, end: 0 } });
       notify("item/started", { item });
       notify("item/delta", { itemId: item.itemId, delta: "hello" });
@@ -234,7 +234,7 @@ rl.on("line", async (line) => {
       });
       if (pendingApprovals.size === 0 && mode !== "block") {
         notify("item/completed", {
-          item: { itemId: "message", turnId, kind: "agentMessage", revision: 2, status: "completed", text: "hello world" },
+          item: { itemId: `message-${turnId}`, turnId, kind: "agentMessage", revision: 2, status: "completed", text: "hello world" },
         });
         terminal("completed");
       }
@@ -259,7 +259,7 @@ rl.on("line", async (line) => {
         sourceRange: { start: 0, end: 0 },
       });
       notify("item/completed", {
-        item: { itemId: "message", turnId, kind: "agentMessage", revision: 2, status: "completed", text: "hello world" },
+        item: { itemId: `message-${turnId}`, turnId, kind: "agentMessage", revision: 2, status: "completed", text: "hello world" },
       });
       terminal("completed");
       break;
@@ -281,7 +281,7 @@ rl.on("line", async (line) => {
                 viewCursor: "v:filled",
                 sourceRange: { start: 0, end: 1 },
                 item: {
-                  itemId: "message",
+                  itemId: `message-${turnId}`,
                   turnId,
                   kind: "agentMessage",
                   revision: 2,
@@ -314,6 +314,26 @@ rl.on("line", async (line) => {
       reply({ events: [], nextCursor: null });
       break;
     }
+    case "turn/steer":
+      if (process.env.FAKE_MSP_STEER === "scripted" && params.input[0]?.text === "complete-without-ack") {
+        terminal("completed");
+      } else if (params.expectedTurnId !== turnId) {
+        write({ id, error: { code: -32030, message: "wrong steering target" } });
+      } else if (
+        process.env.FAKE_MSP_STEER === "hang" ||
+        (process.env.FAKE_MSP_STEER === "scripted" && params.input[0]?.text === "hang")
+      ) {
+        // Pending response is deliberately owned by the test's close/cancel.
+      } else if (process.env.FAKE_MSP_STEER === "scripted" && params.input[0]?.text === "bad-status") {
+        reply({ status: "future-status", commandId: params.commandId, turnId });
+      } else if (process.env.FAKE_MSP_STEER === "fail") {
+        write({ id, error: { code: -32030, message: "steering rejected" } });
+      } else {
+        if (process.env.FAKE_MSP_STEER === "delay") await sleep(100);
+        reply({ status: "accepted", commandId: params.commandId, turnId: params.expectedTurnId });
+        if (process.env.FAKE_MSP_STEER === "scripted") terminal("completed");
+      }
+      break;
     case "turn/cancel":
       reply({ status: "accepted", turnId });
       terminal("cancelled");

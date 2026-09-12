@@ -156,8 +156,7 @@ close or restart, the SDK model and saved effort are restored and mode defaults
 to `default`. Busy sessions and additional workspace directories are rejected.
 
 SDK image-only prompts are supported and verified against Muse 1.1.1 with the
-loopback provider. Legacy exec still requires accompanying text or a resource
-link. New, load and resume all retain canonical workspace directories. Disposal
+loopback provider. Legacy exec still requires accompanying text, a resource link or embedded text. New, load and resume all retain canonical workspace directories. Disposal
 rejects further session admission and waits for pending bindings, turn cleanup
 and command advertisement before returning.
 
@@ -215,3 +214,49 @@ Schema presence is a discovery lead, not delivery evidence. Later milestones mus
 verify their required host behavior before claiming support. Existing explicit
 exec fallback remains user-selected; an ambiguous SDK turn is never replayed
 through another backend.
+
+## Session-owned hosts and steering
+
+The SDK backend reuses one host for compatible turns of the same ACP session.
+An idle host expires after 60 seconds, and rotates after 32 successful turns to
+release its accumulated in-memory fold. Close/dispose, cancellation, host failure
+or an unsafe unfinished interaction closes it. Host ownership includes the native
+writer lease: close the old ACP session (or allow idle expiry) before another
+client takes over that native session. No host is pooled across ACP sessions.
+
+Compatibility includes canonical workspace, binary identity, environment,
+settings/auth content, model, effort, mode and MCP server configuration. Changes
+replace the host before the next turn. Private settings overlays remain available
+until their owning host closes, including while idle, then are deleted. Read-only
+flags are fixed at process creation. SDK permission/elicitation handlers are scoped
+to each turn; late replies cannot answer a later turn. Legacy exec keeps its
+existing per-turn lifecycle.
+
+Steering is an opt-in adapter extension. Clients initialize with
+`clientCapabilities._meta["muse/steering"] = 1`; the SDK adapter responds with
+`_meta["muse/steering"] = {"version":1,"method":"_muse/steer"}`. Unnegotiated
+clients and legacy exec retain the existing single-prompt-at-a-time behavior.
+
+After a turn is acknowledged, negotiated clients receive a `session_info_update`
+whose `_meta["muse/activeTurnId"]` is the exact native turn ID; a null value clears
+it on cleanup. Submit `_muse/steer` with `sessionId`, `expectedTurnId` and `prompt`
+(the same supported text/resource/image content as normal prompts). The response
+`{"status":"accepted","turnId":"…"}` reports admission, **not completion**.
+The original `session/prompt` still owns turn completion. There is no idle-session
+fallback to a new prompt, and a stale ID or startup-before-ack request is rejected.
+
+Corrections are serialized per session with the captured turn handle and ID.
+At most 16 corrections may wait behind an in-flight acknowledgement; excess
+requests are rejected so the queue cannot retain unbounded prompt input.
+Replacement, close or cancellation invalidates queued work. A failed correction
+is not retried as a new command or prompt; an acknowledgement timeout after ten
+seconds closes the host and reports an unknown outcome. Already streamed output
+cannot be changed. A turn finishing with an acknowledgement still pending closes
+its host before any reuse, so the old request cannot interrupt a subsequent turn.
+The host consumes corrections at a subsequent execution/model
+boundary, and a turn already returning its final answer may finish without a
+further provider call even if steering was admitted.
+
+Evidence on Muse 1.1.1-R2514.1: loopback provider input contained two ordered
+corrections during a tool turn, then a second compatible turn retained that history
+without another execution-host spawn. No paid provider calls were required.

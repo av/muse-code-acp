@@ -40,6 +40,7 @@ export interface WireOptions {
   env?: Record<string, string | undefined>;
   /** Split each client→agent write in half to exercise NDJSON buffering. */
   fragmentWrites?: boolean;
+  clientCapabilities?: Record<string, unknown>;
 }
 
 /**
@@ -121,7 +122,7 @@ export async function createWireFixture(options: WireOptions = {}): Promise<Wire
 
   await ctx.request(methods.agent.initialize, {
     protocolVersion: PROTOCOL_VERSION,
-    clientCapabilities: { auth: { terminal: true } },
+    clientCapabilities: options.clientCapabilities ?? { auth: { terminal: true } },
   });
 
   let disposed = false;

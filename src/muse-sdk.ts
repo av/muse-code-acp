@@ -6,14 +6,10 @@ import {
 } from "@agentclientprotocol/sdk";
 import {
   Connection,
-  MuseClient,
-  MspError,
   spawnMspConnection,
-  readSessionDurability,
   isLaunchFailure,
   type TurnOutcome,
   type FoldedItem,
-  type Session,
 } from "@muse-code/sdk";
 import packageJson from "../package.json" with { type: "json" };
 import { realpathSync } from "node:fs";
@@ -36,6 +32,8 @@ import {
   UserInputLifecycle,
   userInputToElicitation,
 } from "./muse-user-input.js";
+import { MuseSdkHost } from "./muse-sdk-host.js";
+export { MuseSdkHost } from "./muse-sdk-host.js";
 import { Pushable } from "./utils.js";
 
 export interface MuseSdkOptions {
@@ -55,12 +53,20 @@ export interface MuseSdkOptions {
   clientCapabilities?: ClientCapabilities;
   /** Read cancelRequested from the ACP session while the turn runs. */
   isCancelled?: () => boolean;
+  hostOwner?: MuseSdkHost;
+  /** Negotiated active-turn metadata for the namespaced steering request. */
+  steering?: boolean;
 }
 
 export interface MuseSdkHandle {
   updates: AsyncIterable<SessionNotification>;
   done: Promise<PromptResponse>;
   kill(): void;
+  readonly activeTurnId: string | undefined;
+  steer(
+    input: MuseInputPart[],
+    expectedTurnId: string,
+  ): Promise<{ turnId: string; status: string }>;
 }
 
 /** Read authoritative saved metadata without acquiring a writer lease. */
@@ -135,18 +141,21 @@ export function sdkReasoningEffort(effort: string | undefined): MuseReasoningEff
  * updates and maps terminals/errors to PromptResponse / RequestError.
  */
 export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
-  if (options.checkHost !== false) {
-    assertSdkHostSupport(options.env, options.museBinary);
-  }
   const updates = new Pushable<SessionNotification>();
   const translator = new MuseSdkTranslator(options.sessionId, options.logger);
   const permissions = new PermissionLifecycle();
+  const approvalIds = new Set<string>();
   const userInputs = new UserInputLifecycle();
-  const args = ["serve", ...(options.readOnly ? ["--disable-write", "--disable-shell"] : [])];
-  const binary = options.museBinary ?? museCliPath(options.env);
-  options.logger.log(`muse-sdk spawn: ${binary} ${args.join(" ")}`);
-
-  let client: MuseClient | undefined;
+  const owner = options.hostOwner ?? new MuseSdkHost(options);
+  if (!owner.reusable)
+    throw RequestError.invalidRequest(
+      undefined,
+      "Muse SDK host is closed or already serving a turn",
+    );
+  let successful = false;
+  let acquired = false;
+  let acceptedTurn = false;
+  let pendingSteers = 0;
   let connection: Connection | undefined;
   let turnId: string | undefined;
   let generation = 0;
@@ -164,23 +173,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   });
   void turnFailure.catch(() => {});
 
-  const handshake = spawnMspConnection({
-    command: binary,
-    args,
-    cwd: options.cwd,
-    env: options.env as Record<string, string>,
-    shutdownTimeoutMs: 1_000,
-    onStderr: (chunk) => options.logger.log(`muse-sdk stderr: ${chunk.trimEnd()}`),
-  });
-
   const close = async () => {
     permissions.disposeAll();
     userInputs.disposeAll();
-    if (client) {
-      await client.close().catch(() => {});
-      return;
-    }
-    await handshake.close().catch(() => {});
+    await owner.close();
   };
 
   const startupTimer = setTimeout(() => {
@@ -210,94 +206,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
 
   const done = (async (): Promise<PromptResponse> => {
     try {
-      const host = await handshake.initialize({
-        clientInfo: { name: "muse_code_acp", version: packageJson.version },
-      });
-      if (host.fingerprintWarning) {
-        options.logger.log(`muse-sdk: ${host.fingerprintWarning.message}`);
-      }
-      connection = host.connection;
-      client = new MuseClient(host.connection, {
-        durability: readSessionDurability(host.initializeResult),
-        host,
-      });
-
-      void host.child.exit.then((exit) => {
-        if (finished || cancelled) {
-          return;
-        }
-        if (exit.kind === "sdkSurfaceUnavailable") {
-          failTurn(
-            new Error(
-              sdkHostExitMessage(exit.stderrTail.join("\n")) ??
-                "the experimental SDK tier is disabled",
-            ),
-          );
-          return;
-        }
-        if (exit.kind !== "cleanShutdown") {
-          failTurn(new Error(`Muse SDK host exited abnormally (${exit.kind})`));
-        }
-      });
-
-      let session: Session;
-      let startedFresh = false;
-      try {
-        session = await client.resumeSession({
-          sessionId: options.sessionId,
-          excludeItems: true,
-        });
-      } catch (error) {
-        if (!(error instanceof MspError) || error.code !== -32020) {
-          throw error;
-        }
-        session = await client.startSession({
-          sessionId: options.sessionId,
-          workspaceRoot: options.cwd,
-          modelId: options.model,
-          // Force client gating for unmatched/protected tools over ACP.
-          approvalMode: "onRequest",
-        });
-        startedFresh = true;
-      }
-
-      // Resume path must still select onRequest; fresh start already did.
-      if (!startedFresh) {
-        await connection.command("session/setApprovalMode", {
-          sessionId: options.sessionId,
-          mode: "onRequest",
-        });
-      }
-
-      const opening = session.opening;
-      const openedSession =
-        opening?.verb === "session/resume"
-          ? opening.result.session
-          : opening?.verb === "session/start"
-            ? opening.result.session
-            : undefined;
-      if (!openedSession || openedSession.sessionId !== options.sessionId) {
-        throw new Error("Muse SDK returned a different session ID");
-      }
-      if (
-        openedSession.workspaceRoot &&
-        realpathSync(openedSession.workspaceRoot) !== realpathSync(options.cwd)
-      ) {
-        throw new Error("Muse SDK cannot switch a saved session to a different workspace");
-      }
-      const pending =
-        opening?.verb === "session/resume" ? (opening.result.pendingRequests ?? []) : [];
-      if (openedSession.activeTurnId || pending.length > 0) {
-        throw new Error(
-          "The saved Muse session has an unfinished turn or pending input; resolve it in Muse before continuing",
-        );
-      }
-      if (openedSession.modelId !== options.model) {
-        await connection.command("session/setModel", {
-          sessionId: options.sessionId,
-          model: { modelId: options.model },
-        });
-      }
+      const lease = await owner.acquire(options, failTurn);
+      acquired = true;
+      connection = lease.host.connection;
+      const session = lease.session;
 
       const adoptTurn = (nextTurnId: string) => {
         if (turnId === nextTurnId && generation > 0) {
@@ -319,6 +231,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         }
         adoptTurn(approval.turnId);
         const approvalGeneration = generation;
+        approvalIds.add(approval.approvalId);
         if (
           !permissions.track(
             approval.approvalId,
@@ -351,7 +264,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         }
       });
       session.onApprovalError((failure) => {
-        if (cancelled || options.isCancelled?.()) {
+        if (!approvalIds.has(failure.approvalId) || cancelled || options.isCancelled?.()) {
           return;
         }
         failTurn(
@@ -384,6 +297,15 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           : {}),
       });
       adoptTurn(turn.turnId);
+      acceptedTurn = true;
+      if (options.steering)
+        updates.push({
+          sessionId: options.sessionId,
+          update: {
+            sessionUpdate: "session_info_update",
+            _meta: { "muse/activeTurnId": turn.turnId },
+          },
+        });
       clearTimeout(startupTimer);
 
       const emitItem = (item: FoldedItem) => {
@@ -551,7 +473,9 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       ]);
       // Flush any items that arrived only through gap fill after the last yield.
       flushFold();
-      return terminalResponse(outcome);
+      const response = terminalResponse(outcome);
+      successful = response.stopReason === "end_turn";
+      return response;
     } catch (error) {
       if (cancelled || options.isCancelled?.()) {
         return { stopReason: "cancelled" };
@@ -559,7 +483,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       if (error instanceof RequestError) {
         throw error;
       }
-      const stderr = handshake.child.stderrTail.join("\n").trim();
+      const stderr = owner.stderr;
       const mapped = sdkHostExitMessage(stderr);
       throw RequestError.internalError(
         undefined,
@@ -575,12 +499,86 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         permissions.disposeTurn(turnId);
         userInputs.disposeTurn(turnId);
       }
-      await close();
+      permissions.disposeAll();
+      userInputs.disposeAll();
+      if (acquired)
+        await owner.release(!!options.hostOwner && successful && !cancelled && pendingSteers === 0);
+      else await owner.close();
+      if (options.steering)
+        updates.push({
+          sessionId: options.sessionId,
+          update: { sessionUpdate: "session_info_update", _meta: { "muse/activeTurnId": null } },
+        });
       updates.end();
     }
   })();
   void done.catch(() => {});
-  return { updates, done, kill };
+  return {
+    updates,
+    done,
+    kill,
+    get activeTurnId() {
+      return acceptedTurn && !finished && !settled && !cancelled ? turnId : undefined;
+    },
+    async steer(input, expectedTurnId) {
+      if (
+        !acceptedTurn ||
+        !turnId ||
+        expectedTurnId !== turnId ||
+        !connection ||
+        finished ||
+        settled ||
+        cancelled ||
+        owner.closed
+      ) {
+        throw RequestError.invalidRequest(
+          undefined,
+          "No matching active Muse turn accepts steering",
+        );
+      }
+      let steerTimer: ReturnType<typeof setTimeout> | undefined;
+      pendingSteers++;
+      try {
+        const deadline = new Promise<never>((_, reject) => {
+          steerTimer = setTimeout(() => {
+            const error = new Error("Muse steering acknowledgement timed out; outcome is unknown");
+            reject(error);
+            failTurn(error);
+            void owner.close();
+          }, 10_000);
+        });
+        const result = await Promise.race([
+          deadline,
+          connection.command(
+            "turn/steer",
+            {
+              sessionId: options.sessionId,
+              expectedTurnId,
+              input,
+              ...(sdkReasoningEffort(options.reasoningEffort)
+                ? { reasoningEffort: sdkReasoningEffort(options.reasoningEffort)! }
+                : {}),
+            },
+            { maxAttempts: 1 },
+          ),
+        ]);
+        if (result.status !== "accepted")
+          throw RequestError.internalError(
+            undefined,
+            "Muse returned malformed steering acknowledgement",
+          );
+        if (result.turnId !== expectedTurnId)
+          throw RequestError.internalError(
+            undefined,
+            "Muse acknowledged steering for a different turn",
+          );
+        return { turnId: result.turnId, status: result.status };
+      } finally {
+        pendingSteers--;
+        clearTimeout(steerTimer);
+      }
+    },
+  };
 }
 
 function terminalResponse(outcome: TurnOutcome): PromptResponse {
