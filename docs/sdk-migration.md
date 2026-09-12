@@ -38,7 +38,7 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 | Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite              |
 | Form elicitation (SDK user input)     | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                     |
 | fs / terminal RPC                     | **no**                                         | omitted client caps never invoked                            |
-| Session fork/delete/close             | **no**                                         | unadvertised                                                 |
+| Session fork/delete                   | **no**                                         | unadvertised                                                 |
 
 ## Public SDK API map
 
@@ -142,3 +142,7 @@ Prompt images are advertised and sent as ordered MSP `image` parts with
 `mediaType` and `base64Data`. PNG, JPEG, GIF, and WebP are accepted; malformed
 base64 is rejected before a turn starts. Legacy exec stages private temporary
 files and requires text or a resource link alongside images.
+
+`session/close` is advertised on both backends. It revokes new prompt admission,
+cancels active work, and waits for host and temporary-file cleanup. Closing does
+not delete native Muse history. Binding a session and prompting it are serialized.

@@ -138,3 +138,6 @@ Prompt images (PNG, JPEG, GIF, WebP) are supported: the SDK receives inline imag
 parts; legacy exec uses private per-turn files removed during cleanup. Exec
 requires accompanying text or a resource link. Audio and embedded resources
 remain unsupported.
+
+`session/close` cancels active work, waits for per-turn cleanup, and releases
+adapter session state. Native Muse history is retained for later loading.

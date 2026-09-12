@@ -90,6 +90,27 @@ describe("SDK backend over ACP", () => {
     expect(client.agent.sessions.get(sessionId)?.activeTurn).toBeNull();
   });
 
+  it("closes a blocked SDK turn and waits for complete cleanup", async () => {
+    const client = sdkClient("block");
+    const { ctx, sessionId } = await newTestSession(client);
+    const session = client.agent.sessions.get(sessionId)!;
+    const prompt = ctx.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: [{ type: "text", text: "block" }],
+    });
+    await expect
+      .poll(() => client.updates.some((n) => n.update.sessionUpdate === "agent_message_chunk"))
+      .toBe(true);
+    const overlay = session.activeMcpOverlay!.configHome;
+    const close = ctx.request(methods.agent.session.close, { sessionId });
+    await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
+    await expect(close).resolves.toEqual({});
+    expect(client.agent.sessions.has(sessionId)).toBe(false);
+    expect(session.turnFinished).toBeNull();
+    expect(existsSync(overlay)).toBe(false);
+    expect(client.requests().some((r) => r.method === "turn/cancel")).toBe(true);
+  });
+
   it("cancels through turn/cancel and settles the ACP prompt", async () => {
     const client = sdkClient("block");
     const { ctx, sessionId } = await newTestSession(client);

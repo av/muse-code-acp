@@ -4,6 +4,8 @@ import {
   AuthenticateRequest,
   AuthenticateResponse,
   CancelNotification,
+  CloseSessionRequest,
+  CloseSessionResponse,
   ClientApp,
   ClientCapabilities,
   CreateElicitationRequest,
@@ -139,6 +141,7 @@ export interface MuseAgentOptions {
 
 export class MuseAcpAgent {
   readonly sessions = new Map<string, SessionState>();
+  private readonly bindingSessions = new Set<string>();
   readonly backend: "exec" | "sdk";
   /** Client capabilities from initialize; omitted keys are unsupported. */
   clientCapabilities: ClientCapabilities = {};
@@ -180,7 +183,7 @@ export class MuseAcpAgent {
         promptCapabilities: { image: true },
         mcpCapabilities: {},
         loadSession: true,
-        sessionCapabilities: { list: {} },
+        sessionCapabilities: { list: {}, close: {} },
         auth: { logout: {} },
       },
       authMethods,
@@ -295,6 +298,25 @@ export class MuseAcpAgent {
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+    return this.withSessionBinding(params.sessionId, () => this.loadSessionState(params));
+  }
+
+  private async withSessionBinding<T>(sessionId: string, bind: () => Promise<T>): Promise<T> {
+    if (this.bindingSessions.has(sessionId) || this.sessions.get(sessionId)?.turnFinished) {
+      throw RequestError.invalidRequest(
+        undefined,
+        "session has a prompt turn or binding operation in progress",
+      );
+    }
+    this.bindingSessions.add(sessionId);
+    try {
+      return await bind();
+    } finally {
+      this.bindingSessions.delete(sessionId);
+    }
+  }
+
+  private async loadSessionState(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     if (this.sessions.get(params.sessionId)?.activeTurn) {
       throw RequestError.invalidRequest(
         undefined,
@@ -594,26 +616,38 @@ export class MuseAcpAgent {
     session.activeTurn?.kill();
   }
 
+  async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
+    const session = this.requireSession(params.sessionId);
+    this.sessions.delete(params.sessionId);
+    session.cancelRequested = true;
+    session.activeTurn?.kill();
+    this.bindingSessions.add(params.sessionId);
+    try {
+      await session.turnFinished;
+    } finally {
+      this.bindingSessions.delete(params.sessionId);
+    }
+    return {};
+  }
+
   requireSession(sessionId: string): SessionState {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw RequestError.invalidParams(undefined, `unknown session: ${sessionId}`);
     }
+    if (this.bindingSessions.has(sessionId))
+      throw RequestError.invalidRequest(undefined, "session binding operation in progress");
     return session;
   }
 
   async dispose(): Promise<void> {
-    const activeTurns = [...this.sessions.values()].flatMap((session) =>
-      session.activeTurn ? [session.activeTurn] : [],
-    );
-    for (const turn of activeTurns) {
-      turn.kill();
+    const sessions = [...this.sessions.values()];
+    this.sessions.clear();
+    for (const session of sessions) {
+      session.cancelRequested = true;
+      session.activeTurn?.kill();
     }
-    await Promise.all(activeTurns.map((turn) => turn.done.catch(() => {})));
-    for (const session of this.sessions.values()) {
-      session.activeMcpOverlay?.cleanup();
-      session.activeMcpOverlay = null;
-    }
+    await Promise.all(sessions.map((session) => session.turnFinished));
   }
 }
 
@@ -636,6 +670,7 @@ export function createAgentConnection(
     .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
     .onRequest(methods.agent.session.new, (ctx) => agent.newSession(ctx.params))
     .onRequest(methods.agent.session.list, (ctx) => agent.listSessions(ctx.params))
+    .onRequest(methods.agent.session.close, (ctx) => agent.closeSession(ctx.params))
     .onRequest(methods.agent.session.load, (ctx) => agent.loadSession(ctx.params))
     .onRequest(methods.agent.session.setMode, (ctx) => agent.setSessionMode(ctx.params))
     .onRequest(methods.agent.session.setConfigOption, (ctx) =>
