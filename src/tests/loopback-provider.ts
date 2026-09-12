@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const FAKE_MODEL_ID = "fake-model";
+export const ALTERNATE_MODEL_ID = "fake-model-alternate";
 const DUMMY_API_KEY = "test-dummy-key";
 
 export interface LoopbackProviderOptions {
@@ -25,6 +26,7 @@ export interface LoopbackProvider {
   baseUrl: string;
   catalogGets(): number;
   scriptedToolCalls(): number;
+  requests(): Record<string, unknown>[];
   close(): Promise<void>;
 }
 
@@ -35,19 +37,17 @@ function sse(value: unknown): string {
 function catalogBody(): string {
   return JSON.stringify({
     object: "list",
-    data: [
-      {
-        id: FAKE_MODEL_ID,
-        object: "model",
-        metadata: {
-          "muse-code": {
-            release_date: "2026-01-01",
-            is_hidden: false,
-            limit: { context: 1_000_000, output: 1024 },
-          },
+    data: [FAKE_MODEL_ID, ALTERNATE_MODEL_ID].map((id) => ({
+      id,
+      object: "model",
+      metadata: {
+        "muse-code": {
+          release_date: "2026-01-01",
+          is_hidden: false,
+          limit: { context: 1_000_000, output: 1024 },
         },
       },
-    ],
+    })),
   });
 }
 
@@ -112,6 +112,7 @@ export async function startLoopbackProvider(
   const holdMs = options.holdMs ?? 2_000;
   let catalogGets = 0;
   let scriptedToolCalls = 0;
+  const requests: Record<string, unknown>[] = [];
   const holds = new Set<ReturnType<typeof setTimeout>>();
   const catalog = catalogBody();
 
@@ -130,6 +131,7 @@ export async function startLoopbackProvider(
         response.writeHead(404).end();
         return;
       }
+      requests.push(JSON.parse(body));
 
       const isScripted =
         scriptedToolCalls === 0 &&
@@ -194,6 +196,7 @@ export async function startLoopbackProvider(
     baseUrl,
     catalogGets: () => catalogGets,
     scriptedToolCalls: () => scriptedToolCalls,
+    requests: () => requests,
     close: async () => {
       for (const hold of holds) {
         clearTimeout(hold);

@@ -108,7 +108,7 @@ Requires Muse ≥ 0.2.1 for `exec`; the default SDK path requires ≥ 1.1.1 with
 ```sh
 npm run test:unit              # deterministic contracts (no Muse host required)
 npm run test:muse-loopback     # real muse serve + loopback provider (required in CI)
-npm run test:pack-smoke        # npm pack → clean install → stdio initialize
+npm run test:pack-smoke        # clean tarball install → ACP prompt + streamed response
 npm run test:run               # full local vitest run after build
 ```
 

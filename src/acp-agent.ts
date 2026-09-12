@@ -55,7 +55,8 @@ import {
 import { Logger } from "./logger.js";
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
-import { MuseSdkHandle, spawnMuseSdkTurn } from "./muse-sdk.js";
+import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession } from "./muse-sdk.js";
+import { readSessionEffort, writeSessionEffort } from "./session-preferences.js";
 import { createMuseMcpOverlay, MuseMcpOverlay } from "./mcp-overlay.js";
 import { readMuseSettings } from "./muse-settings.js";
 import { convertPromptContent } from "./prompt-content.js";
@@ -233,6 +234,7 @@ export class MuseAcpAgent {
     const sessionId = this.backend === "sdk" ? createUuidV7Mint()() : randomUUID();
     const config = defaultSessionConfig(
       readMuseSettings(this.options.env ?? process.env, this.logger),
+      this.backend,
     );
     this.sessions.set(sessionId, {
       cwd: params.cwd,
@@ -248,7 +250,7 @@ export class MuseAcpAgent {
     return {
       sessionId,
       modes: this.sessionModes("default"),
-      configOptions: buildConfigOptions(config),
+      configOptions: buildConfigOptions(config, this.backend),
     };
   }
 
@@ -291,6 +293,12 @@ export class MuseAcpAgent {
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+    if (this.sessions.get(params.sessionId)?.activeTurn) {
+      throw RequestError.invalidRequest(
+        undefined,
+        "Cannot load a session while a prompt is active",
+      );
+    }
     const env = this.options.env ?? process.env;
     const stored = listStoredSessions(null, env, this.logger).find(
       (session) => session.sessionId === params.sessionId,
@@ -333,7 +341,19 @@ export class MuseAcpAgent {
       throw RequestError.internalError(undefined, `could not export session history: ${err}`);
     });
 
-    const config = defaultSessionConfig(readMuseSettings(env, this.logger));
+    const config = defaultSessionConfig(readMuseSettings(env, this.logger), this.backend);
+    if (this.backend === "sdk") {
+      const saved = await readMuseSdkSession({
+        sessionId: params.sessionId,
+        cwd: params.cwd,
+        env,
+        museBinary: this.options.museBinary,
+        logger: this.logger,
+        checkHost: !this.options.skipSdkHostCheck,
+      });
+      config.model = saved.modelId ?? config.model;
+      config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
+    }
     this.sessions.set(params.sessionId, {
       cwd: params.cwd,
       museSessionId: params.sessionId,
@@ -357,7 +377,7 @@ export class MuseAcpAgent {
     this.advertiseCommands(params.sessionId, params.cwd);
     return {
       modes: this.sessionModes("default"),
-      configOptions: buildConfigOptions(config),
+      configOptions: buildConfigOptions(config, this.backend),
     };
   }
 
@@ -365,8 +385,17 @@ export class MuseAcpAgent {
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
     const session = this.requireSession(params.sessionId);
-    session.config = applyConfigSelection(session.config, params.configId, params.value);
-    return { configOptions: buildConfigOptions(session.config) };
+    const config = applyConfigSelection(
+      session.config,
+      params.configId,
+      params.value,
+      this.backend,
+    );
+    if (this.backend === "sdk" && params.configId === "reasoningEffort") {
+      writeSessionEffort(params.sessionId, config.reasoningEffort, this.options.env ?? process.env);
+    }
+    session.config = config;
+    return { configOptions: buildConfigOptions(session.config, this.backend) };
   }
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
@@ -401,7 +430,13 @@ export class MuseAcpAgent {
     session.cancelRequested = false;
     const baseEnv = this.options.env ?? process.env;
     const mcpOverlay =
-      session.mcpServers.length > 0 ? createMuseMcpOverlay(session.mcpServers, baseEnv) : null;
+      this.backend === "sdk" || session.mcpServers.length > 0
+        ? createMuseMcpOverlay(
+            session.mcpServers,
+            baseEnv,
+            this.backend === "sdk" ? session.config : undefined,
+          )
+        : null;
     session.activeMcpOverlay = mcpOverlay;
     try {
       if (this.backend === "sdk") {

@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultSessionConfig } from "../config-options.js";
+import { readSessionEffort } from "../session-preferences.js";
 import { readMuseSettings } from "../muse-settings.js";
 import {
   capturingLogger,
@@ -61,6 +62,38 @@ describe("defaultSessionConfig", () => {
 });
 
 describe("session config options over ACP", () => {
+  it("advertises effective SDK efforts and persists explicit selections across clients", async () => {
+    const env = {
+      ...settingsEnv(JSON.stringify({ reasoning_effort: "ultra" })),
+      XDG_DATA_HOME: mkdtempSync(join(tmpdir(), "muse-config-data-")),
+    };
+    const testClient = connectTestClient({ backend: "sdk", museBinary: fakeMuseBinary(), env });
+    const ctx = await initialized(testClient);
+    const { sessionId, configOptions } = await ctx.request(methods.agent.session.new, {
+      cwd: mkdtempSync(join(tmpdir(), "muse-config-cwd-")),
+      mcpServers: [],
+    });
+    expect(configOptions?.find((o) => o.id === "reasoningEffort")).toMatchObject({
+      currentValue: "high",
+      options: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+    });
+    await expect(
+      ctx.request(methods.agent.session.setConfigOption, {
+        sessionId,
+        configId: "reasoningEffort",
+        value: "ultra",
+      }),
+    ).rejects.toMatchObject({ code: -32602 });
+    await ctx.request(methods.agent.session.setConfigOption, {
+      sessionId,
+      configId: "reasoningEffort",
+      value: "medium",
+    });
+    expect(readSessionEffort(sessionId, env)).toBe("medium");
+    expect(readSessionEffort("unrelated-session", env)).toBeUndefined();
+    expect(testClient.agent.sessions.get(sessionId)?.config.reasoningEffort).toBe("medium");
+    await testClient.agent.dispose();
+  });
   it("advertises options from settings defaults and injects unknown models", async () => {
     const env = settingsEnv(
       JSON.stringify({ schema_version: 1, model: "muse-spark-9.9-beta", reasoning_effort: "low" }),

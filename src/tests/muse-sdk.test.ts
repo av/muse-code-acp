@@ -1,7 +1,7 @@
 import { methods } from "@agentclientprotocol/sdk";
 import { chmodSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MuseSdkTranslator } from "../muse-sdk-events.js";
 import { connectTestClient, fixturesDir, newTestSession, silentLogger } from "./helpers.js";
@@ -14,7 +14,12 @@ function sdkClient(mode = "complete") {
     backend: "sdk",
     museBinary: binary,
     skipSdkHostCheck: true,
-    env: { ...process.env, FAKE_MSP_MODE: mode, FAKE_MSP_CAPTURE: capture },
+    env: {
+      ...process.env,
+      FAKE_MSP_MODE: mode,
+      FAKE_MSP_CAPTURE: capture,
+      XDG_DATA_HOME: join(dirname(capture), "data"),
+    },
   });
   return {
     ...testClient,

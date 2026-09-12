@@ -12,7 +12,7 @@ import { museCliPath } from "../muse-cli.js";
 import { agentEntrypoint } from "./acp-wire-helpers.js";
 import { spawnAcpAgent } from "./acp-real-host-helpers.js";
 import { connectTestClient, initialized, museAvailable } from "./helpers.js";
-import { startLoopbackProvider } from "./loopback-provider.js";
+import { ALTERNATE_MODEL_ID, startLoopbackProvider } from "./loopback-provider.js";
 
 const serveHelp =
   museAvailable() && spawnSync(museCliPath(), ["serve", "--help"], { encoding: "utf8" });
@@ -58,6 +58,16 @@ describe("ACP process restart continuity (real Muse host)", () => {
         });
         sessionId = created.sessionId;
         expect(sessionId.split("-")[2][0]).toBe("7");
+        await agent1.ctx.request(methods.agent.session.setConfigOption, {
+          sessionId,
+          configId: "model",
+          value: ALTERNATE_MODEL_ID,
+        });
+        await agent1.ctx.request(methods.agent.session.setConfigOption, {
+          sessionId,
+          configId: "reasoningEffort",
+          value: "medium",
+        });
         await expect(
           agent1.ctx.request(methods.agent.session.prompt, {
             sessionId,
@@ -70,6 +80,12 @@ describe("ACP process restart continuity (real Muse host)", () => {
           .map((u) => (u.content.type === "text" ? u.content.text : ""))
           .join("");
         expect(text1).toContain("restart-live-reply");
+        expect(
+          provider
+            .requests()
+            .filter((r) => JSON.stringify(r.input).includes("restart-token-one"))
+            .map((r) => r.model),
+        ).toContain(ALTERNATE_MODEL_ID);
       } finally {
         await agent1.dispose();
       }
@@ -78,11 +94,17 @@ describe("ACP process restart continuity (real Muse host)", () => {
       try {
         const listing = await agent2.ctx.request(methods.agent.session.list, { cwd });
         expect(listing.sessions.some((s) => s.sessionId === sessionId)).toBe(true);
-        await agent2.ctx.request(methods.agent.session.load, {
+        const loaded = await agent2.ctx.request(methods.agent.session.load, {
           sessionId,
           cwd,
           mcpServers: [],
         });
+        expect(loaded.configOptions?.find((o) => o.id === "model")?.currentValue).toBe(
+          ALTERNATE_MODEL_ID,
+        );
+        expect(loaded.configOptions?.find((o) => o.id === "reasoningEffort")?.currentValue).toBe(
+          "medium",
+        );
         expect(JSON.stringify(agent2.updates)).toContain("restart-token-one");
         await expect(
           agent2.ctx.request(methods.agent.session.prompt, {
@@ -96,6 +118,13 @@ describe("ACP process restart continuity (real Muse host)", () => {
           .map((u) => (u.content.type === "text" ? u.content.text : ""))
           .join("");
         expect(text2).toContain("restart-live-reply");
+        const continued = provider
+          .requests()
+          .findLast((r) => JSON.stringify(r.input).includes("restart-token-two"))!;
+        expect(continued.model).toBe(ALTERNATE_MODEL_ID);
+        expect(JSON.stringify(continued.input)).toContain("restart-token-one");
+        expect(JSON.stringify(continued.input)).toContain("restart-live-reply");
+        expect(JSON.stringify(continued.input)).toContain("restart-token-two");
       } finally {
         await agent2.dispose();
       }

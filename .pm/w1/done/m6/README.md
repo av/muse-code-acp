@@ -46,7 +46,6 @@
 - The minimal cutover retains one Muse serve host per turn and an explicit exec compatibility option. Host pooling, removal of every CLI helper, optional client filesystem/terminal delegation, remote MCP transports, and Codex/AIR extensions are deferred.
 - Full protocol claims are scoped to the selected ACP major, mandatory methods/content, and actually advertised optional features. Unsupported capabilities stay absent; a terminal-looking tool update does not claim client terminal RPC support.
 
-
 ## Validation evidence (t010)
 
 - Host: Muse Code 1.1.1; SDK `@muse-code/sdk` 0.1.1; ACP SDK 1.3.0

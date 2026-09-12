@@ -87,6 +87,25 @@ No URI is fetched during conversion. The same text is used for the legacy
 
 ## Modes
 
+SDK reasoning-effort choices are `low`, `medium`, and `high`, matching MSP.
+Legacy settings aliases are normalized before advertisement (`none`/`minimal`
+to `low`, `xhigh`/`ultra` to `high`); unsupported SDK selections are rejected.
+An explicit ACP effort selection is saved in adapter-owned
+`$XDG_DATA_HOME/muse-code-acp/sessions/` (or `~/.local/share/muse-code-acp/sessions/`).
+Loading reads the authoritative model through MSP `session/read` and restores
+that effort selection; sessions without one use the current settings default.
+Mode resets to `default` on load; Muse session logs and global settings are not
+modified by the adapter preference store.
+
+Muse 1.1.1 initializes its execution provider from settings even when MSP
+selects a different session model. SDK turns therefore put the selected model
+and effort into the same private settings overlay used for MCP, in addition to
+the MSP selection. The overlay is removed at turn end; user settings stay intact.
+
+Form elicitation supports single selections, bounded multiple selections, and
+free text up to 500 characters. Invalid responses fail the turn and cancel the
+input request. Cancelling a turn never waits for a still-open client dialog.
+
 | Mode              | SDK | Exec | Notes                                           |
 | ----------------- | --- | ---- | ----------------------------------------------- |
 | `default`         | yes | yes  | SDK: ACP permission gating (`onRequest`)        |
@@ -96,13 +115,20 @@ No URI is fetched during conversion. The same text is used for the legacy
 
 ## Test owners / CI profiles
 
-| Profile / suite                     | Covers                                                    |
-| ----------------------------------- | --------------------------------------------------------- |
-| `npm run test:unit`                 | Deterministic fake-MSP/wire contracts; no Muse binary     |
-| `npm run test:muse-loopback`        | Real Muse + loopback: live, approval, ACP process restart |
-| `npm run test:pack-smoke`           | `npm pack` → clean install → stdio initialize             |
-| `RUN_INTEGRATION_TESTS=true`        | Optional external-provider acceptance (separate from CI)  |
-| `src/tests/session-history.test.ts` | Export replay completeness / schema reject                |
-| `src/tests/permissions.test.ts`     | MSP→ACP permission mapping + fake-host gate               |
-| `src/tests/muse-sdk-gap.test.ts`    | Recoverable and failed view/page fills                    |
-| `src/tests/acp-wire.test.ts`        | Spawned `dist/index.js` NDJSON wire                       |
+| Profile / suite                     | Covers                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| `npm run test:unit`                 | Deterministic fake-MSP/wire contracts; no Muse binary                    |
+| `npm run test:muse-loopback`        | Real Muse + loopback: live, approval, ACP process restart                |
+| `npm run test:pack-smoke`           | `npm pack` → clean install → stdio initialize/new/prompt/stream/end_turn |
+| `RUN_INTEGRATION_TESTS=true`        | Optional external-provider acceptance (separate from CI)                 |
+| `src/tests/session-history.test.ts` | Export replay completeness / schema reject                               |
+| `src/tests/permissions.test.ts`     | MSP→ACP permission mapping + fake-host gate                              |
+| `src/tests/muse-sdk-gap.test.ts`    | Recoverable and failed view/page fills                                   |
+| `src/tests/acp-wire.test.ts`        | Spawned `dist/index.js` NDJSON wire                                      |
+
+CI installs the public Linux Muse **1.1.1-R2514.1** artifact and verifies its
+pinned SHA-256. The restart test verifies that provider input includes the prior
+conversation and that the saved model/effort survive the ACP process restart.
+Publishing resolves the release ref to an immutable commit, runs this same CI
+workflow on that commit, and only publishes after all checks succeed. Manual
+publishing follows the same checks.

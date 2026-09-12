@@ -136,7 +136,7 @@ rl.on("line", async (line) => {
           pendingApprovals.set("apr2", second);
           notify("approval/requested", second);
         }
-      } else if (mode === "userInput") {
+      } else if (mode === "userInput" || mode === "userInputMultiple") {
         const ui = {
           turnId,
           userInputId: "ui1",
@@ -148,7 +148,7 @@ rl.on("line", async (line) => {
             header: "Choice",
             question: "Pick a color",
             options: [{ label: "red" }, { label: "blue" }],
-            selection: { mode: "single" },
+            selection: mode === "userInputMultiple" ? { mode: "multiple", minSelections: 2, maxSelections: 2 } : { mode: "single" },
           }],
         };
         pendingUserInputs.set("ui1", ui);

@@ -27,6 +27,7 @@ export interface MuseUserInputRequest {
 export interface MuseUserInputAnswer {
   questionId: string;
   selectedLabel?: string;
+  selectedLabels?: string[];
   freeText?: string;
 }
 
@@ -45,7 +46,16 @@ export function userInputToElicitation(
   const required: string[] = [];
   for (const question of request.questions) {
     required.push(question.id);
-    if (question.options.length > 0) {
+    if (question.selection.mode === "multiple") {
+      properties[question.id] = {
+        type: "array",
+        title: question.header || question.question,
+        description: question.question,
+        items: { type: "string", enum: question.options.map((option) => option.label) },
+        minItems: question.selection.minSelections ?? 1,
+        maxItems: question.selection.maxSelections ?? question.options.length,
+      };
+    } else if (question.options.length > 0) {
       properties[question.id] = {
         type: "string",
         title: question.header || question.question,
@@ -57,6 +67,7 @@ export function userInputToElicitation(
         type: "string",
         title: question.header || question.question,
         description: question.question,
+        maxLength: 500,
       };
     }
   }
@@ -96,6 +107,21 @@ export function elicitationToAnswers(
   const answers: MuseUserInputAnswer[] = [];
   for (const question of request.questions) {
     const value = content[question.id];
+    if (question.selection.mode === "multiple") {
+      if (
+        !Array.isArray(value) ||
+        value.length < (question.selection.minSelections ?? 1) ||
+        value.length > (question.selection.maxSelections ?? question.options.length) ||
+        new Set(value).size !== value.length ||
+        value.some(
+          (label) => typeof label !== "string" || !question.options.some((o) => o.label === label),
+        )
+      ) {
+        throw new Error(`elicitation invalid selections for ${question.id}`);
+      }
+      answers.push({ questionId: question.id, selectedLabels: value });
+      continue;
+    }
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(`elicitation missing required answer for ${question.id}`);
     }
@@ -105,7 +131,10 @@ export function elicitationToAnswers(
       }
       answers.push({ questionId: question.id, selectedLabel: value });
     } else {
-      answers.push({ questionId: question.id, freeText: value.slice(0, 500) });
+      if (value.length > 500) {
+        throw new Error(`elicitation answer exceeds 500 characters for ${question.id}`);
+      }
+      answers.push({ questionId: question.id, freeText: value });
     }
   }
   return answers;
