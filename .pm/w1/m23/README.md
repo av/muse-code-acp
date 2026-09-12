@@ -47,3 +47,24 @@ Estimated total: 5h 15m across 8 tasks. Only listed dependencies are prerequisit
 ## Validation evidence
 
 Pending implementation. ADR003 is a source-based comparison; new host surfaces still require verification. No feature or task is marked delivered by this handoff.
+
+## Blocker — public session deletion (2026-09-12)
+
+Triage outcome: blocked before implementation; all tasks remain open. Pinned
+SDK 0.1.1's public `MspMethod` registry in
+`node_modules/@muse-code/sdk/dist/src/msp.d.ts` has start/resume/fork/list/read,
+but no root-session deletion operation. Installed Muse 1.1.1-R2514.1's public
+CLI help likewise exposes no session-delete command. `subagent/close` and
+`view/unsubscribe` are not deletion of retained root-session history.
+
+Required t003 explicitly forbids undocumented store deletion or changing close
+semantics. An adapter-only tombstone could hide a session from one client but
+would not verify the requested native deletion. No such substitute was added.
+Resume when a documented public deletion operation with active-session behavior
+is available, then prove list/load absence and preservation of other sessions.
+
+Skills/logout, adapter-owned rename and search presentation remain wanted; they
+are not claimed delivered by this triage. t004–t008 depend on deletion through
+the explicit task chain, and no other milestone currently depends on m23.
+Continue independent w1 work. This board-only evidence was checked for Markdown
+formatting and repository-local references; no runtime validation is claimed.
