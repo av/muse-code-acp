@@ -1,0 +1,235 @@
+# ADR003: Muse Code ACP feature parity with Codex ACP
+
+- **Date:** 2026-09-12
+- **Status:** Accepted as the parity tracking approach; feature delivery remains per row.
+- **Scope:** User-visible ACP behavior, extensions, host integration, and distribution.
+- **Muse source snapshot:** `3b268916e294621de845e858ae528aac8373ff28` plus the local work board inspected on this date; package version `0.2.0`.
+- **Codex reference snapshot:** `.tmp/codex-acp` at `effb0fe670a49dfbb5071764b5f8a2e3c09e2393`; package version `1.11.0`.
+
+## Context
+
+Muse Code ACP adapts Muse's public SDK/MSP and an explicit legacy exec backend to
+ACP. Codex ACP provides a useful reference for editor integration, runtime
+visibility, session control, and negotiated extensions. Equivalent provider
+capabilities do not automatically produce equivalent ACP behavior: an adapter
+must translate, advertise, and validate them.
+
+This document consolidates both source comparisons and their w1 handoffs. It is
+a repository implementation snapshot, not a claim about the latest npm release
+or a promise that every feature works on every provider or editor. In particular,
+m8 and m10 are implemented, while m9 remains open with a durable-compaction
+blocker. m11 also remains open after the host rejected worker launch and child-history access. Earlier statements that models are static or that every SDK turn always
+spawns a new execution host no longer describe the current implementation.
+
+## Decision
+
+Track parity by observable behavior and protocol contract, using Codex ACP as a
+reference rather than copying provider-specific internals. Prefer standard ACP
+fields; document and negotiate extensions where needed. Preserve useful baseline
+behavior for clients that do not support an extension.
+
+Public SDK declarations are investigation leads, not proof of host support.
+Advertise only implemented behavior supported by the selected backend. Preserve
+Muse's sandbox defaults and real host-offered permission choices; never implement
+parity by automating the TUI, inventing MSP methods, or replaying an ambiguous turn
+through another backend. See [anti-goals](../.pm/DO_NOT_DO.md).
+
+### Reading the matrices
+
+- **Supported:** Implemented for the stated scope; not necessarily identical wire semantics.
+- **Partial:** Some behavior exists, with material differences described in the row.
+- **Missing:** No corresponding adapter feature; a plan or SDK type does not count.
+- **Blocked:** Required host behavior has a recorded failure preventing delivery.
+- **Not advertised:** Deliberately absent from the capability contract.
+
+Muse status refers to the default SDK backend unless the row says otherwise.
+Codex entries describe the inspected reference checkout, including its experimental
+extensions. “Negotiated” does not mean a standard ACP feature or universal client
+support. Workstream references identify scheduled scope, not delivery evidence.
+
+## Prompts and configuration
+
+| Feature                                          | Codex ACP reference                         | Muse Code ACP            | Parity limit / work                                                                                                                    |
+| ------------------------------------------------ | ------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Text prompts and streamed assistant text         | Supported                                   | Supported                | Baseline behavior on SDK and exec.                                                                                                     |
+| Multiple turns with retained conversation        | Supported                                   | Supported                | Native Muse history retained; reload and restart coverage exists.                                                                      |
+| Resource links                                   | Supported                                   | Supported                | Muse encodes attributed links as text and never fetches URIs during conversion.                                                        |
+| Embedded text / unsaved editor context           | Supported                                   | Supported                | m8 delivered; attributed JSON, 64 KiB aggregate serialized embedded-context limit.                                                     |
+| Embedded binary resources                        | Encodes blobs, with image-specific handling | Missing                  | Muse rejects blob resources; m8 delivered text only. No dedicated binary-input task.                                                   |
+| Image prompts                                    | Supported                                   | Supported                | Muse accepts PNG/JPEG/GIF/WebP; SDK preserves mixed-block order. Exec stages images separately and requires accompanying text/context. |
+| Audio prompts                                    | Not advertised; conversion rejects audio    | Not advertised; rejected | Shared limitation, not a Codex parity gap.                                                                                             |
+| Additional workspace directories                 | Supported                                   | Missing                  | One canonical Muse workspace; no verified multi-root mapping or delivery task.                                                         |
+| Model configuration                              | Supported                                   | Supported                | Provider catalogs and model IDs differ.                                                                                                |
+| Runtime model discovery                          | Supported                                   | Supported                | m8 delivered public `model/list`; retains current model and falls back explicitly on discovery failure.                                |
+| Reasoning-effort configuration                   | Supported with model-specific choices       | Supported with limits    | Muse forwards all seven public tiers; its catalog does not establish per-model effort restrictions.                                    |
+| Fast/service-tier mode                           | Supported                                   | Missing                  | No verified Muse equivalent; not scheduled separately.                                                                                 |
+| Recommended config values                        | Opt-in AIR metadata                         | Missing                  | Runtime discovery is not a recommendation contract; no dedicated task.                                                                 |
+| Read-only / approval / sandbox modes             | Supported                                   | Partial                  | SDK offers default and read-only. Exec additionally offers bypass-approvals and gated yolo; those are not SDK parity.                  |
+| Dedicated collaboration/plan mode                | Default/plan configuration and `/plan`      | Missing                  | m9 plans describe todo state, not a plan mode or approval-to-implementation workflow.                                                  |
+| Client-provided model providers / custom gateway | Provider capability and gateway auth        | Missing                  | A user-configured Muse provider is not equivalent to ACP provider negotiation. No dedicated task.                                      |
+
+Evidence: [prompt conversion](../src/prompt-content.ts),
+[configuration](../src/config-options.ts), [discovery](../src/model-discovery.ts),
+[ACP capabilities](../src/acp-agent.ts), and
+[observed m8 support](sdk-migration.md#observed-host-support-m8).
+
+## Session lifecycle and interaction
+
+| Feature                          | Codex ACP reference                                | Muse Code ACP                       | Parity limit / work                                                                                                                               |
+| -------------------------------- | -------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New session                      | Supported                                          | Supported                           | Muse validates and canonicalizes workspace ownership.                                                                                             |
+| List sessions                    | Supported                                          | Partial                             | Muse scans retained store and returns matching sessions without ACP pagination; m19.                                                              |
+| Load session with history replay | Supported                                          | Supported with different internals  | Muse uses retained store/export helpers; public-history migration and completeness checks belong to m19.                                          |
+| Resume without replay            | Supported                                          | Supported                           | Muse refreshes MCP configuration and restores model/effort; live settings are preserved where applicable.                                         |
+| Close and release resources      | Supported                                          | Supported                           | Cancels work and releases host/state; does not delete native history.                                                                             |
+| Delete session                   | Supported                                          | Missing                             | Close is not delete. No dedicated deletion task; public host support must be established.                                                         |
+| Fork session                     | Supported                                          | Missing                             | m12; public Muse schema declares fork, but branch continuity and ACP delivery remain unverified.                                                  |
+| Live titles / rename / metadata  | Title updates, generated fallback and `/rename`    | Partial                             | First-prompt title fallback and active-turn metadata exist; authoritative metadata/pagination in m19. Rename control needs separate verification. |
+| Cancellation                     | Supported                                          | Supported                           | Permission/elicitation cleanup and late-reply protection exist.                                                                                   |
+| Mid-turn steering                | Codex steering contract; handles active/idle cases | Supported with a different contract | m10 delivered Muse-specific negotiation and exact active-turn targeting. No idle fallback. Not wire-compatible with Codex steering.               |
+| Reusable execution host          | Persistent app-server integration                  | Supported                           | m10 delivered session-owned reuse; no sharing between unrelated sessions.                                                                         |
+| Form elicitation                 | Supported                                          | Supported with limits               | Muse single/multiple selections and free text up to 500 characters; requires client form capability.                                              |
+| URL elicitation                  | Supported, including auth flows                    | Missing                             | Muse's current bridge handles form elicitation only; no dedicated task.                                                                           |
+
+Muse steering requires `clientCapabilities._meta["muse/steering"] = 1` and uses
+`_muse/steer` with `expectedTurnId`. Acceptance is admission, not completion or a
+guarantee that another provider call will occur. A compatible host expires after
+60 seconds idle or rotates after 32 successful turns. Configuration, credentials,
+workspace, mode, or MCP changes can require replacement. See
+[host lifecycle and steering](sdk-migration.md#session-owned-hosts-and-steering),
+[steering protocol](../src/steering-protocol.ts),
+[session store](../src/session-store.ts), and [elicitation](../src/muse-user-input.ts).
+
+## Runtime visibility, tools and review
+
+| Feature                                        | Codex ACP reference                                 | Muse Code ACP | Parity limit / work                                                                                                                      |
+| ---------------------------------------------- | --------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool lifecycle, arguments and text results     | Supported                                           | Supported     | Muse correlates tool IDs, revisions and completion-only items.                                                                           |
+| Live terminal/tool-output deltas               | Supported with terminal presentation modes          | Partial       | Muse shows tool snapshots/results but translator deltas handle assistant text only; m9.                                                  |
+| Rich tool-output images, links and artifacts   | Supported, including image view/generation          | Missing       | Input images do not imply output-artifact support; m17. Actual image-generation tool availability is provider-dependent.                 |
+| Web-search-specific presentation               | Specialized search/action mapping                   | Partial       | Muse maps web tools to generic fetch-kind calls and text; dedicated search presentation is not separately scheduled.                     |
+| File paths and edit presentation               | Supported                                           | Partial       | Muse reports recognized paths and can read back resulting text.                                                                          |
+| Accurate before/after diffs                    | Structured file-change mapping                      | Partial       | Muse overwrite readback may use `oldText: null`; m13 must establish trustworthy preimages.                                               |
+| Per-turn file-change report                    | Negotiated report with completeness/uncertainty     | Missing       | m13, including shell/generated changes where evidence supports attribution.                                                              |
+| Review commands / review events                | `/review`, `/review-branch`, `/review-commit`       | Missing       | Change reports in m13 are not a code-review execution mode; no dedicated review-mode task.                                               |
+| Plan/todo updates                              | Supported                                           | Missing       | m9 maps `session/todoListChanged`; currently not forwarded.                                                                              |
+| Reasoning summaries/thought chunks             | Supported                                           | Missing       | m9; public Muse summaries declared but actual summary emission remains provider/host-dependent. Private reasoning is not accessed.       |
+| Token usage                                    | Supported                                           | Missing       | Raw Muse usage has been observed, but ACP forwarding remains m9 work.                                                                    |
+| Context usage/pressure                         | Context-window and compaction reporting             | Missing       | m9; preserve unknown values and do not derive unsupported counters.                                                                      |
+| Explicit compaction and lifecycle              | `/compact` and compaction events                    | Blocked       | Muse durable `session/compact` rejects admission on the tested host; see blocker below.                                                  |
+| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Blocked       | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
+| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked       | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
+| Worker controls                                | Reference supports delegated-agent operations       | Blocked       | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
+| Background commands beyond prompt completion   | Negotiated async tasks, status and targeted stop    | Missing       | m15; m9 live output and m11 workers do not cover background command ownership.                                                           |
+| Persistent goal snapshots                      | Goal extension                                      | Missing       | m18; Muse snapshot/change declarations are not yet forwarded.                                                                            |
+| Goal set/pause/resume/clear                    | Advertised goal actions and `/goal`                 | Missing       | m18 conditions each control on verified public host support; observing a goal does not prove a control API exists.                       |
+| Unknown item kinds / truncation visibility     | Rich event handling and fallbacks                   | Partial       | Unrecognized Muse item kinds are silently omitted; generic rendering and truncation handling in m9.                                      |
+
+Evidence: [SDK translator](../src/muse-sdk-events.ts),
+[tool presentation](../src/tool-calls.ts), [turn handling](../src/muse-sdk.ts),
+and Codex reference documents for
+[async tasks](../.tmp/codex-acp/docs/async-tasks.md),
+[subagents](../.tmp/codex-acp/docs/subagent-sessions.md),
+[goals](../.tmp/codex-acp/docs/goal-extension.md), and
+[change reports](../.tmp/codex-acp/docs/agent-file-change-report.md).
+
+### Recorded durable-compaction blocker
+
+The [m9 validation record](../.pm/w1/m9/README.md#validation-evidence) reports two
+isolated loopback reproductions on Muse Code `1.1.1-R2514.1`, SDK `0.1.1`, macOS.
+After a completed durable turn, public `session/compact` returned MSP `-32030`
+with `compaction_unavailable`, including with experimental API negotiation.
+This is admission rejection, not accepted compaction, successful noop, or a
+completed lifecycle. The same investigation observed a raw token-usage event.
+
+Thus usage is an adapter gap while durable compaction has observed host failure.
+Do not generalize this into a claim about every Muse build. A newer supported
+host must be tested before updating the row; schema presence and fake-host
+success do not resolve this blocker. The board records m10 as delivered
+independently of the still-open m9; that does not imply m9 completion.
+
+## Authentication, permissions, MCP and recovery
+
+| Feature                                       | Codex ACP reference                                   | Muse Code ACP                         | Parity limit / work                                                                                                                          |
+| --------------------------------------------- | ----------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account/browser login                         | ChatGPT login                                         | Supported for Meta login              | Muse advertises terminal-based login only when the client supports it; provider identities differ.                                           |
+| API-key authentication                        | Supported                                             | Supported for `META_API_KEY`          | Environment credentials take precedence over stored Muse credentials.                                                                        |
+| Logout                                        | Supported                                             | Supported with environment limitation | Muse cannot unset an externally exported key.                                                                                                |
+| Observed auth identity/status                 | Connection-scoped status updates                      | Partial                               | Muse checks credential presence, not validity; observed vs configured state is m14.                                                          |
+| Per-tool interactive permissions              | Supported                                             | Supported on SDK only                 | Host-offered decisions actually gate operations; exec approval policy remains internal to Muse.                                              |
+| Extended permission scopes / review lifecycle | Detailed permission extension and review presentation | Partial                               | Muse supports its own host-offered choices; Codex-specific permission/reviewer metadata is not equivalent. No dedicated full-extension task. |
+| Client-provided stdio MCP                     | Supported                                             | Supported                             | Private configuration overlay; merges session servers without modifying global settings.                                                     |
+| Client-provided HTTP MCP                      | Supported                                             | Missing                               | Current Muse adapter rejects non-command servers; m16 verifies host transport before implementation.                                         |
+| Standalone SSE / ACP MCP transport            | Not advertised by reference initialize                | Not advertised                        | Do not count a shared absence as a missing Codex feature.                                                                                    |
+| MCP connection/tool diagnostics               | `/mcp` reports tools/resources/auth status            | Missing                               | m16; configured server is not necessarily connected.                                                                                         |
+| Structured failure categories                 | Transport/auth/rate/quota/overload and recovery hints | Partial                               | Muse distinguishes auth-required, cancellation and step limits, but most other failures become internal errors; m14.                         |
+| Retry progress                                | Rich error/recovery presentation                      | Missing in Muse                       | Muse `turn/retryScheduled` declares attempt/backoff information; expose observed host retries in m14 without adding adapter retries.         |
+| Account quota/rate-limit state                | Rate-limit/quota metadata                             | Missing                               | Token usage in m9 and categorized errors in m14 are not account quota reporting. No verified Muse account API or dedicated task.             |
+| Lost-event / host-failure handling            | History reconstruction and typed failure handling     | Supported with differences            | Muse uses SDK gap fill, fails unrecoverable turns, and never silently replays them; structured recovery improvements in m14.                 |
+
+Evidence: [authentication](../src/auth.ts), [permissions](../src/muse-permissions.ts),
+[MCP overlay](../src/mcp-overlay.ts), [MCP contract](mcp-passthrough.md),
+Codex [auth status](../.tmp/codex-acp/src/AuthStatusMeta.ts), and
+[permission extension](../.tmp/codex-acp/docs/permission-extension.md).
+
+## Commands, distribution and verification
+
+| Feature                                                   | Codex ACP reference                                   | Muse Code ACP                     | Parity limit / work                                                                                                                                         |
+| --------------------------------------------------------- | ----------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skills as slash commands                                  | Supported                                             | Supported                         | Muse advertises CLI-discovered skills and passes prompts through.                                                                                           |
+| `/status`, `/compact`                                     | Built-in handlers                                     | Missing / compaction blocked      | m9; a skill with the same name is not an adapter-owned handler.                                                                                             |
+| `/mcp`                                                    | Built-in handler                                      | Missing                           | m16.                                                                                                                                                        |
+| `/goal`                                                   | Built-in inspection/control                           | Missing                           | m18.                                                                                                                                                        |
+| `/skills`, `/logout`, `/rename`, `/plan`, review commands | Built-in handlers                                     | Missing as dedicated handlers     | Skill discovery and ACP logout already exist; not equivalent to these command handlers. Metadata work in m19 does not automatically deliver rename control. |
+| npm CLI and executable override                           | Supported                                             | Supported                         | Muse requires separately installed `muse`; Codex package includes its compatible CLI dependency.                                                            |
+| Standalone platform binaries                              | Build/package scripts for multiple platforms          | Missing                           | Muse package currently requires Node.js 22+ and a Muse installation; no dedicated packaging task.                                                           |
+| Release automation                                        | Stable/preview and registry workflows                 | Partial / different policy        | Muse CI-gated release publishing exists; reference preview/registry distribution is not a claimed parity target.                                            |
+| Contract and real-host testing                            | Event/wire and opt-in end-to-end suites               | Supported with different coverage | Muse has unit/wire, sandboxed loopback, restart, approval and package smoke suites. This is not proof of every reference feature.                           |
+| Editor-owned filesystem/terminal execution                | Not established as a general reference guarantee here | Not implemented by Muse           | Reporting paths, diffs or terminal output is not client-side fs/terminal RPC execution. No parity claim without a specific verified reference contract.     |
+
+Sources: [skills](../src/skills.ts), [package scripts](../package.json),
+[CI workflow](../.github/workflows/ci.yml), and
+[Codex commands](../.tmp/codex-acp/src/CodexCommands.ts).
+
+## Delivery map
+
+The [w1 board](../.pm/w1/README.md) owns task status and dependencies. These labels
+are a dated summary; update links if open milestones are archived.
+
+| Milestone | Scope                                                                      | Snapshot status                   |
+| --------- | -------------------------------------------------------------------------- | --------------------------------- |
+| m7        | Shutdown, workspace ownership, content metadata and lifecycle combinations | Done                              |
+| m8        | Embedded text, model discovery and verified support claims                 | Done                              |
+| m9        | Usage/context, compaction, plans, summaries, live output and status        | Open; durable compaction blocked  |
+| m10       | Reusable hosts and negotiated exact-target steering                        | Done                              |
+| m11       | Worker visibility, child sessions, histories, approvals and controls       | Open; worker host support blocked |
+| m12       | Session branching                                                          | Planned                           |
+| m13       | Accurate diffs and per-turn change reports                                 | Planned                           |
+| m14       | Failure categories, retry progress and truthful authentication state       | Planned                           |
+| m15       | Background command lifecycle and verified targeted controls                | Planned                           |
+| m16       | Remote MCP and diagnostics                                                 | Planned                           |
+| m17       | Rich tool results and artifacts                                            | Planned                           |
+| m18       | Goal state and independently verified controls                             | Planned                           |
+| m19       | Public/paginated session discovery, history and live metadata              | Planned                           |
+
+Rows explicitly marked without a dedicated task are documented gaps, not new
+commitments. This ADR does not silently expand milestones to include all Codex
+features, mandate provider-specific functionality, or change board dependencies.
+
+## Consequences and maintenance
+
+- Parity is assessed per surface; avoid a single percentage that treats a custom
+  extension, partial mapping, and a verified standard feature as interchangeable.
+- Preserve distinctions between input images and output artifacts, plans and plan
+  mode, worker sessions and background commands, close and delete, and token usage
+  and account quota.
+- On delivery, update the relevant row with source/test evidence and host/backend
+  limits. A checked board item alone is insufficient when source behavior differs.
+- Keep [SDK compatibility](sdk-migration.md) and this inventory consistent. Resolve
+  stale prose against implementation plus recorded verification, not by repeating
+  old README claims.
+- Local `.tmp/codex-acp` links are inspection references and may be absent from an
+  installed package. The recorded commit pins the comparison; repository-owned
+  source, docs and work items preserve the conclusions independently.
+- This documentation change does not run new host acceptance tests. Existing
+  evidence is cited above; unverified provider/host surfaces remain explicitly so.

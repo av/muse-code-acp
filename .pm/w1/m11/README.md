@@ -1,6 +1,6 @@
 # w1 · m11 — Delegated worker lifecycle and native child sessions
 
-**Worker:** worker1 **Goal:** Make delegated work visible, inspectable and controllable with correctly routed permissions. **Status:** todo
+**Worker:** worker1 **Goal:** Make delegated work visible, inspectable and controllable with correctly routed permissions. **Status:** todo (blocked: public host worker launch unavailable)
 
 ## Tasks (in order)
 
@@ -45,4 +45,15 @@ Estimated total: 5h 15m across 8 tasks. Priority: P1 worker visibility; progress
 
 ## Validation evidence
 
-Pending implementation. The source comparison inspected code and installed SDK declarations; it did not establish real-host acceptance of the proposed features.
+Blocked investigation on 2026-09-12 after shipped m10 (`3b26891`). m9 remains skipped under the earlier user instruction; no m11 task is marked complete.
+
+- Environment: macOS aarch64, Muse Code 1.1.1-R2514.1 (host build b934305d214ca7b7ee5493ac696cd2109020b314), SDK 0.1.1, default durable `muse serve`, isolated dummy credentials and loopback provider; no paid provider calls.
+- Reproduction: initialize, start a session, submit a turn; provider emits the host-offered `workflow` tool with `export default async function workflow(host) { return await host.agent({ input: "m11-child-probe: reply hello" }); }`. Wait for root completion and five seconds of background observation. Read root history and list sessions.
+- The tool item's public `visibleOutput` claims `status: launched`, but the actual provider-facing `function_call_output` is `workflow_launch_unavailable: this client did not install a workflow launcher; no child work started`. A launch envelope alone is therefore not execution evidence. No workflow/subagent lifecycle items or verified worker control identity were emitted.
+- Repeated with `initialize.capabilities.experimentalApi: true`; the host echoed true and produced the same launcher failure. A final independent default-capability run confirmed the exact failure again. `muse serve --help` exposes no workflow-launcher enablement option.
+- Positive observation: real `reminderChild` items carry childSessionId values. However each returned child ID rejected both public `session/read` and `session/resume` with MSP `-32020`, session not found. Root read/list succeeded, so these are child lookup failures rather than connection failure. This does not establish readable/restorable child histories or routable child approvals.
+- Public SDK declarations expose subagent controls targeting `(parent sessionId, subagentId)` and child history via childSessionId. Installed/reference generated method lists have no `view/subscribe`; a hand-authored transcript mentioning it is not a callable public contract. `MuseClient` ignores unknown-session notifications, and `Connection.onNotification` replaces its router rather than adding a second observer.
+- Local reproducible probe and raw evidence are preserved under `.tmp/m11-probe/`: run `node .tmp/m11-probe/probe.mjs` or add `--experimental` after building the repo. This temporary directory is ignored and contains isolated probe data, not production implementation.
+- Unblock requires a supported host/public integration with an installed worker launcher and accessible child sessions, followed by real child grant/deny, lifecycle, history and sibling-isolation tests. Alternatively, explicitly revise m11 scope to ship only verified baseline cards and defer native children/controls. No private storage parsing, fabricated transcripts or synthetic permission grants substitute for those requirements.
+
+The investigation changed no production code. m11 remains open; committing this evidence and the parity planning documents does not ship its blocked implementation.

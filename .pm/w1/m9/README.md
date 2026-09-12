@@ -1,6 +1,6 @@
 # w1 · m9 — Usage, context management and live run visibility
 
-**Worker:** worker1 **Goal:** Let ACP clients observe consumption, context pressure, plans and live progress, and explicitly compact supported sessions. **Status:** todo
+**Worker:** worker1 **Goal:** Let ACP clients observe consumption, context pressure, plans and live progress, and explicitly compact supported sessions. **Status:** todo (blocked: durable Muse compaction unavailable)
 
 ## Tasks (in order)
 
@@ -48,4 +48,13 @@ Estimated total: 5h 45m across 9 tasks. Priority: P1 usage/context; P2 plans and
 
 ## Validation evidence
 
-Pending implementation. The source comparison inspected code and installed SDK declarations; it did not establish real-host acceptance of the proposed features.
+Blocked investigation (2026-09-12), after shipping m8 at 5188179:
+
+- Host: Muse Code 1.1.1-R2514.1, SDK 0.1.1, macOS; isolated local loopback provider with dummy credentials.
+- Reproduction: spawn `muse serve` with default durable sessions; initialize; `session/start`; `turn/start`; await `turn/completed`; submit public `session/compact` for that session.
+- Result: MSP error `-32030`, `session/compact ... rejected: compaction_unavailable`. A second independent run with `initialize.capabilities.experimentalApi: true` confirmed negotiation true, a completed turn, and the same rejection.
+- This is an admission rejection, not a completed/noop compaction. Required accepted-to-terminal behavior cannot be proven, so t002 and the milestone remain open. No fake-host success substitutes for host delivery.
+- Public SDK reference checkout at `fbce769` contains QA scenario D19778 in `clients/sdk-ts/qa/scenarios/defect-classes.ts` (around line178). It describes durable compaction being refused because the retained-session sink lacks the strict-append channel, before target classification. The observed rejection is consistent with that documented defect; adapter code alone does not establish a host fix.
+- Positive observation: the successful raw SDK turn emitted `session/tokenUsage` with cumulative prompt1/output1/total2. Usage/context/plan delivery remains unimplemented and no task is marked done.
+- Resume requires a supported Muse build with working durable compaction (and updated compatibility evidence), or an explicit decision to revise m9 scope/dependencies. Do not switch to ephemeral sessions, synthesize local summaries or skip to m10 to declare completion.
+- Partial exploration is preserved locally under `.tmp/m9-blocked/`; it is unverified and excluded from production source and commits. The user subsequently authorized skipping m9; independent m10 shipped at `3b26891`. m9 remains open and none of its delivery is implied by m10.
