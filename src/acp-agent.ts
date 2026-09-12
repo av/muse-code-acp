@@ -62,7 +62,8 @@ import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./m
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
 import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from "./muse-sdk.js";
 import { readSessionEffort, writeSessionEffort } from "./session-preferences.js";
-import { createMuseMcpOverlay, MuseMcpOverlay } from "./mcp-overlay.js";
+import { createMuseMcpOverlay, MuseMcpOverlay, museMcpServers } from "./mcp-overlay.js";
+import { mcpStatus, mcpStartupFailure } from "./mcp-status.js";
 import { readMuseSettings } from "./muse-settings.js";
 import { compileMusePrompt, type CompiledMusePrompt } from "./prompt-files.js";
 import { convertPromptContent } from "./prompt-content.js";
@@ -132,6 +133,7 @@ export interface SessionState {
   modelDiscovery?: ModelDiscoveryResult;
   /** ACP-provided MCP servers injected into Muse for each turn. */
   mcpServers: McpServer[];
+  mcpFailure?: string;
   /** Live per-turn Muse configuration overlay, if this session uses MCP. */
   activeMcpOverlay: MuseMcpOverlay | null;
   sdkHost?: { owner: MuseSdkHost; identity: string; overlay: MuseMcpOverlay };
@@ -221,7 +223,7 @@ export class MuseAcpAgent {
       // the milestones that ship them. Images work on both backends.
       agentCapabilities: {
         promptCapabilities: { image: true, embeddedContext: true },
-        mcpCapabilities: {},
+        mcpCapabilities: this.backend === "sdk" ? { http: true } : {},
         loadSession: true,
         sessionCapabilities: { list: {}, close: {}, resume: {} },
         auth: { logout: {} },
@@ -269,8 +271,19 @@ export class MuseAcpAgent {
     return {};
   }
 
+  private validateMcp(servers: McpServer[]): void {
+    if (this.backend === "exec" && servers.some((server) => !("command" in server)))
+      throw RequestError.invalidParams(undefined, "Remote MCP requires the SDK backend");
+    try {
+      museMcpServers(servers);
+    } catch {
+      throw RequestError.invalidParams(undefined, "Invalid or unsupported MCP configuration");
+    }
+  }
+
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     this.assertRunning();
+    this.validateMcp(params.mcpServers);
     const cwd = resolveWorkspace(params.cwd);
     // The ACP session id doubles as the muse `--session-id`. Muse creates its
     // on-disk session log lazily on the first turn; discovery only queries the host.
@@ -314,11 +327,22 @@ export class MuseAcpAgent {
       this.options.museBinary,
       this.logger,
     )
+      .catch((err) => {
+        this.logger.log(`skills discovery failed: ${err}`);
+        return [];
+      })
       .then((skills) => {
         if (this.disposed || !this.sessions.has(sessionId)) {
           return;
         }
-        const availableCommands = skillsToCommands(skills);
+        const availableCommands = [
+          ...(this.backend === "sdk"
+            ? [{ name: "mcp", description: "Inspect MCP configuration and connection visibility" }]
+            : []),
+          ...skillsToCommands(skills).filter(
+            (command) => this.backend !== "sdk" || command.name !== "mcp",
+          ),
+        ];
         if (availableCommands.length === 0) {
           return;
         }
@@ -373,6 +397,7 @@ export class MuseAcpAgent {
   }
 
   private async loadSessionState(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+    this.validateMcp(params.mcpServers);
     if (this.sessions.get(params.sessionId)?.activeTurn) {
       throw RequestError.invalidRequest(
         undefined,
@@ -460,6 +485,7 @@ export class MuseAcpAgent {
   }
 
   private async resumeSessionState(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    this.validateMcp(params.mcpServers ?? []);
     if (!isAbsolute(params.cwd)) {
       throw RequestError.invalidParams(
         undefined,
@@ -507,6 +533,7 @@ export class MuseAcpAgent {
     if (existing) {
       existing.cwd = storedCwd;
       existing.mcpServers = mcpServers;
+      existing.mcpFailure = undefined;
       return {
         modes: this.sessionModes(existing.modeId),
         configOptions: buildConfigOptions(existing.config, this.backend, existing.modelDiscovery),
@@ -618,6 +645,44 @@ export class MuseAcpAgent {
       );
     }
 
+    if (
+      this.backend === "sdk" &&
+      params.prompt[0]?.type === "text" &&
+      /^\/mcp(?:\s|$)/.test(params.prompt[0].text.trim())
+    ) {
+      if (
+        params.prompt.length !== 1 ||
+        !/^\/mcp(?:\s+status)?\s*$/.test(params.prompt[0].text.trim())
+      )
+        throw RequestError.invalidParams(
+          undefined,
+          "Use /mcp or /mcp status without additional content",
+        );
+      const finished = Promise.withResolvers<void>();
+      session.turnFinished = finished.promise;
+      session.cancelRequested = false;
+      try {
+        await this.client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: mcpStatus(
+                session.mcpServers,
+                this.options.env ?? process.env,
+                session.mcpFailure,
+              ),
+            },
+          },
+        });
+        return { stopReason: session.cancelRequested ? "cancelled" : "end_turn" };
+      } finally {
+        session.turnFinished = null;
+        finished.resolve();
+      }
+    }
+
     const converted = convertPromptContent(params.prompt);
     if (!converted.ok) {
       throw converted.error;
@@ -626,6 +691,7 @@ export class MuseAcpAgent {
     const finished = Promise.withResolvers<void>();
     session.turnFinished = finished.promise;
     session.cancelRequested = false;
+    session.mcpFailure = undefined;
     let compiledPrompt: CompiledMusePrompt | undefined;
     let mcpOverlay: MuseMcpOverlay | null = null;
     try {
@@ -698,6 +764,7 @@ export class MuseAcpAgent {
           const response = await handle.done;
           return session.cancelRequested ? { stopReason: "cancelled" } : response;
         } catch (error) {
+          session.mcpFailure = mcpStartupFailure(error);
           await session.sdkHost?.owner.close();
           throw error;
         } finally {

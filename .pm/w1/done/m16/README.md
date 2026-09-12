@@ -1,17 +1,17 @@
 # w1 · m16 — Remote MCP transport and connection diagnostics
 
-**Worker:** worker1 **Goal:** Connect client-provided remote MCP servers through supported Muse transports and explain connection failures. **Status:** todo
+**Worker:** worker1 **Goal:** Connect client-provided remote MCP servers through supported Muse transports and explain connection failures. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                  | est | depends_on               |
-| ---- | ------------------------------------------------------ | --- | ------------------------ |
-| t001 | Verify remote MCP transport and status APIs            | 45m | w1/m10/t008              |
-| t002 | Map remote servers into isolated session configuration | 45m | w1/m16/t001              |
-| t003 | Expose MCP diagnostics and validate failures           | 45m | w1/m16/t002              |
-| t004 | Simplify milestone changes                             | 30m | w1/m16/t003              |
-| t005 | CI and behavior coverage                               | 45m | w1/m16/t003, w1/m16/t004 |
-| t006 | Close out the milestone                                | 15m | w1/m16/t005              |
+| id   | title                                                             | est | depends_on               |
+| ---- | ----------------------------------------------------------------- | --- | ------------------------ |
+| t001 | Verify remote MCP transport and status APIs — **DONE**            | 45m | w1/m10/t008              |
+| t002 | Map remote servers into isolated session configuration — **DONE** | 45m | w1/m16/t001              |
+| t003 | Expose MCP diagnostics and validate failures — **DONE**           | 45m | w1/m16/t002              |
+| t004 | Simplify milestone changes — **DONE**                             | 30m | w1/m16/t003              |
+| t005 | CI and behavior coverage — **DONE**                               | 45m | w1/m16/t003, w1/m16/t004 |
+| t006 | Close out the milestone — **DONE**                                | 15m | w1/m16/t005              |
 
 Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m10/t008; logical dependency IDs remain valid after archival. Numbering records the queue, not an additional dependency on every earlier milestone.
 
@@ -41,4 +41,12 @@ Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m10/t008; logical depen
 
 ## Validation evidence
 
-Pending implementation. The originating comparison inspected source and installed SDK declarations; it did not establish host acceptance of the proposed additions.
+Implementation verified on macOS with Muse Code 1.1.1-R2514.1 and SDK 0.1.1 using local MCP/provider fixtures and dummy credentials. Selected as the first independent milestone under the repository loop-worker rules: m9/m11 remain blocked and m12/m13/m14/m15/m17/m19 depend on those unresolved chains. m16 depends on completed m10 and does not require m9 command implementation.
+
+- Public CLI help identifies Streamable HTTP entries under mcpServers. Real host probes verified canonical `type: http`, URL and headers, plus canonical `type: stdio`. The ACP test invokes the discovered HTTP tool and checks returned content in provider input.
+- SDK overlays normalize legacy/canonical settings with canonical then session precedence; exec retains its legacy stdio overlay. HTTP URL/header validation happens before session mutation. Unit and live tests cover source immutability, header isolation between resident sessions and header changes replacing the old host/overlay.
+- Local `/mcp` and `/mcp status` reserve the built-in name and report sanitized inventory, configuration failures and recognized last-observed host MCP startup failures. Current connectivity remains unknown because no public MCP status API exists. Authentication rejection, invalid JSON responses and unreachable endpoints produce distinct observed host errors; no prompt is replayed. Close waits for local command delivery.
+- Simplify reuse, quality and efficiency reviews completed. Reused museSettingsPath and alias normalization, normalized loopback tool selection, enclosed HTTP fixture setup in cleanup scope and fixed local-command lifecycle accounting.
+- Required combined testing exposed an existing steering-fixture race: a reminder request could consume its scripted bash call. The loopback fixture now requires the scripted tool to be present in the request's offered tools, with a regression test. This corrects fixture routing rather than weakening steering assertions.
+
+`npm run check`, `npm run build`, `npm run test:unit` (255 tests, including the loopback routing regression), `MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback` (18 tests, zero skips) and `npm run test:pack-smoke` all passed on 2026-09-12. No paid provider or third-party OAuth acceptance is claimed.

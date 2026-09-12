@@ -1,4 +1,4 @@
-import { McpServer } from "@agentclientprotocol/sdk";
+import { RequestError, McpServer } from "@agentclientprotocol/sdk";
 import {
   chmodSync,
   lstatSync,
@@ -10,9 +10,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { validateHeaderName, validateHeaderValue } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionConfig } from "./config-options.js";
+import { museSettingsPath } from "./muse-settings.js";
 
 export interface MuseMcpOverlay {
   env: Record<string, string | undefined>;
@@ -20,27 +22,74 @@ export interface MuseMcpOverlay {
   cleanup(): void;
 }
 
-/**
- * Builds the Muse settings shape for the stdio transport every ACP agent must
- * support. Remote and ACP transports are not advertised by this adapter.
- */
+/** Translate verified stdio and HTTP settings without logging endpoint credentials. */
 export function museMcpServers(mcpServers: McpServer[]): Record<string, unknown> {
   return Object.fromEntries(
     mcpServers.map((server) => {
-      if (!("command" in server)) {
-        throw new Error(`unsupported MCP transport for server ${JSON.stringify(server.name)}`);
+      if ("command" in server) {
+        return [
+          server.name,
+          {
+            type: "stdio",
+            command: server.command,
+            args: server.args,
+            env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])),
+          },
+        ];
+      }
+      if (server.type !== "http") {
+        throw RequestError.invalidParams(undefined, "unsupported MCP transport; use stdio or HTTP");
+      }
+      try {
+        const url = new URL(server.url);
+        if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
+          throw new Error();
+        for (const { name, value } of server.headers) {
+          validateHeaderName(name);
+          validateHeaderValue(name, value);
+        }
+      } catch {
+        throw RequestError.invalidParams(
+          undefined,
+          "invalid HTTP MCP URL or headers; use http/https without URL credentials and valid header fields",
+        );
       }
       return [
         server.name,
         {
-          transport: "stdio",
-          command: server.command,
-          args: server.args,
-          env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])),
+          type: "http",
+          url: server.url,
+          headers: Object.fromEntries(server.headers.map(({ name, value }) => [name, value])),
         },
       ];
     }),
   );
+}
+
+function existingMcpServers(settings: Record<string, unknown>): Record<string, unknown> {
+  for (const key of ["mcp_servers", "mcpServers"]) {
+    if (settings[key] !== undefined && !isRecord(settings[key])) {
+      throw new Error(`muse settings ${key} is not an object`);
+    }
+  }
+  const combined = {
+    ...(settings.mcp_servers as Record<string, unknown> | undefined),
+    ...(settings.mcpServers as Record<string, unknown> | undefined),
+  };
+  return Object.fromEntries(
+    Object.entries(combined).map(([name, value]) => {
+      if (!isRecord(value) || value.transport === undefined) return [name, value];
+      const { transport, ...fields } = value;
+      return [name, { ...fields, type: fields.type ?? transport }];
+    }),
+  );
+}
+
+/** Configured inventory uses the same alias precedence as the SDK overlay. */
+export function readConfiguredMcpServers(
+  baseEnv: Record<string, string | undefined> = process.env,
+): Record<string, unknown> {
+  return existingMcpServers(readSettingsDocument(museSettingsPath(baseEnv)));
 }
 
 /**
@@ -69,9 +118,22 @@ export function createMuseMcpOverlay(
 
     const sourceSettingsPath = join(sourceMuseDir, "settings.json");
     const settings = readSettingsDocument(sourceSettingsPath);
-    const existingMcp = settings.mcp_servers;
-    if (existingMcp !== undefined && !isRecord(existingMcp)) {
-      throw new Error(`muse settings mcp_servers at ${sourceSettingsPath} is not an object`);
+    const existingMcp = executionConfig ? existingMcpServers(settings) : settings.mcp_servers;
+    if (existingMcp !== undefined && !isRecord(existingMcp))
+      throw new Error("muse settings mcp_servers is not an object");
+    const injected = museMcpServers(mcpServers);
+    if (executionConfig) {
+      delete settings.mcp_servers;
+    } else {
+      for (const [name, value] of Object.entries(injected)) {
+        const { type, ...fields } = value as Record<string, unknown>;
+        if (type !== "stdio")
+          throw RequestError.invalidParams(
+            undefined,
+            "legacy exec supports only stdio MCP servers",
+          );
+        injected[name] = { transport: type, ...fields };
+      }
     }
 
     const merged = {
@@ -82,9 +144,9 @@ export function createMuseMcpOverlay(
       ...(executionConfig
         ? { model: executionConfig.model, reasoning_effort: executionConfig.reasoningEffort }
         : {}),
-      mcp_servers: {
+      [executionConfig ? "mcpServers" : "mcp_servers"]: {
         ...(existingMcp ?? {}),
-        ...museMcpServers(mcpServers),
+        ...injected,
       },
     };
     const overlaySettingsPath = join(overlayMuseDir, "settings.json");

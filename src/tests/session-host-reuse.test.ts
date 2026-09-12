@@ -112,7 +112,7 @@ it("reuses a session host across turns, isolates another session and cleans reta
     await f.prompt(first.sessionId);
     const firstPid = f.pid();
     const firstHome = f.capture().configHome;
-    expect(f.capture().settings.mcp_servers["session-mcp"].env.TOKEN).toBe("first-secret");
+    expect(f.capture().settings.mcpServers["session-mcp"].env.TOKEN).toBe("first-secret");
     expect(existsSync(firstHome)).toBe(true);
     await f.prompt(first.sessionId);
     expect(f.spawnCount()).toBe(1);
@@ -123,9 +123,9 @@ it("reuses a session host across turns, isolates another session and cleans reta
     const secondHome = f.capture().configHome;
     expect(secondPid).not.toBe(firstPid);
     expect(secondHome).not.toBe(firstHome);
-    expect(f.capture().settings.mcp_servers["session-mcp"].env.TOKEN).toBe("second-secret");
+    expect(f.capture().settings.mcpServers["session-mcp"].env.TOKEN).toBe("second-secret");
     expect(
-      JSON.parse(readFileSync(join(firstHome, "muse", "settings.json"), "utf8")).mcp_servers[
+      JSON.parse(readFileSync(join(firstHome, "muse", "settings.json"), "utf8")).mcpServers[
         "session-mcp"
       ].env.TOKEN,
     ).toBe("first-secret");
@@ -199,7 +199,7 @@ it.each(["model", "effort", "readOnly", "mcp", "settings", "auth"] as const)(
         expect(capture.args).toContain("--disable-shell");
       }
       if (change === "mcp") {
-        expect(capture.settings.mcp_servers["session-mcp"].env.TOKEN).toBe("fresh-mcp-secret");
+        expect(capture.settings.mcpServers["session-mcp"].env.TOKEN).toBe("fresh-mcp-secret");
         expect(JSON.stringify(capture.settings)).not.toContain("old-mcp-secret");
       }
       if (change === "settings") expect(capture.settings.provider).toBe("fresh-provider");

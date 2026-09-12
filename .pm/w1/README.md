@@ -19,7 +19,7 @@
 - [ ] **m13** — Accurate file diffs and per-turn change reports (7 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [ ] **m14** — Structured failures, retry progress and truthful authentication state (8 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m15** — Background command lifecycle and targeted controls (7 tasks) ← from second codex-acp comparison (2026-09-12)
-- [ ] **m16** — Remote MCP transport and connection diagnostics (6 tasks) ← from second codex-acp comparison (2026-09-12)
+- [x] **m16** — Remote MCP transport and connection diagnostics (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m17** — Rich tool results and output artifacts (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m18** — Session goal state and verified goal controls (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m19** — Paginated session discovery and live metadata (6 tasks) ← from second codex-acp comparison (2026-09-12)

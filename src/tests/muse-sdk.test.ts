@@ -197,7 +197,7 @@ describe("SDK backend over ACP", () => {
     });
     const captured = JSON.parse(readFileSync(capture, "utf8"));
     expect(captured.args).toEqual(["serve", "--disable-write", "--disable-shell"]);
-    expect(captured.settings.mcp_servers.test.command).toBe("test-mcp");
+    expect(captured.settings.mcpServers.test.command).toBe("test-mcp");
     expect(existsSync(captured.configHome)).toBe(true);
     await ctx.request(methods.agent.session.close, { sessionId });
     expect(existsSync(captured.configHome)).toBe(false);

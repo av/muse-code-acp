@@ -32,7 +32,7 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 | Prompt: text + resource_link          | baseline (no capability flag required)         | `src/prompt-content.ts`                                      |
 | Prompt: embedded text resource        | yes (`embeddedContext`)                        | attributed text; binary resources rejected                   |
 | Prompt: audio                         | **no**                                         | rejected with invalid params                                 |
-| MCP stdio                             | yes (baseline; http/sse not advertised)        | `docs/mcp-passthrough.md`                                    |
+| MCP stdio                             | stdio and HTTP (SDK); SSE not advertised       | `docs/mcp-passthrough.md`                                    |
 | `session/load`, `session/list`        | yes                                            | session store + export helpers                               |
 | Auth logout                           | yes                                            | `src/auth.ts`                                                |
 | Terminal auth method                  | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                |
@@ -62,13 +62,13 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 These stay because public SDK session APIs do not yet provide the required
 legacy surface. The **default turn path** uses only the SDK backend.
 
-| Helper                        | Why retained                                                 |
-| ----------------------------- | ------------------------------------------------------------ |
-| Session store listing         | ACP `session/list` workspace filtering + titles/timestamps   |
-| `muse export` history replay  | Complete chronological load when SDK history APIs are absent |
-| `muse login` / logout helpers | Auth surfaces without an SDK credential API                  |
-| `muse skills list`            | Slash-command advertisement                                  |
-| MCP settings overlay          | Per-turn stdio MCP merge without mutating user settings      |
+| Helper                        | Why retained                                                    |
+| ----------------------------- | --------------------------------------------------------------- |
+| Session store listing         | ACP `session/list` workspace filtering + titles/timestamps      |
+| `muse export` history replay  | Complete chronological load when SDK history APIs are absent    |
+| `muse login` / logout helpers | Auth surfaces without an SDK credential API                     |
+| `muse skills list`            | Slash-command advertisement                                     |
+| MCP settings overlay          | Session-owned stdio/HTTP MCP merge; exec retains per-turn stdio |
 
 ## Resource-link encoding
 
@@ -260,3 +260,12 @@ further provider call even if steering was admitted.
 Evidence on Muse 1.1.1-R2514.1: loopback provider input contained two ordered
 corrections during a tool turn, then a second compatible turn retained that history
 without another execution-host spawn. No paid provider calls were required.
+
+## Remote MCP (m16)
+
+SDK sessions accept validated HTTP MCP URLs and headers, merged into private
+canonical Muse `mcpServers` settings. `/mcp` reports inventory and sanitized
+last-observed startup failures locally; current connectivity remains unknown
+because the public SDK has no MCP status method. The built-in command reserves
+the `mcp` skill name. Legacy exec retains stdio only. See
+[MCP configuration, diagnostics and evidence](mcp-passthrough.md).

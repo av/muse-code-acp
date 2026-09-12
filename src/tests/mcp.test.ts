@@ -5,13 +5,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createMuseMcpOverlay } from "../mcp-overlay.js";
+import { createMuseMcpOverlay, museMcpServers, readConfiguredMcpServers } from "../mcp-overlay.js";
 import { connectTestClient, fakeMuseBinary, initialized } from "./helpers.js";
 
 const stdioServer: McpServer = {
@@ -109,12 +110,107 @@ describe("MCP passthrough", () => {
     expect(existsSync(capture.configHome)).toBe(false);
   });
 
-  it("rejects unsupported non-stdio MCP transports", () => {
+  it("rejects unsupported SSE MCP transports", () => {
     expect(() =>
       createMuseMcpOverlay(
-        [{ name: "remote", type: "http", url: "https://example.com" } as unknown as McpServer],
+        [
+          {
+            name: "remote",
+            type: "sse",
+            url: "https://example.com",
+            headers: [],
+          } as unknown as McpServer,
+        ],
         process.env,
       ),
     ).toThrow(/unsupported MCP transport/);
   });
+});
+
+it("merges canonical and legacy global servers with session HTTP precedence in an isolated SDK overlay", () => {
+  const root = mkdtempSync(join(tmpdir(), "muse-http-mcp-"));
+  mkdirSync(join(root, "muse"));
+  const path = join(root, "muse", "settings.json");
+  const original = JSON.stringify({
+    mcp_servers: {
+      legacy: { transport: "stdio", command: "/bin/legacy", args: [], env: {} },
+      duplicate: { transport: "stdio", command: "/bin/obsolete" },
+    },
+    mcpServers: {
+      duplicate: { type: "stdio", command: "/bin/canonical" },
+      remote: {
+        type: "http",
+        url: "https://old.invalid",
+        headers: { Authorization: "old-secret" },
+      },
+    },
+  });
+  writeFileSync(path, original);
+  const overlay = createMuseMcpOverlay(
+    [
+      stdioServer,
+      {
+        type: "http",
+        name: "remote",
+        url: "https://new.invalid/mcp?key=dummy-key",
+        headers: [{ name: "Authorization", value: "Bearer dummy-secret" }],
+      },
+    ],
+    { XDG_CONFIG_HOME: root },
+    { model: "muse-spark-1.2", reasoningEffort: "high" },
+  );
+  try {
+    const settings = JSON.parse(
+      readFileSync(join(overlay.configHome, "muse", "settings.json"), "utf8"),
+    );
+    expect(settings.mcp_servers).toBeUndefined();
+    expect(readConfiguredMcpServers({ XDG_CONFIG_HOME: root })).toEqual({
+      legacy: { type: "stdio", command: "/bin/legacy", args: [], env: {} },
+      duplicate: { type: "stdio", command: "/bin/canonical" },
+      remote: {
+        type: "http",
+        url: "https://old.invalid",
+        headers: { Authorization: "old-secret" },
+      },
+    });
+    expect(settings.mcpServers.legacy).toEqual({
+      type: "stdio",
+      command: "/bin/legacy",
+      args: [],
+      env: {},
+    });
+    expect(settings.mcpServers.duplicate.command).toBe("/bin/canonical");
+    expect(settings.mcpServers["security-tools"].type).toBe("stdio");
+    expect(settings.mcpServers.remote).toEqual({
+      type: "http",
+      url: "https://new.invalid/mcp?key=dummy-key",
+      headers: { Authorization: "Bearer dummy-secret" },
+    });
+    expect(JSON.stringify(settings)).not.toContain("old-secret");
+    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(statSync(join(overlay.configHome, "muse", "settings.json")).mode & 0o777).toBe(0o600);
+  } finally {
+    overlay.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it.each([
+  { url: "file:///dummy-secret", headers: [] },
+  { url: "https://user:dummy-secret@example.com", headers: [] },
+  { url: "dummy-secret invalid", headers: [] },
+  {
+    url: "https://example.com",
+    headers: [{ name: "Authorization", value: "dummy-secret\r\nInjected: yes" }],
+  },
+  { url: "https://example.com", headers: [{ name: "Bad Header", value: "dummy-secret" }] },
+])("rejects invalid HTTP MCP settings without exposing credentials (%#)", (value) => {
+  let error: unknown;
+  try {
+    museMcpServers([{ type: "http", name: "private-name", ...value }]);
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toMatchObject({ code: -32602 });
+  expect(String(error)).not.toMatch(/dummy-secret|private-name|Injected/);
 });

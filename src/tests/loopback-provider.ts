@@ -15,6 +15,8 @@ export interface LoopbackProviderOptions {
   /** Substrings that must all appear in the request body to script a bash tool call. */
   scriptedToolCallWhen: readonly string[];
   scriptedToolCallCommand: string;
+  /** Override the default bash call when exercising another host-provided tool. */
+  scriptedToolCall?: { name: string; arguments: Record<string, unknown> };
   replyText?: string;
   /** Hold SSE open so cancel races stay deterministic. */
   holdMs?: number;
@@ -73,7 +75,10 @@ function textHead(text: string): string {
   );
 }
 
-function toolCallHead(callId: string, command: string): string {
+function toolCallHead(
+  callId: string,
+  tool: NonNullable<LoopbackProviderOptions["scriptedToolCall"]>,
+): string {
   return (
     sse({
       type: "response.created",
@@ -85,12 +90,9 @@ function toolCallHead(callId: string, command: string): string {
       sequence_number: 2,
       output_index: 0,
       item_id: `fc_${callId}`,
-      name: "bash",
+      name: tool.name,
       call_id: callId,
-      arguments: JSON.stringify({
-        command,
-        description: "Write the approval artifact",
-      }),
+      arguments: JSON.stringify(tool.arguments),
     })
   );
 }
@@ -109,6 +111,13 @@ export async function startLoopbackProvider(
   options: LoopbackProviderOptions,
 ): Promise<LoopbackProvider> {
   const replyText = options.replyText ?? "ok";
+  const scriptedTool = options.scriptedToolCall ?? {
+    name: "bash",
+    arguments: {
+      command: options.scriptedToolCallCommand,
+      description: "Write the approval artifact",
+    },
+  };
   const holdMs = options.holdMs ?? 2_000;
   let catalogGets = 0;
   let scriptedToolCalls = 0;
@@ -131,10 +140,22 @@ export async function startLoopbackProvider(
         response.writeHead(404).end();
         return;
       }
-      requests.push(JSON.parse(body));
+      const parsed = JSON.parse(body);
+      requests.push(parsed);
+      const offersScriptedTool = (parsed.tools ?? []).some(
+        (namespace: { name: string; tools?: { name: string }[] }) =>
+          namespace.tools
+            ? namespace.tools.some(
+                (tool) =>
+                  tool.name === scriptedTool.name ||
+                  `${namespace.name}__${tool.name}` === scriptedTool.name,
+              )
+            : namespace.name === scriptedTool.name,
+      );
 
       const isScripted =
         scriptedToolCalls === 0 &&
+        offersScriptedTool &&
         options.scriptedToolCallWhen.every((needle) => body.includes(needle));
 
       let head: string;
@@ -142,7 +163,7 @@ export async function startLoopbackProvider(
       if (isScripted) {
         scriptedToolCalls += 1;
         responseId = "resp_tool";
-        head = toolCallHead(`call_${scriptedToolCalls}`, options.scriptedToolCallCommand);
+        head = toolCallHead(`call_${scriptedToolCalls}`, scriptedTool);
       } else {
         responseId = "resp_text";
         head = textHead(replyText);

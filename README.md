@@ -82,7 +82,7 @@ Requires Muse ≥ 0.2.1 for `exec`; the default SDK path requires ≥ 1.1.1 with
 | Auth: browser login, `META_API_KEY`, logout         | ✅                                                 |
 | Interactive per-tool-call permission prompts        | ✅ (SDK backend)                                   |
 | Thinking/reasoning stream                           | ❌ (public summaries not yet forwarded)            |
-| Client-provided stdio MCP servers                   | ✅ (see `docs/mcp-passthrough.md`)                 |
+| Client-provided stdio and SDK HTTP MCP servers      | ✅ (see `docs/mcp-passthrough.md`)                 |
 | Additional workspace directories                    | ❌ (muse supports one workspace root)              |
 | Delegated workers                                   | ❌ (advertised in namespaced ACP metadata)         |
 | Token usage                                         | ❌ (not forwarded by the adapter)                  |
