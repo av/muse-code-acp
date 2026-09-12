@@ -205,3 +205,25 @@ it("preserves unknown observed reviewer stage kinds without inventing a decision
     resolutionKind: "futureReviewerState",
   });
 });
+
+it("reports rejected approval MSP codes without exposing arbitrary host details", async () => {
+  const client = sdkClient("approvalSubmitFailure");
+  const { ctx, sessionId } = await newTestSession(client);
+  try {
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "approval rejected by host" }],
+      }),
+    ).rejects.toMatchObject({
+      message:
+        "Internal error: Muse SDK turn failed: Muse approval round-trip failed (submitFailed; MSP -32053)",
+    });
+    expect(client.requests().filter((r) => r.method === "approval/decide")).toHaveLength(1);
+    expect(client.updates.some((n) => JSON.stringify(n).includes("sensitive host detail"))).toBe(
+      false,
+    );
+  } finally {
+    await client.agent.dispose();
+  }
+});

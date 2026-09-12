@@ -90,3 +90,11 @@ Wire, binding, permission and review tests cover active-turn transitions, MCP
 rejection, cancellation during initial status delivery, final decisions, reference
 validation and bounded file reads, including growth after stat. All command names
 are reserved ahead of discovered skills in SDK sessions.
+
+Muse 1.1.1-R2514.1 may reject durable approval settlement while a planning tool
+is being denied (`MSP -32603`, retained acknowledgement records unflushed). The
+adapter reports a failed prompt and closes that host; it does not replay the
+turn or assume approval succeeded. Planning acceptance checks both successful
+denial turns and this fail-closed result, verifies that neither write nor shell
+markers exist, then requires successful implementation only after an explicit
+mode change. Normal implementation and review acceptance still require success.

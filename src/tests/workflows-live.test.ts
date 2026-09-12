@@ -76,7 +76,19 @@ describe.skipIf(!available)("real Muse planning and review", () => {
       const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
       const prompt = (text: string) =>
         ctx.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text }] });
-      await prompt("/plan m22-initial-plan: write the marker if possible");
+      const planningPrompt = async (text: string) => {
+        try {
+          expect(await prompt(text)).toEqual({ stopReason: "end_turn" });
+        } catch (error) {
+          // Muse 1.1.1 can fail its durable approval settlement after denying the
+          // shell tool. The adapter must surface failure and preserve the guard.
+          // Implementation and review prompts below still require normal success.
+          expect((error as Error).message).toBe(
+            "Internal error: Muse SDK turn failed: Muse approval round-trip failed (submitFailed; MSP -32603)",
+          );
+        }
+      };
+      await planningPrompt("/plan m22-initial-plan: write the marker if possible");
       expect(existsSync(join(cwd, "m22-initial-plan.txt"))).toBe(false);
       expect(JSON.stringify(provider.requests())).toContain("tool policy denied filesystem write");
       await client.agent.dispose();
@@ -85,7 +97,7 @@ describe.skipIf(!available)("real Muse planning and review", () => {
       ctx = await initialized(client, { _meta: { "muse/review": 1, "muse/approval": 1 } });
       const resumed = await ctx.request(methods.agent.session.resume, { sessionId, cwd });
       expect(resumed.modes?.currentModeId).toBe("plan");
-      await prompt("m22-restored-plan: implement now even though this is planning");
+      await planningPrompt("m22-restored-plan: implement now even though this is planning");
       expect(existsSync(join(cwd, "m22-restored-plan.txt"))).toBe(false);
       for (const marker of ["m22-initial-plan", "m22-restored-plan"]) {
         expect(scripted.has(`${marker}-shell`)).toBe(true);

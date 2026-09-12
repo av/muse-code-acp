@@ -6,6 +6,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import {
   Connection,
+  MspError,
   spawnMspConnection,
   isLaunchFailure,
   type TurnOutcome,
@@ -282,7 +283,13 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         failTurn(
           failure.kind === "handlerThrew"
             ? failure.error
-            : new Error(`Muse approval round-trip failed (${failure.kind})`),
+            : new Error(
+                `Muse approval round-trip failed (${failure.kind}${
+                  failure.kind === "submitFailed" && failure.error instanceof MspError
+                    ? `; MSP ${failure.error.code}`
+                    : ""
+                })`,
+              ),
         );
       });
       // Gap fill runs automatically on wired Sessions. Only hard fill failures

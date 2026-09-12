@@ -148,7 +148,7 @@ rl.on("line", async (line) => {
       if (mode === "exit") {
         process.exit(1);
       }
-      if (mode === "approval" || mode === "approvalAllow" || mode === "approvalDeny" || mode === "concurrentApprovals") {
+      if (mode === "approval" || mode === "approvalSubmitFailure" || mode === "approvalAllow" || mode === "approvalDeny" || mode === "concurrentApprovals") {
         const first = approvalParams("apr1", "bash", "call1", JSON.stringify({ command: "pwd", description: "Show directory" }));
         pendingApprovals.set("apr1", first);
         notify("approval/requested", first);
@@ -189,7 +189,7 @@ rl.on("line", async (line) => {
         terminal("failed", { error: { kind: "stepLimit", message: "step limit", retryable: false } });
       } else if (mode === "malformed") {
         console.log("{not-json");
-      } else if (mode !== "block" && mode !== "approval" && mode !== "approvalAllow" && mode !== "approvalDeny" && mode !== "concurrentApprovals" && mode !== "userInput" && mode !== "gapRecoverable") {
+      } else if (mode !== "block" && mode !== "approval" && mode !== "approvalSubmitFailure" && mode !== "approvalAllow" && mode !== "approvalDeny" && mode !== "concurrentApprovals" && mode !== "userInput" && mode !== "gapRecoverable") {
         if (mode === "nativeGoal")
           notify("session/goalChanged", { goal: { objective: "Native work", status: "active", percentComplete: 10 } });
         notify("item/completed", { item: { ...item, revision: 2, status: "completed", text: "hello world" } });
@@ -208,6 +208,10 @@ rl.on("line", async (line) => {
       break;
     }
     case "approval/decide": {
+      if (mode === "approvalSubmitFailure") {
+        write({ id, error: { code: -32053, message: "sensitive host detail", data: { kind: "approvalRequirementStale" } } });
+        break;
+      }
       const held = pendingApprovals.get(params.approvalId);
       if (!held) {
         write({ id, error: { code: -32051, message: "approval not found", data: { kind: "approvalNotFound" } } });
