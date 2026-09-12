@@ -47,3 +47,14 @@ Estimated total: 5h 15m across 8 tasks. Prerequisite: w1/m9/t009; logical depend
 ## Validation evidence
 
 Pending implementation. The originating comparison inspected source and installed SDK declarations; it did not establish host acceptance of the proposed additions.
+
+## Host verification blocker (2026-09-12)
+
+Required scheduled-retry delivery in t003/t005 is unverified on Muse 1.1.1-R2514.1 with SDK 0.1.1. Isolated loopback provider probes via public `session/start` and `turn/start` observed:
+
+- HTTP 401: terminal `authRequired`, `retryable: false`, with the host asking for replacement credentials. This distinguishes rejection from credential-file presence.
+- HTTP 429 and 503 with `Retry-After: 0`: terminal `modelError`, `retryable: true`, after ten provider attempts per model request; no `turn/retryScheduled` notification before terminal.
+- HTTP 503 with ordinary backoff: twelve provider requests within a bounded 45-second observation, no retry notification; probe stopped its own host without replay. This does not establish that the event can never occur.
+- The public SDK mirror's `schema/msp/transcripts/turn-retry-scheduled/manifest.json` explicitly declares `provenance: hand-authored`. Public declarations describe model-task retry scheduling, but contain no supported control for forcing it. HTTP transport retries are not evidence of that event.
+
+Resume with a supported host/version or reproducible public configuration that emits the required non-terminal retry event, including attempt/delay, then verify retry-success and exhaustion. Do not invent progress from elapsed time or add adapter retries. Auth/error implementation remains open with this milestone; no task has been marked delivered. Probe source and output are retained locally in `.tmp/m14-probe/`; no paid calls or production changes. Independent m17/m19/m25 can proceed; m15 separately requires blocked m11 child integration.
