@@ -23,3 +23,12 @@
 - [ ] **m17** — Rich tool results and output artifacts (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m18** — Session goal state and verified goal controls (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m19** — Paginated session discovery and live metadata (6 tasks) ← from second codex-acp comparison (2026-09-12)
+- [ ] **m20** — Remaining prompt context and elicitation parity (7 tasks) ← from ADR003 parity handoff (2026-09-12)
+- [ ] **m21** — Provider configuration, recommendations and account limits (8 tasks) ← from ADR003 parity handoff (2026-09-12)
+- [ ] **m22** — Plan mode, review workflows and permission presentation (7 tasks) ← from ADR003 parity handoff (2026-09-12)
+- [ ] **m23** — Session commands and remaining editor presentation contracts (8 tasks) ← from ADR003 parity handoff (2026-09-12)
+- [ ] **m24** — Portable packaging and reference distribution assessment (6 tasks) ← from ADR003 parity handoff (2026-09-12)
+
+## Inbox
+
+- [001 — Reconcile ADR003 with the complete w1 parity handoff](001.md) — coverage map and 30m documentation follow-up.
