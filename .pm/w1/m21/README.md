@@ -47,3 +47,27 @@ Estimated total: 5h 15m across 8 tasks. Only listed dependencies are prerequisit
 ## Validation evidence
 
 Pending implementation. ADR003 is a source-based comparison; new host surfaces still require verification. No feature or task is marked delivered by this handoff.
+
+## Blocker — service-tier and account contracts (2026-09-12)
+
+Triage outcome: blocked before implementation; no tasks are marked complete.
+The pinned SDK 0.1.1 public `msp.d.ts` method registry has `model/list`,
+`session/setModel` and session provider selection, but no account/quota query.
+`ModelCatalogEntry` reports catalog identity, limits and cost, not per-account
+remaining quota, reset windows, service tiers or per-model allowed effort values.
+`TurnStartParams` exposes reasoning effort; its documentation explicitly excludes
+free-form `providerRequestOptions` from the published contract. No documented
+public fast/service-tier selection or account quota surface was found for the
+supported Muse 1.1.1-R2514.1 host. These are required deliveries in t003 and t005,
+so catalog cost/token usage cannot be substituted for them.
+
+Existing real loopback tests prove configured provider endpoints work, and m8
+proves public model discovery. Neither proves ACP client-supplied provider
+negotiation or account metadata. Those implementation tasks remain wanted and
+open; this triage does not claim the full t001 investigation complete.
+
+Resume when public tier/effort capability metadata and an authoritative account
+quota response are available, then verify against local endpoints and account
+changes before advertising. All t001–t008 remain open; no milestone currently
+depends on m21. Continue independent w1 work. Evidence-only change: Markdown and
+repository-local source references checked; no runtime checks claimed anew.
