@@ -1,40 +1,19 @@
 name: Publish and Release
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       ref:
-        description: Tag or commit to publish
+        description: Existing version tag to publish (vX.Y.Z)
         required: true
         type: string
 
-jobs:
-  release-please:
-    if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
-        id: release
-        with:
-          # Do not add release-type here. The action ignores config-file whenever
-          # release-type is set, which silently disables the pre-1.0 versioning
-          # rules in release-please-config.json.
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
 
+jobs:
   resolve-release:
     runs-on: ubuntu-latest
-    needs: [release-please]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true') }}
     permissions:
       contents: read
     outputs:
@@ -42,9 +21,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || needs.release-please.outputs.tag_name }}
+          ref: main
+          fetch-depth: 0
       - id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        name: Resolve and validate release tag
+        env:
+          RELEASE_TAG: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Expected a stable version tag such as v0.4.0" >&2
+            exit 1
+          }
+          sha=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          git merge-base --is-ancestor "$sha" origin/main
+          git checkout --detach "$sha"
+          version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')
+          [[ "$RELEASE_TAG" == "v$version" ]] || {
+            echo "Release tag does not match package.json version" >&2
+            exit 1
+          }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   verify-release:
     needs: resolve-release

@@ -1,7 +1,7 @@
 name: Conventional PRs
 
-# Squash merges use the PR title as the commit subject, which is what
-# release-please parses to compute the next version and CHANGELOG entry.
+# Validate conventional titles when contributors choose to open a PR.
+# Releases are dispatched explicitly and do not require a PR.
 on:
   pull_request:
     branches: [main]
@@ -28,9 +28,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Exactly the types release-please understands. feat/fix/perf/revert/docs
-          # appear in the changelog; the rest are valid but hidden. Any other type
-          # would be dropped silently, so it is rejected here instead.
+          # Keep optional PR titles consistent with repository commit subjects.
           types: |
             feat
             fix
