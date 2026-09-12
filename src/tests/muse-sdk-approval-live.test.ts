@@ -77,7 +77,9 @@ describe("SDK live approval gating (real Muse host)", () => {
       await expect(prompt).resolves.toEqual({ stopReason: "end_turn" });
       expect(
         existsSync(marker),
-        `approved command did not write its marker; ACP updates: ${JSON.stringify(client.updates)}`,
+        `approved command did not write its marker; tool updates: ${JSON.stringify(
+          client.updates.filter(({ update }) => update.sessionUpdate === "tool_call_update"),
+        )}`,
       ).toBe(true);
       expect(readFileSync(marker, "utf8").trim()).toBe("yes");
       expect(provider.scriptedToolCalls()).toBe(1);
