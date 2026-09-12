@@ -5,6 +5,7 @@ import {
   AuthenticateResponse,
   CancelNotification,
   ClientApp,
+  ClientCapabilities,
   LogoutRequest,
   LogoutResponse,
   InitializeRequest,
@@ -29,6 +30,7 @@ import {
   SetSessionModeResponse,
   Stream,
 } from "@agentclientprotocol/sdk";
+import { createUuidV7Mint } from "@muse-code/sdk";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import packageJson from "../package.json" with { type: "json" };
@@ -48,8 +50,10 @@ import {
 import { Logger } from "./logger.js";
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
+import { MuseSdkHandle, spawnMuseSdkTurn } from "./muse-sdk.js";
 import { createMuseMcpOverlay, MuseMcpOverlay } from "./mcp-overlay.js";
 import { readMuseSettings } from "./muse-settings.js";
+import { convertPromptContent } from "./prompt-content.js";
 import { exportToUpdates, runMuseExport } from "./session-export.js";
 import { listStoredSessions } from "./session-store.js";
 import { listMuseSkills, skillsToCommands } from "./skills.js";
@@ -82,12 +86,12 @@ class ClientConnection implements AcpClient {
 }
 
 export interface SessionState {
-  /** Working directory every `muse exec` turn for this session runs in. */
+  /** Working directory every Muse turn for this session runs in. */
   cwd: string;
-  /** The muse `--session-id`; minted by us and identical to the ACP session id. */
+  /** The Muse session id; minted by us and identical to the ACP session id. */
   museSessionId: string;
-  /** Live `muse exec` child while a prompt turn is running. */
-  activeTurn: MuseExecHandle | null;
+  /** Live CLI or SDK turn, including its owned Muse child process. */
+  activeTurn: MuseExecHandle | MuseSdkHandle | null;
   /** Set by `session/cancel`; forces the turn to settle with `cancelled`. */
   cancelRequested: boolean;
   /** Active ACP session mode; decides the safety flags of the next spawn. */
@@ -106,25 +110,55 @@ export interface SessionState {
  * provider, a fake binary, and an isolated XDG data dir.
  */
 export interface MuseAgentOptions {
+  /** Opt-in SDK migration; the CLI backend remains the default. */
+  backend?: "exec" | "sdk";
   museBinary?: string;
   provider?: "meta" | "echo";
   env?: Record<string, string | undefined>;
+  /** Tests with fake-msp skip the real `muse serve --help` probe. */
+  skipSdkHostCheck?: boolean;
 }
 
 export class MuseAcpAgent {
   readonly sessions = new Map<string, SessionState>();
+  readonly backend: "exec" | "sdk";
+  /** Client capabilities from initialize; omitted keys are unsupported. */
+  clientCapabilities: ClientCapabilities = {};
 
   constructor(
     readonly client: AcpClient,
     readonly logger: Logger = console,
     readonly options: MuseAgentOptions = {},
-  ) {}
+  ) {
+    const backend = options.backend ?? (options.env ?? process.env).MUSE_CODE_ACP_BACKEND ?? "exec";
+    if (backend !== "exec" && backend !== "sdk") {
+      throw new Error(`unknown MUSE_CODE_ACP_BACKEND: ${backend}; expected exec or sdk`);
+    }
+    this.backend = backend;
+  }
+
+  private sessionModes(current: MuseModeId) {
+    const state = modeState(current, guardContext());
+    if (this.backend === "sdk") {
+      state.availableModes = state.availableModes.filter(
+        (mode) => mode.id === "default" || mode.id === "readOnly",
+      );
+    }
+    return state;
+  }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
+    // ACP v1: if we support the requested version, echo it; otherwise return
+    // our latest supported version. This adapter supports only PROTOCOL_VERSION.
+    this.clientCapabilities = params.clientCapabilities ?? {};
+    const authMethods = museAuthMethods({
+      includeTerminal: this.clientCapabilities.auth?.terminal === true,
+    });
     return {
-      protocolVersion: Math.min(params.protocolVersion, PROTOCOL_VERSION),
+      protocolVersion: PROTOCOL_VERSION,
       // Only advertise what is actually implemented; capabilities grow with
-      // the milestones that ship them.
+      // the milestones that ship them. Empty promptCapabilities = baseline
+      // text + resource_link only (no image/audio/embedded).
       agentCapabilities: {
         promptCapabilities: {},
         mcpCapabilities: {},
@@ -132,7 +166,7 @@ export class MuseAcpAgent {
         sessionCapabilities: { list: {} },
         auth: { logout: {} },
       },
-      authMethods: museAuthMethods(),
+      authMethods,
       agentInfo: {
         name: packageJson.name,
         version: packageJson.version,
@@ -181,7 +215,7 @@ export class MuseAcpAgent {
     }
     // The ACP session id doubles as the muse `--session-id`. Muse creates its
     // on-disk session log lazily on the first exec, so nothing is spawned here.
-    const sessionId = randomUUID();
+    const sessionId = this.backend === "sdk" ? createUuidV7Mint()() : randomUUID();
     const config = defaultSessionConfig(
       readMuseSettings(this.options.env ?? process.env, this.logger),
     );
@@ -198,7 +232,7 @@ export class MuseAcpAgent {
     this.advertiseCommands(sessionId, params.cwd);
     return {
       sessionId,
-      modes: modeState("default", guardContext()),
+      modes: this.sessionModes("default"),
       configOptions: buildConfigOptions(config),
     };
   }
@@ -272,7 +306,7 @@ export class MuseAcpAgent {
 
     this.advertiseCommands(params.sessionId, params.cwd);
     return {
-      modes: modeState("default", guardContext()),
+      modes: this.sessionModes("default"),
       configOptions: buildConfigOptions(config),
     };
   }
@@ -287,7 +321,10 @@ export class MuseAcpAgent {
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
     const session = this.requireSession(params.sessionId);
-    if (!isModeAvailable(params.modeId, guardContext())) {
+    if (
+      !isModeAvailable(params.modeId, guardContext()) ||
+      !this.sessionModes(session.modeId).availableModes.some((mode) => mode.id === params.modeId)
+    ) {
       throw RequestError.invalidParams(
         undefined,
         `unknown or unavailable session mode: ${params.modeId}`,
@@ -306,9 +343,9 @@ export class MuseAcpAgent {
       );
     }
 
-    const promptText = promptToText(params.prompt);
-    if (promptText.length === 0) {
-      throw RequestError.invalidParams(undefined, "prompt contains no text content");
+    const converted = convertPromptContent(params.prompt);
+    if (!converted.ok) {
+      throw converted.error;
     }
 
     session.cancelRequested = false;
@@ -317,9 +354,40 @@ export class MuseAcpAgent {
       session.mcpServers.length > 0 ? createMuseMcpOverlay(session.mcpServers, baseEnv) : null;
     session.activeMcpOverlay = mcpOverlay;
     try {
+      if (this.backend === "sdk") {
+        if (this.options.provider === "echo") {
+          throw RequestError.invalidParams(
+            undefined,
+            "The SDK backend requires a configured Muse provider; use the exec backend for echo",
+          );
+        }
+        const handle = spawnMuseSdkTurn({
+          sessionId: session.museSessionId,
+          cwd: session.cwd,
+          input: converted.parts,
+          model: session.config.model,
+          reasoningEffort: session.config.reasoningEffort,
+          readOnly: session.modeId === "readOnly",
+          museBinary: this.options.museBinary,
+          env: mcpOverlay?.env ?? baseEnv,
+          logger: this.logger,
+          checkHost: this.options.skipSdkHostCheck ? false : undefined,
+        });
+        session.activeTurn = handle;
+        try {
+          for await (const notification of handle.updates) {
+            await this.client.sessionUpdate(notification);
+          }
+          const response = await handle.done;
+          return session.cancelRequested ? { stopReason: "cancelled" } : response;
+        } finally {
+          handle.kill();
+          await handle.done.catch(() => {});
+        }
+      }
       const translator = new TurnTranslator(params.sessionId, this.logger);
       const handle = spawnMuseExec({
-        prompt: promptText,
+        prompt: converted.text,
         sessionId: session.museSessionId,
         cwd: session.cwd,
         museBinary: this.options.museBinary,
@@ -428,27 +496,18 @@ export class MuseAcpAgent {
   }
 
   async dispose(): Promise<void> {
+    const activeTurns = [...this.sessions.values()].flatMap((session) =>
+      session.activeTurn ? [session.activeTurn] : [],
+    );
+    for (const turn of activeTurns) {
+      turn.kill();
+    }
+    await Promise.all(activeTurns.map((turn) => turn.done.catch(() => {})));
     for (const session of this.sessions.values()) {
-      session.activeTurn?.kill();
       session.activeMcpOverlay?.cleanup();
       session.activeMcpOverlay = null;
     }
   }
-}
-
-/**
- * m1 supports text prompts only. Text blocks are joined; other block types
- * (images, resources) arrive in later milestones and are ignored with a log
- * so the turn still runs.
- */
-function promptToText(blocks: PromptRequest["prompt"]): string {
-  const parts: string[] = [];
-  for (const block of blocks) {
-    if (block.type === "text") {
-      parts.push(block.text);
-    }
-  }
-  return parts.join("\n\n").trim();
 }
 
 /**

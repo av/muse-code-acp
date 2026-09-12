@@ -103,12 +103,46 @@ describe("session/prompt (fake muse)", () => {
     await expect(second).resolves.toMatchObject({ stopReason: "cancelled" });
   }, 15_000);
 
-  it("rejects prompts without text content", async () => {
+  it("rejects prompts without text or resource_link content", async () => {
     const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const { ctx, sessionId } = await newTestSession(testClient);
 
     await expect(
       ctx.request(methods.agent.session.prompt, { sessionId, prompt: [] }),
     ).rejects.toMatchObject({ code: -32602 });
+  });
+
+  it("accepts resource_link-only prompts and rejects unsupported image content", async () => {
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
+    const { ctx, sessionId } = await newTestSession(testClient);
+
+    const promptPromise = ctx.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: [
+        {
+          type: "resource_link",
+          name: "only.md",
+          uri: "file:///tmp/only.md",
+        },
+      ],
+    });
+    await waitFor(() => testClient.updates.length > 0);
+    await ctx.notify(methods.agent.session.cancel, { sessionId });
+    await expect(promptPromise).resolves.toMatchObject({ stopReason: "cancelled" });
+
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [
+          {
+            type: "image",
+            data: "aaaa",
+            mimeType: "image/png",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/unsupported prompt content type: image/),
+    });
   });
 });

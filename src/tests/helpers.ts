@@ -74,7 +74,10 @@ export function connectTestClient(
 
 export async function initialized(testClient: TestClient): Promise<ClientContext> {
   const ctx = await testClient.connect();
-  await ctx.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION });
+  await ctx.request(methods.agent.initialize, {
+    protocolVersion: PROTOCOL_VERSION,
+    clientCapabilities: { auth: { terminal: true } },
+  });
   return ctx;
 }
 

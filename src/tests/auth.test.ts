@@ -34,12 +34,22 @@ describe("auth over ACP", () => {
   it("initialize advertises both auth methods and the logout capability", async () => {
     const testClient = connectTestClient();
     const ctx = await testClient.connect();
-    const response = await ctx.request(methods.agent.initialize, { protocolVersion: 1 });
+    const response = await ctx.request(methods.agent.initialize, {
+      protocolVersion: 1,
+      clientCapabilities: { auth: { terminal: true } },
+    });
 
     expect(response.authMethods?.map((m) => m.id)).toEqual(["muse-login", "meta-api-key"]);
     expect(response.agentCapabilities?.auth).toEqual({ logout: {} });
     const login = response.authMethods?.[0];
     expect(login && "args" in login ? login.args : []).toEqual(["--cli", "login"]);
+  });
+
+  it("omits terminal auth when the client does not advertise it", async () => {
+    const testClient = connectTestClient();
+    const ctx = await testClient.connect();
+    const response = await ctx.request(methods.agent.initialize, { protocolVersion: 1 });
+    expect(response.authMethods?.map((m) => m.id)).toEqual(["meta-api-key"]);
   });
 
   it("authenticate verifies credentials and rejects when absent", async () => {

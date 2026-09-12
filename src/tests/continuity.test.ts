@@ -60,7 +60,15 @@ describe.skipIf(!museAvailable())("multi-turn continuity (live echo provider)", 
     expect(dirs[0].endsWith(sessionId)).toBe(true);
 
     const log = readFileSync(join(dirs[0], "session.jsonl"), "utf8").trim().split("\n");
-    const sequences = log.map((line) => JSON.parse(line).sequence as number);
+    // Muse 1.1 also stores permission transactions as frames containing
+    // sequenced child records. The outer frame has no event sequence.
+    const records = log.flatMap((line) => {
+      const record = JSON.parse(line);
+      return record.retained_frame === "session_permission_transaction"
+        ? record.children.map((child: { record_json: string }) => JSON.parse(child.record_json))
+        : [record];
+    });
+    const sequences = records.map((record) => record.sequence as number);
     for (let i = 1; i < sequences.length; i++) {
       expect(sequences[i]).toBeGreaterThan(sequences[i - 1]);
     }

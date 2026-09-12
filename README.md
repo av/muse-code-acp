@@ -34,8 +34,7 @@ for the current settings shape.)
 
 ## How it works
 
-Muse Code has no SDK or server mode; its headless surface is
-`muse exec --json` — one process per prompt turn streaming JSONL events, with
+The default backend uses `muse exec --json` — one process per prompt turn streaming JSONL events, with
 conversation continuity through `--session-id` and muse's replay-exact session
 log. This adapter translates that stream into ACP session updates:
 
@@ -47,6 +46,42 @@ log. This adapter translates that stream into ACP session updates:
 | `run.terminal.*` + exit code  | stop reason / error                                                          |
 | session store + `muse export` | `session/list` + `session/load` history replay                               |
 | `muse skills list`            | ACP slash commands (prompt passthrough)                                      |
+
+### Try the Muse Code SDK backend
+
+An initial migration path uses the official
+[`@muse-code/sdk`](https://github.com/meta-models/muse-code-sdk) (pinned to 0.1.1).
+With a Muse binary that supports `serve` (verified with ≥ 1.1.1) and a configured provider:
+
+```sh
+MUSE_CODE_ACP_BACKEND=sdk muse-code-acp
+```
+
+See [`docs/sdk-migration.md`](docs/sdk-migration.md) for the compatibility matrix,
+ACP support surface, resource-link encoding, and test owners.
+
+Set the same environment variable on your editor's agent process to use it there.
+This backend starts one durable `muse serve` host per prompt, starts or resumes
+the session over MSP, translates message and tool items into ACP updates, and
+cancels using `turn/cancel`. Authentication, skills, session listing/history
+export, and the per-turn MCP settings overlay use the existing implementation.
+New SDK sessions use UUIDv7 IDs, as required by MSP.
+
+The SDK backend is opt-in while feature parity is completed. It offers `default`
+and `readOnly` modes; `serve` does not accept the CLI's approval-bypass flags.
+Interactive approvals, user-input requests, and stream-gap recovery are not
+implemented yet: these fail the turn clearly instead of waiting indefinitely.
+Use a configured provider; Muse's echo provider is supported by the `exec`
+backend only. This first migration retains per-turn startup latency.
+The SDK is a developer preview; its API may change before 1.0.
+
+The SDK tests include the real local Muse host with a loopback provider and dummy
+credentials, covering streaming, multiple turns, history reload, and cancellation
+without external API calls. Run them with:
+
+```sh
+npx vitest run src/tests/muse-sdk.test.ts src/tests/muse-sdk-live.test.ts
+```
 
 ## Capabilities
 
@@ -60,15 +95,15 @@ log. This adapter translates that stream into ACP session updates:
 | Model + reasoning-effort config options                      | ✅                                                 |
 | Skills as slash commands                                     | ✅                                                 |
 | Auth: browser login, `META_API_KEY`, logout                  | ✅                                                 |
-| Interactive per-tool-call permission prompts                 | ❌ (muse limitation)                               |
+| Interactive per-tool-call permission prompts                 | ❌ (not implemented in the adapter)                |
 | Thinking/reasoning stream                                    | ❌ (muse encrypts reasoning)                       |
 | Client-provided stdio MCP servers                            | ✅ (see `docs/mcp-passthrough.md`)                 |
 | Additional workspace directories                             | ❌ (muse supports one workspace root)              |
 | Delegated workers                                            | ❌ (advertised in namespaced ACP metadata)         |
-| Token usage                                                  | ❌ (muse does not expose it)                       |
+| Token usage                                                  | ❌ (not forwarded by the adapter)                  |
 | Editor-side file edits (fs proxying)                         | ❌ (muse edits in its own sandbox; diffs reported) |
 
-### Honest limitations (muse 0.2.1)
+### Default exec backend limitations (originally verified with muse 0.2.1)
 
 - **No interactive approvals.** Muse's headless mode resolves tool approvals
   internally (policy engine + LLM judge). The adapter reports each decision
@@ -96,6 +131,7 @@ log. This adapter translates that stream into ACP session updates:
 | Variable                   | Effect                                              |
 | -------------------------- | --------------------------------------------------- |
 | `MUSE_CODE_EXECUTABLE`     | Path to the `muse` binary (else `PATH` lookup)      |
+| `MUSE_CODE_ACP_BACKEND`    | `exec` (default) or the initial `sdk` backend       |
 | `META_API_KEY`             | Headless auth (muse precedence: env > stored login) |
 | `MUSE_AGENT_LOGS`          | Directory for adapter log files                     |
 | `MUSE_CODE_ACP_ALLOW_YOLO` | `1` offers the yolo mode                            |
@@ -118,13 +154,13 @@ npm run check         # eslint + prettier
 RUN_INTEGRATION_TESTS=true npm run test:integration   # one real-model turn
 ```
 
-The work board lives in `.pm/` (workstream w1, milestones m1–m3).
+The work board lives in `.pm/` (workstream w1, milestones m1–m6).
 
-## Roadmap (gated on Meta)
+## Roadmap
 
-- Interactive approvals via blocking `PermissionRequest` hooks or an
-  app-server mode, when muse ships one.
-- Native delegated workers and token-usage receipts when muse exposes them.
+- Complete SDK mode/configuration parity and route MSP interactive approvals
+  through ACP before making the SDK backend the default.
+- Map MSP worker and token-usage events into ACP.
 
 ## License
 
