@@ -96,9 +96,9 @@ describe("SDK backend over ACP", () => {
 
   it.each([
     ["autherr", /not logged in.*muse login/],
-    ["approval", /interactive approvals/],
-    ["gap", /gap in the turn stream/],
-    ["exit", /disconnected|connection reached EOF/],
+    ["gap", /gap fill failed|gap in the turn stream|reload the session/],
+    ["gapFail", /gap fill failed|reload the session/],
+    ["exit", /disconnected|connection reached EOF|exited abnormally/],
     ["disabled", /experimental SDK tier is disabled/],
     ["inUse", /session is in use/],
     ["busy", /unfinished turn or pending input/],

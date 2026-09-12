@@ -18,30 +18,35 @@ with an actionable upgrade hint.
 
 ## ACP surface (advertised)
 
-| Capability                                                | Advertised?                                    | Contract owner                                               |
-| --------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| Protocol major 1                                          | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts` |
-| Prompt: text + resource_link                              | baseline (empty `promptCapabilities`)          | `src/prompt-content.ts`                                      |
-| Prompt: image / audio / embedded resource                 | **no**                                         | rejected with invalid params                                 |
-| MCP stdio                                                 | yes (baseline; http/sse not advertised)        | `docs/mcp-passthrough.md`                                    |
-| `session/load`, `session/list`                            | yes                                            | existing session tests                                       |
-| Auth logout                                               | yes                                            | `src/auth.ts`                                                |
-| Terminal auth method                                      | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                |
-| Interactive permissions / elicitation / fs / terminal RPC | **no**                                         | omitted client caps never invoked                            |
-| Session fork/delete/close                                 | **no**                                         | unadvertised                                                 |
+| Capability                                | Advertised?                                    | Contract owner                                               |
+| ----------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| Protocol major 1                          | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts` |
+| Prompt: text + resource_link              | baseline (empty `promptCapabilities`)          | `src/prompt-content.ts`                                      |
+| Prompt: image / audio / embedded resource | **no**                                         | rejected with invalid params                                 |
+| MCP stdio                                 | yes (baseline; http/sse not advertised)        | `docs/mcp-passthrough.md`                                    |
+| `session/load`, `session/list`            | yes                                            | existing session tests                                       |
+| Auth logout                               | yes                                            | `src/auth.ts`                                                |
+| Interactive permissions (SDK backend)     | yes when `backend=sdk`                         | `src/muse-permissions.ts` + live approval suite              |
+| Form elicitation (SDK user input)         | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                     |
+| Terminal auth method                      | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                |
+| fs / terminal RPC                         | **no**                                         | omitted client caps never invoked                            |
+| Session fork/delete/close                 | **no**                                         | unadvertised                                                 |
 
 ## Public SDK API map
 
-| ACP / adapter behavior        | Public SDK / MSP API                                                  | Fallback                                                                    |
-| ----------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Spawn MSP host                | `spawnMspConnection` + `MuseClient`                                   | —                                                                           |
-| Handshake / durability        | `initialize` + `readSessionDurability`                                | fingerprint mismatch is advisory                                            |
-| Start / resume session        | `MuseClient.startSession` / `resumeSession`                           | missing session (`-32020`) → start; in-use/busy/wrong workspace fail closed |
-| Set model                     | `Connection.command("session/setModel")`                              | facade has no setModel                                                      |
-| Submit turn                   | `Session.sendUserTurn`                                                | —                                                                           |
-| Stream items / deltas         | `Turn.items()` / `Turn.deltas()` (+ fold catch-up for pre-ack deltas) | —                                                                           |
-| Cancel                        | `Connection.command("turn/cancel")`                                   | close host if cancel fails                                                  |
-| Approvals / user input / gaps | fail the turn clearly                                                 | interactive approvals land in m5                                            |
+| ACP / adapter behavior | Public SDK / MSP API                                                      | Fallback                                                                    |
+| ---------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Spawn MSP host         | `spawnMspConnection` + `MuseClient`                                       | —                                                                           |
+| Handshake / durability | `initialize` + `readSessionDurability`                                    | fingerprint mismatch is advisory                                            |
+| Start / resume session | `MuseClient.startSession` / `resumeSession`                               | missing session (`-32020`) → start; in-use/busy/wrong workspace fail closed |
+| Approval mode          | `startSession({ approvalMode: "onRequest" })` + `session/setApprovalMode` | host default is `promptUnmatched`                                           |
+| Set model              | `Connection.command("session/setModel")`                                  | facade has no setModel                                                      |
+| Submit turn            | `Session.sendUserTurn`                                                    | —                                                                           |
+| Stream items / deltas  | `Turn.items()` / `Turn.deltas()` (+ fold catch-up for pre-ack deltas)     | —                                                                           |
+| Cancel                 | `Connection.command("turn/cancel")`                                       | close host if cancel fails                                                  |
+| Approvals              | `Session.onApproval` → ACP `session/request_permission`                   | cancel/deny map to a host-offered deny choice; no fabricated grants         |
+| User input             | fold `pendingUserInputs` + `userInput/answer`\|`cancel`                   | clients without form elicitation cancel and fail the turn                   |
+| View gaps              | Session gap-fill (`view/page`) + `onGapError`                             | stalled/failed fill fails the prompt; no extra `turn/start`                 |
 
 ## Resource-link encoding
 
@@ -76,11 +81,16 @@ merely to eliminate subprocesses.
 
 ## Test owners
 
-| Suite                                      | Covers                                       |
-| ------------------------------------------ | -------------------------------------------- |
-| `src/tests/muse-sdk.test.ts`               | SDK lifecycle over fake MSP (in-process ACP) |
-| `src/tests/muse-sdk-live.test.ts`          | Real local Muse host + loopback provider     |
-| `src/tests/acp-wire.test.ts`               | Spawned `dist/index.js` NDJSON wire          |
-| `src/tests/muse-sdk-events.test.ts`        | Message/tool event semantics                 |
-| `src/tests/prompt.test.ts` + wire          | Text / resource_link preservation            |
-| `src/tests/muse-cli.test.ts` / host probes | Missing / unsupported host errors            |
+| Suite                                      | Covers                                        |
+| ------------------------------------------ | --------------------------------------------- |
+| `src/tests/muse-sdk.test.ts`               | SDK lifecycle over fake MSP (in-process ACP)  |
+| `src/tests/permissions.test.ts`            | MSP→ACP permission mapping + fake-host gate   |
+| `src/tests/elicitation.test.ts`            | Form elicitation + capability fallback        |
+| `src/tests/muse-sdk-gap.test.ts`           | Recoverable and failed view/page fills        |
+| `src/tests/cancellation.test.ts`           | Cancel during barriers / pending approval     |
+| `src/tests/muse-sdk-approval-live.test.ts` | Real Muse host allow/deny/cancel file effects |
+| `src/tests/muse-sdk-live.test.ts`          | Real local Muse host + loopback provider      |
+| `src/tests/acp-wire.test.ts`               | Spawned `dist/index.js` NDJSON wire           |
+| `src/tests/muse-sdk-events.test.ts`        | Message/tool event semantics                  |
+| `src/tests/prompt.test.ts` + wire          | Text / resource_link preservation             |
+| `src/tests/muse-cli.test.ts` / host probes | Missing / unsupported host errors             |

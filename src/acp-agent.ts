@@ -6,6 +6,8 @@ import {
   CancelNotification,
   ClientApp,
   ClientCapabilities,
+  CreateElicitationRequest,
+  CreateElicitationResponse,
   LogoutRequest,
   LogoutResponse,
   InitializeRequest,
@@ -23,6 +25,8 @@ import {
   PromptResponse,
   PROTOCOL_VERSION,
   RequestError,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
   SessionNotification,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
@@ -70,6 +74,8 @@ export type { Logger } from "./logger.js";
  */
 export interface AcpClient {
   sessionUpdate(params: SessionNotification): Promise<void>;
+  requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse>;
+  createElicitation(params: CreateElicitationRequest): Promise<CreateElicitationResponse>;
 }
 
 /**
@@ -82,6 +88,14 @@ class ClientConnection implements AcpClient {
 
   sessionUpdate(params: SessionNotification): Promise<void> {
     return this.ctx.notify(methods.client.session.update, params);
+  }
+
+  requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    return this.ctx.request(methods.client.session.requestPermission, params);
+  }
+
+  createElicitation(params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+    return this.ctx.request(methods.client.elicitation.create, params);
   }
 }
 
@@ -175,7 +189,7 @@ export class MuseAcpAgent {
         "bex.security/capabilities": {
           delegatedWorkers: false,
           usage: "unavailable",
-          interactivePermissions: false,
+          interactivePermissions: this.backend === "sdk",
         },
       },
     };
@@ -372,6 +386,9 @@ export class MuseAcpAgent {
           env: mcpOverlay?.env ?? baseEnv,
           logger: this.logger,
           checkHost: this.options.skipSdkHostCheck ? false : undefined,
+          acpClient: this.client,
+          clientCapabilities: this.clientCapabilities,
+          isCancelled: () => session.cancelRequested,
         });
         session.activeTurn = handle;
         try {

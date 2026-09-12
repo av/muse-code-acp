@@ -69,18 +69,20 @@ New SDK sessions use UUIDv7 IDs, as required by MSP.
 
 The SDK backend is opt-in while feature parity is completed. It offers `default`
 and `readOnly` modes; `serve` does not accept the CLI's approval-bypass flags.
-Interactive approvals, user-input requests, and stream-gap recovery are not
-implemented yet: these fail the turn clearly instead of waiting indefinitely.
+SDK sessions set approval mode `onRequest` and route Muse approvals through ACP
+`session/request_permission`, supported user input through form elicitation, and
+recoverable `view/gap` fills through the SDK fold (failed fills error the turn).
 Use a configured provider; Muse's echo provider is supported by the `exec`
 backend only. This first migration retains per-turn startup latency.
 The SDK is a developer preview; its API may change before 1.0.
 
 The SDK tests include the real local Muse host with a loopback provider and dummy
-credentials, covering streaming, multiple turns, history reload, and cancellation
-without external API calls. Run them with:
+credentials, covering streaming, multiple turns, history reload, cancellation,
+and allow/deny/cancel tool effects without external API calls. Run them with:
 
 ```sh
-npx vitest run src/tests/muse-sdk.test.ts src/tests/muse-sdk-live.test.ts
+npx vitest run src/tests/muse-sdk.test.ts src/tests/muse-sdk-live.test.ts \
+  src/tests/muse-sdk-approval-live.test.ts
 ```
 
 ## Capabilities
@@ -95,7 +97,7 @@ npx vitest run src/tests/muse-sdk.test.ts src/tests/muse-sdk-live.test.ts
 | Model + reasoning-effort config options                      | ✅                                                 |
 | Skills as slash commands                                     | ✅                                                 |
 | Auth: browser login, `META_API_KEY`, logout                  | ✅                                                 |
-| Interactive per-tool-call permission prompts                 | ❌ (not implemented in the adapter)                |
+| Interactive per-tool-call permission prompts                 | ✅ (SDK backend; exec remains non-interactive)     |
 | Thinking/reasoning stream                                    | ❌ (muse encrypts reasoning)                       |
 | Client-provided stdio MCP servers                            | ✅ (see `docs/mcp-passthrough.md`)                 |
 | Additional workspace directories                             | ❌ (muse supports one workspace root)              |
@@ -105,10 +107,11 @@ npx vitest run src/tests/muse-sdk.test.ts src/tests/muse-sdk-live.test.ts
 
 ### Default exec backend limitations (originally verified with muse 0.2.1)
 
-- **No interactive approvals.** Muse's headless mode resolves tool approvals
-  internally (policy engine + LLM judge). The adapter reports each decision
-  (`_meta.musePolicyDecision` on tool calls) but cannot pause a tool call for
-  your confirmation. Modes map onto muse's spawn-time safety flags instead:
+- **No interactive approvals on the exec backend.** Muse's headless `exec` mode
+  resolves tool approvals internally (policy engine + LLM judge). The adapter
+  reports each decision (`_meta.musePolicyDecision` on tool calls) but cannot
+  pause a tool call for your confirmation. Modes map onto muse's spawn-time
+  safety flags instead:
   - `default` — approval policy + judge + OS sandbox, report-only
   - `readOnly` — `--disable-write --disable-shell`
   - `bypassApprovals` — `--disable-approval` (sandbox stays on)
@@ -158,8 +161,7 @@ The work board lives in `.pm/` (workstream w1, milestones m1–m6).
 
 ## Roadmap
 
-- Complete SDK mode/configuration parity and route MSP interactive approvals
-  through ACP before making the SDK backend the default.
+- Finish session continuity and cut over the SDK backend to default (m6).
 - Map MSP worker and token-usage events into ACP.
 
 ## License

@@ -1,4 +1,9 @@
-import { PromptResponse, RequestError, SessionNotification } from "@agentclientprotocol/sdk";
+import {
+  ClientCapabilities,
+  PromptResponse,
+  RequestError,
+  SessionNotification,
+} from "@agentclientprotocol/sdk";
 import {
   Connection,
   MuseClient,
@@ -8,14 +13,28 @@ import {
   isLaunchFailure,
   type TurnOutcome,
   type FoldedItem,
+  type Session,
 } from "@muse-code/sdk";
 import packageJson from "../package.json" with { type: "json" };
 import { realpathSync } from "node:fs";
+import type { AcpClient } from "./acp-agent.js";
 import { Logger } from "./logger.js";
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
+import {
+  approvalToPermissionRequest,
+  MuseApprovalRequest,
+  PermissionLifecycle,
+  resolvePermissionChoice,
+} from "./muse-permissions.js";
 import { MuseSdkTranslator } from "./muse-sdk-events.js";
 import type { MuseTextInputPart } from "./prompt-content.js";
+import {
+  MuseUserInputRequest,
+  settleUserInput,
+  UserInputLifecycle,
+  userInputToElicitation,
+} from "./muse-user-input.js";
 import { Pushable } from "./utils.js";
 
 export interface MuseSdkOptions {
@@ -31,6 +50,10 @@ export interface MuseSdkOptions {
   logger: Logger;
   /** When false, skip the serve --help probe (tests with fake-msp). */
   checkHost?: boolean;
+  acpClient: AcpClient;
+  clientCapabilities?: ClientCapabilities;
+  /** Read cancelRequested from the ACP session while the turn runs. */
+  isCancelled?: () => boolean;
 }
 
 export interface MuseSdkHandle {
@@ -50,6 +73,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   }
   const updates = new Pushable<SessionNotification>();
   const translator = new MuseSdkTranslator(options.sessionId, options.logger);
+  const permissions = new PermissionLifecycle();
+  const userInputs = new UserInputLifecycle();
   const args = ["serve", ...(options.readOnly ? ["--disable-write", "--disable-shell"] : [])];
   const binary = options.museBinary ?? museCliPath(options.env);
   options.logger.log(`muse-sdk spawn: ${binary} ${args.join(" ")}`);
@@ -57,8 +82,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   let client: MuseClient | undefined;
   let connection: Connection | undefined;
   let turnId: string | undefined;
+  let generation = 0;
   let cancelled = false;
   let finished = false;
+  let settled = false;
   let cancelTimer: ReturnType<typeof setTimeout> | undefined;
   let failTurn!: (error: unknown) => void;
   const turnFailure = new Promise<never>((_, reject) => {
@@ -76,6 +103,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   });
 
   const close = async () => {
+    permissions.disposeAll();
+    userInputs.disposeAll();
     if (client) {
       await client.close().catch(() => {});
       return;
@@ -93,6 +122,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       return;
     }
     cancelled = true;
+    if (turnId) {
+      permissions.disposeTurn(turnId);
+      userInputs.disposeTurn(turnId);
+    }
     if (connection && turnId) {
       void connection
         .command("turn/cancel", { sessionId: options.sessionId, turnId }, { maxAttempts: 1 })
@@ -128,10 +161,15 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
                 "the experimental SDK tier is disabled",
             ),
           );
+          return;
+        }
+        if (exit.kind !== "cleanShutdown") {
+          failTurn(new Error(`Muse SDK host exited abnormally (${exit.kind})`));
         }
       });
 
-      let session;
+      let session: Session;
+      let startedFresh = false;
       try {
         session = await client.resumeSession({
           sessionId: options.sessionId,
@@ -145,6 +183,17 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           sessionId: options.sessionId,
           workspaceRoot: options.cwd,
           modelId: options.model,
+          // Force client gating for unmatched/protected tools over ACP.
+          approvalMode: "onRequest",
+        });
+        startedFresh = true;
+      }
+
+      // Resume path must still select onRequest; fresh start already did.
+      if (!startedFresh) {
+        await connection.command("session/setApprovalMode", {
+          sessionId: options.sessionId,
+          mode: "onRequest",
         });
       }
 
@@ -178,42 +227,82 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         });
       }
 
-      session.onApproval((request) => {
-        throw new Error(
-          `Muse requested approval for ${request.toolName}; interactive approvals ` +
-            "are not implemented in the minimal SDK backend",
-        );
+      const adoptTurn = (nextTurnId: string) => {
+        if (turnId === nextTurnId && generation > 0) {
+          return;
+        }
+        turnId = nextTurnId;
+        generation = permissions.beginTurn(nextTurnId);
+        userInputs.beginTurn(nextTurnId);
+      };
+
+      session.onApproval(async (request) => {
+        if (cancelled || options.isCancelled?.()) {
+          throw new Error("permission request cancelled");
+        }
+        const approval = request as unknown as MuseApprovalRequest;
+        // Approvals can arrive before turn/start acknowledgement.
+        adoptTurn(approval.turnId);
+        if (approval.turnId !== turnId) {
+          throw new Error("stale approval for a different turn");
+        }
+        if (!permissions.track(approval.approvalId, turnId, approval.toolCallId, generation)) {
+          throw new Error("stale approval after turn disposal");
+        }
+        try {
+          const response = await options.acpClient.requestPermission(
+            approvalToPermissionRequest(options.sessionId, approval),
+          );
+          if (!permissions.isLive(approval.approvalId, turnId, generation)) {
+            throw new Error("stale permission response");
+          }
+          if (cancelled || options.isCancelled?.()) {
+            throw new Error("permission request cancelled");
+          }
+          return { choiceId: resolvePermissionChoice(approval, response) };
+        } finally {
+          permissions.resolve(approval.approvalId);
+        }
       });
       session.onApprovalError((failure) => {
+        if (cancelled || options.isCancelled?.()) {
+          return;
+        }
         failTurn(
           failure.kind === "handlerThrew"
             ? failure.error
             : new Error(`Muse approval round-trip failed (${failure.kind})`),
         );
       });
-      session.onGapError(() => {
-        failTurn(new Error("Muse SDK reported a gap in the turn stream; reload the session"));
+      // Gap fill runs automatically on wired Sessions. Only hard fill failures
+      // become turn errors; recoverable gaps must not abort the prompt.
+      session.onGapError((error) => {
+        if (cancelled || options.isCancelled?.()) {
+          return;
+        }
+        failTurn(
+          new Error(
+            `Muse SDK gap fill failed (${error.reason}); reload the session before continuing`,
+          ),
+        );
       });
 
-      if (cancelled) {
+      if (cancelled || options.isCancelled?.()) {
         return { stopReason: "cancelled" };
       }
 
       const turn = await session.sendUserTurn({
         input: options.input,
-        // Session config stores muse CLI effort strings; MSP accepts the subset it knows.
         ...(options.reasoningEffort
           ? { reasoningEffort: options.reasoningEffort as "low" | "medium" | "high" }
           : {}),
       });
-      turnId = turn.turnId;
+      adoptTurn(turn.turnId);
       clearTimeout(startupTimer);
 
       const emitItem = (item: FoldedItem) => {
-        if (session.fold.pendingUserInputs.length > 0) {
-          failTurn(
-            new Error("Muse requested user input; the minimal SDK backend cannot answer it"),
-          );
+        // Hold publication while a gap fill is reconstituting the fold.
+        if (!session.fold.current) {
           return;
         }
         for (const update of translator.fromItem(item)) {
@@ -241,32 +330,120 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         }
       };
 
-      // deltas() is live-only; catch up anything folded before the turn ack.
-      for (const item of session.fold.items.list()) {
-        if (item.turnId !== turn.turnId) {
-          continue;
+      const flushFold = () => {
+        if (!session.fold.current) {
+          return;
         }
-        emitCaughtUp(item, session.fold.items.accumulated(item.itemId) ?? "");
-      }
+        for (const held of session.fold.items.list()) {
+          if (held.turnId === turn.turnId) {
+            emitCaughtUp(held, session.fold.items.accumulated(held.itemId) ?? "");
+          }
+        }
+      };
 
+      const handlePendingUserInputs = async () => {
+        for (const pendingInput of session.fold.pendingUserInputs()) {
+          const request = pendingInput as unknown as MuseUserInputRequest & {
+            userInputId: string;
+            turnId: string;
+          };
+          if (request.turnId !== turnId) {
+            continue;
+          }
+          if (userInputs.has(request.userInputId)) {
+            continue;
+          }
+          if (!userInputs.track(request.userInputId, turnId!, generation)) {
+            continue;
+          }
+          const support = options.clientCapabilities?.elicitation;
+          const formOk = support?.form != null;
+          if (!formOk || !connection) {
+            // Reject the ACP prompt first so turn/completed from cancel cannot
+            // win Promise.race and report a successful end_turn.
+            failTurn(
+              new Error(
+                "Muse requested user input but the ACP client did not advertise form elicitation",
+              ),
+            );
+            await connection
+              ?.command(
+                "userInput/cancel",
+                {
+                  sessionId: options.sessionId,
+                  userInputId: request.userInputId,
+                  reason: "client has no form elicitation support",
+                },
+                { maxAttempts: 1 },
+              )
+              .catch(() => {});
+            userInputs.resolve(request.userInputId);
+            return;
+          }
+          try {
+            if (cancelled || options.isCancelled?.()) {
+              await settleUserInput(connection, options.sessionId, request, {
+                action: "cancel",
+              });
+              return;
+            }
+            const response = await options.acpClient.createElicitation(
+              userInputToElicitation(options.sessionId, request),
+            );
+            if (!userInputs.isLive(request.userInputId, turnId!, generation)) {
+              return;
+            }
+            await settleUserInput(connection, options.sessionId, request, response);
+          } finally {
+            userInputs.resolve(request.userInputId);
+          }
+        }
+      };
+
+      // deltas() is live-only; catch up anything folded before the turn ack.
+      flushFold();
+
+      let foldWasCurrent = session.fold.current;
       const pumpItems = (async () => {
         for await (const item of turn.items()) {
+          await handlePendingUserInputs();
+          // Replay held items only when a gap fill restores currency.
+          if (!foldWasCurrent && session.fold.current) {
+            flushFold();
+          }
+          foldWasCurrent = session.fold.current;
           emitItem(item);
         }
       })();
       const pumpDeltas = (async () => {
         for await (const delta of turn.deltas()) {
+          if (!session.fold.current) {
+            continue;
+          }
           for (const update of translator.fromDelta(delta)) {
             updates.push(update);
           }
         }
       })();
+      const pumpUserInput = (async () => {
+        while (!finished && !settled && !cancelled) {
+          await handlePendingUserInputs();
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      })();
 
       const outcome = await Promise.race([turn.completed, turnFailure]);
-      await Promise.all([pumpItems.catch(() => {}), pumpDeltas.catch(() => {})]);
+      settled = true;
+      await Promise.all([
+        pumpItems.catch(() => {}),
+        pumpDeltas.catch(() => {}),
+        pumpUserInput.catch(() => {}),
+      ]);
+      // Flush any items that arrived only through gap fill after the last yield.
+      flushFold();
       return terminalResponse(outcome);
     } catch (error) {
-      if (cancelled) {
+      if (cancelled || options.isCancelled?.()) {
         return { stopReason: "cancelled" };
       }
       if (error instanceof RequestError) {
@@ -283,6 +460,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       finished = true;
       clearTimeout(startupTimer);
       clearTimeout(cancelTimer);
+      if (turnId) {
+        permissions.disposeTurn(turnId);
+        userInputs.disposeTurn(turnId);
+      }
       await close();
       updates.end();
     }
