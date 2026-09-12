@@ -40,3 +40,11 @@ Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m9/t009; logical depend
 ## Validation evidence
 
 Pending implementation. The originating comparison inspected source and installed SDK declarations; it did not establish host acceptance of the proposed additions.
+
+## Host verification blocker (2026-09-12)
+
+Muse 1.1.1-R2514.1 with SDK 0.1.1 does not expose the required mixed MCP result in the tested public view. A loopback HTTP MCP fixture returned ordered text/image/resource-link/text plus structuredContent, with a valid 830-byte PNG. The host's real approval/decide round-trip gated tools/call. The completed tool item retained its callId but exposed only visibleOutput: text, `[MCP image content: media_type=image/png, bytes=830]`, serialized resource-link JSON and trailing text. Neither modelVisibleContent nor outputRef was present, and structuredContent was absent.
+
+The next model projection failed with `projectionError`: retained media history is unsupported by the active `muse` provider route. The public SDK comments mention `item/readOutput`, but that method is absent from the published MspMethod union and request/result map. A comment is not an available retrieval contract; the adapter must not invent that method, fetch arbitrary URIs or interpret model-visible text as authoritative binary output.
+
+Resume t001/t002 with a supported host/route that supplies displayable image content or a documented public retrieval reference and preserves mixed structured output. Then verify completion, cleanup and reload lifetime. The existing text fallback remains truthful; it does not satisfy the required mixed image/link delivery. No tasks were closed or production APIs added. Local reproduction and raw public notifications: `.tmp/m17-probe/`. Independent m19/m25 remain actionable.
