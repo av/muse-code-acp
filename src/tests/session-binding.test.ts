@@ -46,6 +46,80 @@ describe("session binding races", () => {
   });
 });
 
+it.each(["cancel", "close", "dispose"] as const)(
+  "suppresses delayed goal inspection delivery after %s",
+  async (method) => {
+    const client = connectTestClient({
+      backend: "sdk",
+      museBinary: fakeMuseBinary(),
+      skipSdkHostCheck: true,
+    });
+    const { sessionId } = await newTestSession(client, { _meta: { "muse/goal": 1 } });
+    const session = client.agent.sessions.get(sessionId)!;
+    session.goal = { status: "unknown", reason: "History not observed" };
+    const gate = Promise.withResolvers<Awaited<ReturnType<typeof sdk.readMuseSdkSession>>>();
+    const read = vi.spyOn(sdk, "readMuseSdkSession").mockReturnValue(gate.promise);
+    const update = vi.spyOn(client.agent.client, "sessionUpdate");
+    try {
+      const prompt = client.agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "/goal" }],
+      });
+      expect(read).toHaveBeenCalledOnce();
+      const stopping =
+        method === "cancel"
+          ? client.agent.cancel({ sessionId })
+          : method === "close"
+            ? client.agent.closeSession({ sessionId })
+            : client.agent.dispose();
+      gate.resolve({
+        modelId: "saved",
+        goal: {
+          status: "known",
+          goal: { objective: "late result", status: "active", percentComplete: 50 },
+        },
+      });
+      await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
+      await stopping;
+      expect(
+        update.mock.calls.filter(
+          ([notification]) =>
+            notification.update.sessionUpdate === "agent_message_chunk" ||
+            notification.update.sessionUpdate === "session_info_update",
+        ),
+      ).toEqual([]);
+      if (method === "cancel") expect(session.turnFinished).toBeNull();
+      else expect(client.agent.sessions.has(sessionId)).toBe(false);
+    } finally {
+      gate.resolve({ modelId: "saved" });
+      await client.agent.dispose();
+      read.mockRestore();
+      update.mockRestore();
+    }
+  },
+);
+
+it("removes a new session when initial goal metadata delivery fails", async () => {
+  const client = connectTestClient({
+    backend: "sdk",
+    museBinary: fakeMuseBinary(),
+    skipSdkHostCheck: true,
+  });
+  const { sessionId, cwd } = await newTestSession(client, { _meta: { "muse/goal": 1 } });
+  await client.agent.closeSession({ sessionId });
+  const failure = new Error("client disconnected during goal delivery");
+  const update = vi.spyOn(client.agent.client, "sessionUpdate").mockImplementation(async (n) => {
+    if (n.update.sessionUpdate === "session_info_update") throw failure;
+  });
+  try {
+    await expect(client.agent.newSession({ cwd, mcpServers: [] })).rejects.toBe(failure);
+    expect(client.agent.sessions.size).toBe(0);
+  } finally {
+    await client.agent.dispose();
+    update.mockRestore();
+  }
+});
+
 describe("disposal during binding", () => {
   it.each(["load", "resume"] as const)(
     "does not restore state after a delayed %s",

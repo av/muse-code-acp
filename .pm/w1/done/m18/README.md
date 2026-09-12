@@ -1,17 +1,17 @@
 # w1 · m18 — Session goal state and verified goal controls
 
-**Worker:** worker1 **Goal:** Expose persistent objective and progress separately from whether a prompt is currently running. **Status:** todo
+**Worker:** worker1 **Goal:** Expose persistent objective and progress separately from whether a prompt is currently running. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                    | est | depends_on               |
-| ---- | -------------------------------------------------------- | --- | ------------------------ |
-| t001 | Verify goal snapshots and define capability subset       | 45m | w1/m10/t008              |
-| t002 | Publish persistent goal state through ACP                | 45m | w1/m18/t001              |
-| t003 | Expose goal inspection and only verified control actions | 45m | w1/m18/t002              |
-| t004 | Simplify milestone changes                               | 30m | w1/m18/t003              |
-| t005 | CI and behavior coverage                                 | 45m | w1/m18/t003, w1/m18/t004 |
-| t006 | Close out the milestone                                  | 15m | w1/m18/t005              |
+| id   | title                                                               | est | depends_on               |
+| ---- | ------------------------------------------------------------------- | --- | ------------------------ |
+| t001 | Verify goal snapshots and define capability subset — **DONE**       | 45m | w1/m10/t008              |
+| t002 | Publish persistent goal state through ACP — **DONE**                | 45m | w1/m18/t001              |
+| t003 | Expose goal inspection and only verified control actions — **DONE** | 45m | w1/m18/t002              |
+| t004 | Simplify milestone changes — **DONE**                               | 30m | w1/m18/t003              |
+| t005 | CI and behavior coverage — **DONE**                                 | 45m | w1/m18/t003, w1/m18/t004 |
+| t006 | Close out the milestone — **DONE**                                  | 15m | w1/m18/t005              |
 
 Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m10/t008; logical dependency IDs remain valid after archival. Numbering records the queue, not an additional dependency on every earlier milestone.
 
@@ -40,4 +40,11 @@ Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m10/t008; logical depen
 
 ## Validation evidence
 
-Pending implementation. The originating comparison inspected source and installed SDK declarations; it did not establish host acceptance of the proposed additions.
+Implemented against Muse 1.1.1-R2514.1 and SDK 0.1.1. Public goalChanged creation, progress after foreground completion, completion and restart recovery passed against a local provider. No public goal control API was verified; controls are explicitly conditional and remain unadvertised. See docs/goal-extension.md.
+
+- `npm run check`, `npm run build`: passed.
+- `npm run test:unit`: 269 tests passed in 44 files, including negotiated/baseline goal wire behavior, explicit clear, deduplication, bounded history and cancel/close/dispose races.
+- `MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback`: 19 tests passed; final goal-only real-host rerun passed after excluding inline history items from recovery.
+- `npm run test:pack-smoke`: passed with package 0.3.0.
+- Simplify: three independent reuse/quality/efficiency reviews completed. Applied no-op observation guard, shared local command parsing, cancellation-safe inspection, initial binding cleanup and bounded history reads. Retained the existing post-foreground host lifetime intentionally; a notification-driven test proves termination and exactly-once cleanup even during native goal work. Small constants/helpers with only two uses were not added.
+- No paid provider requests. Goal metadata is opt-in; baseline SDK clients can inspect locally; exec remains unchanged. Explicit clear is verified with protocol fixtures, not an invented host action.

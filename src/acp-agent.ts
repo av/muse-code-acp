@@ -64,6 +64,7 @@ import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from
 import { readSessionEffort, writeSessionEffort } from "./session-preferences.js";
 import { createMuseMcpOverlay, MuseMcpOverlay, museMcpServers } from "./mcp-overlay.js";
 import { mcpStatus, mcpStartupFailure } from "./mcp-status.js";
+import type { GoalObservation } from "./goal-state.js";
 import { readMuseSettings } from "./muse-settings.js";
 import { compileMusePrompt, type CompiledMusePrompt } from "./prompt-files.js";
 import { convertPromptContent } from "./prompt-content.js";
@@ -134,6 +135,7 @@ export interface SessionState {
   /** ACP-provided MCP servers injected into Muse for each turn. */
   mcpServers: McpServer[];
   mcpFailure?: string;
+  goal?: GoalObservation;
   /** Live per-turn Muse configuration overlay, if this session uses MCP. */
   activeMcpOverlay: MuseMcpOverlay | null;
   sdkHost?: { owner: MuseSdkHost; identity: string; overlay: MuseMcpOverlay };
@@ -234,6 +236,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.["muse/goal"] === 1
+          ? { "muse/goal": { version: 1, observation: true, controls: [] } }
+          : {}),
         ...(this.backend === "sdk" && supportsSteering(this.clientCapabilities)
           ? { [STEERING_CAPABILITY]: { version: 1, method: STEER_METHOD } }
           : {}),
@@ -281,6 +286,56 @@ export class MuseAcpAgent {
     }
   }
 
+  private async publishGoal(
+    sessionId: string,
+    session: SessionState,
+    goal: GoalObservation,
+  ): Promise<void> {
+    if (this.backend !== "sdk" || this.disposed || this.sessions.get(sessionId) !== session) return;
+    if (JSON.stringify(session.goal) === JSON.stringify(goal)) return;
+    session.goal = goal;
+    if (this.clientCapabilities._meta?.["muse/goal"] === 1)
+      await this.client.sessionUpdate({
+        sessionId,
+        update: { sessionUpdate: "session_info_update", _meta: { "muse/goal": goal } },
+      });
+  }
+
+  private async inspectGoal(sessionId: string, session: SessionState): Promise<string> {
+    if (!session.goal || session.goal.status === "unknown") {
+      let goal: GoalObservation;
+      try {
+        const saved = await readMuseSdkSession({
+          sessionId: session.museSessionId,
+          cwd: session.cwd,
+          env: this.options.env ?? process.env,
+          museBinary: this.options.museBinary,
+          logger: this.logger,
+          checkHost: !this.options.skipSdkHostCheck,
+          readGoal: true,
+          allowActive: true,
+        });
+        goal = saved.goal ?? { status: "unknown", reason: "No goal observation available" };
+      } catch {
+        goal = { status: "unknown", reason: "Goal history could not be read" };
+      }
+      if (!session.cancelRequested) await this.publishGoal(sessionId, session, goal);
+    }
+    const observed = session.goal;
+    if (!observed || observed.status === "unknown")
+      return "Goal state is unknown; available history did not establish a current goal.";
+    if (!observed.goal) return "No recorded goal.";
+    const goal = observed.goal;
+    return [
+      `Goal: ${goal.objective}`,
+      `Status: ${goal.status}`,
+      `Reported progress: ${goal.percentComplete}%`,
+      ...(goal.currentWork !== undefined ? [`Current work: ${goal.currentWork}`] : []),
+      ...(goal.nextWork !== undefined ? [`Next work: ${goal.nextWork}`] : []),
+      "Last observed Muse state. Goal controls are unavailable through this adapter.",
+    ].join("\n");
+  }
+
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     this.assertRunning();
     this.validateMcp(params.mcpServers);
@@ -307,6 +362,15 @@ export class MuseAcpAgent {
         mcpServers: params.mcpServers,
         activeMcpOverlay: null,
       });
+      try {
+        await this.publishGoal(sessionId, this.sessions.get(sessionId)!, {
+          status: "known",
+          goal: null,
+        });
+      } catch (error) {
+        this.sessions.delete(sessionId);
+        throw error;
+      }
       this.advertiseCommands(sessionId, cwd);
       return {
         sessionId,
@@ -337,10 +401,13 @@ export class MuseAcpAgent {
         }
         const availableCommands = [
           ...(this.backend === "sdk"
-            ? [{ name: "mcp", description: "Inspect MCP configuration and connection visibility" }]
+            ? [
+                { name: "mcp", description: "Inspect MCP configuration and connection visibility" },
+                { name: "goal", description: "Inspect observed Muse goal state" },
+              ]
             : []),
           ...skillsToCommands(skills).filter(
-            (command) => this.backend !== "sdk" || command.name !== "mcp",
+            (command) => this.backend !== "sdk" || !["mcp", "goal"].includes(command.name),
           ),
         ];
         if (availableCommands.length === 0) {
@@ -434,6 +501,7 @@ export class MuseAcpAgent {
 
     this.assertRunning();
     const config = defaultSessionConfig(readMuseSettings(env, this.logger));
+    let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -442,7 +510,9 @@ export class MuseAcpAgent {
         museBinary: this.options.museBinary,
         logger: this.logger,
         checkHost: !this.options.skipSdkHostCheck,
+        readGoal: true,
       });
+      goal = saved.goal ?? goal;
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
     }
@@ -461,8 +531,8 @@ export class MuseAcpAgent {
       mcpServers: params.mcpServers,
       activeMcpOverlay: null,
     });
-
     try {
+      await this.publishGoal(params.sessionId, this.sessions.get(params.sessionId)!, goal);
       for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
         this.assertRunning();
         await this.client.sessionUpdate(notification);
@@ -543,6 +613,7 @@ export class MuseAcpAgent {
     const config = defaultSessionConfig(
       readMuseSettings(this.options.env ?? process.env, this.logger),
     );
+    let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
     if (this.backend === "sdk") {
       const env = this.options.env ?? process.env;
       const saved = await readMuseSdkSession({
@@ -552,7 +623,9 @@ export class MuseAcpAgent {
         museBinary: this.options.museBinary,
         logger: this.logger,
         checkHost: !this.options.skipSdkHostCheck,
+        readGoal: true,
       });
+      goal = saved.goal ?? goal;
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
     }
@@ -571,6 +644,12 @@ export class MuseAcpAgent {
       mcpServers,
       activeMcpOverlay: null,
     });
+    try {
+      await this.publishGoal(params.sessionId, this.sessions.get(params.sessionId)!, goal);
+    } catch (error) {
+      this.sessions.delete(params.sessionId);
+      throw error;
+    }
     this.advertiseCommands(params.sessionId, storedCwd);
     return {
       modes: this.sessionModes("default"),
@@ -645,36 +724,31 @@ export class MuseAcpAgent {
       );
     }
 
-    if (
-      this.backend === "sdk" &&
-      params.prompt[0]?.type === "text" &&
-      /^\/mcp(?:\s|$)/.test(params.prompt[0].text.trim())
-    ) {
-      if (
-        params.prompt.length !== 1 ||
-        !/^\/mcp(?:\s+status)?\s*$/.test(params.prompt[0].text.trim())
-      )
+    const commandText = params.prompt[0]?.type === "text" ? params.prompt[0].text.trim() : "";
+    const localCommand = /^\/(mcp|goal)(?:\s|$)/.exec(commandText)?.[1];
+    if (this.backend === "sdk" && localCommand) {
+      if (params.prompt.length !== 1 || !/^\/(?:mcp|goal)(?:\s+status)?$/.test(commandText))
         throw RequestError.invalidParams(
           undefined,
-          "Use /mcp or /mcp status without additional content",
+          "Use /mcp, /mcp status, /goal or /goal status without additional content; goal controls are unavailable",
         );
       const finished = Promise.withResolvers<void>();
       session.turnFinished = finished.promise;
       session.cancelRequested = false;
       try {
+        const text =
+          localCommand === "goal"
+            ? await this.inspectGoal(params.sessionId, session)
+            : mcpStatus(session.mcpServers, this.options.env ?? process.env, session.mcpFailure);
+        if (
+          session.cancelRequested ||
+          this.disposed ||
+          this.sessions.get(params.sessionId) !== session
+        )
+          return { stopReason: "cancelled" };
         await this.client.sessionUpdate({
           sessionId: params.sessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: {
-              type: "text",
-              text: mcpStatus(
-                session.mcpServers,
-                this.options.env ?? process.env,
-                session.mcpFailure,
-              ),
-            },
-          },
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
         });
         return { stopReason: session.cancelRequested ? "cancelled" : "end_turn" };
       } finally {
@@ -723,6 +797,11 @@ export class MuseAcpAgent {
           session.sdkHost = undefined;
         }
         if (session.cancelRequested || this.disposed) return { stopReason: "cancelled" };
+        if (session.sdkHost?.owner.hasActiveTurn)
+          throw RequestError.invalidRequest(
+            undefined,
+            "Muse is executing a host-owned turn; retry after it finishes or close the session to stop the host",
+          );
         if (!session.sdkHost) {
           const overlay = createMuseMcpOverlay(session.mcpServers, baseEnv, session.config);
           const owner = new MuseSdkHost({
@@ -735,6 +814,8 @@ export class MuseAcpAgent {
             logger: this.logger,
             checkHost: !this.options.skipSdkHostCheck,
             onClose: () => overlay.cleanup(),
+            onGoal: (goal) => this.publishGoal(params.sessionId, session, goal),
+            initialGoal: session.goal,
           });
           session.sdkHost = { owner, identity, overlay };
         }

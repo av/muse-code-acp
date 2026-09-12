@@ -17,6 +17,12 @@ export interface LoopbackProviderOptions {
   scriptedToolCallCommand: string;
   /** Override the default bash call when exercising another host-provided tool. */
   scriptedToolCall?: { name: string; arguments: Record<string, unknown> };
+  scriptedToolCallForRequest?: (
+    request: Record<string, unknown>,
+  ) =>
+    | { name: string; arguments: Record<string, unknown> }
+    | undefined
+    | Promise<{ name: string; arguments: Record<string, unknown> } | undefined>;
   replyText?: string;
   /** Hold SSE open so cancel races stay deterministic. */
   holdMs?: number;
@@ -128,7 +134,7 @@ export async function startLoopbackProvider(
   const server: Server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
+    request.on("end", async () => {
       const body = Buffer.concat(chunks).toString("utf8");
       if (request.method === "GET" && (request.url ?? "").endsWith("/muse-code/models")) {
         catalogGets += 1;
@@ -142,19 +148,23 @@ export async function startLoopbackProvider(
       }
       const parsed = JSON.parse(body);
       requests.push(parsed);
+      const requestedTool = options.scriptedToolCallForRequest
+        ? await options.scriptedToolCallForRequest(parsed)
+        : scriptedTool;
       const offersScriptedTool = (parsed.tools ?? []).some(
         (namespace: { name: string; tools?: { name: string }[] }) =>
           namespace.tools
             ? namespace.tools.some(
                 (tool) =>
-                  tool.name === scriptedTool.name ||
-                  `${namespace.name}__${tool.name}` === scriptedTool.name,
+                  tool.name === requestedTool?.name ||
+                  `${namespace.name}__${tool.name}` === requestedTool?.name,
               )
-            : namespace.name === scriptedTool.name,
+            : namespace.name === requestedTool?.name,
       );
 
       const isScripted =
-        scriptedToolCalls === 0 &&
+        !!requestedTool &&
+        (!!options.scriptedToolCallForRequest || scriptedToolCalls === 0) &&
         offersScriptedTool &&
         options.scriptedToolCallWhen.every((needle) => body.includes(needle));
 
@@ -163,7 +173,7 @@ export async function startLoopbackProvider(
       if (isScripted) {
         scriptedToolCalls += 1;
         responseId = "resp_tool";
-        head = toolCallHead(`call_${scriptedToolCalls}`, scriptedTool);
+        head = toolCallHead(`call_${scriptedToolCalls}`, requestedTool);
       } else {
         responseId = "resp_text";
         head = textHead(replyText);

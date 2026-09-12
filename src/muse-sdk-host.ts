@@ -10,6 +10,7 @@ import packageJson from "../package.json" with { type: "json" };
 import type { MuseSdkOptions } from "./muse-sdk.js";
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
+import { parseGoalObservation, type GoalObservation } from "./goal-state.js";
 
 type HostOptions = Pick<
   MuseSdkOptions,
@@ -18,6 +19,8 @@ type HostOptions = Pick<
   idleTimeoutMs?: number;
   maxTurns?: number;
   onClose?: () => void | Promise<void>;
+  onGoal?: (goal: GoalObservation) => void | Promise<void>;
+  initialGoal?: GoalObservation;
 };
 type InitializedHost = Awaited<ReturnType<ReturnType<typeof spawnMspConnection>["initialize"]>>;
 interface HostLease {
@@ -38,6 +41,14 @@ export class MuseSdkHost {
   private idleTimer?: ReturnType<typeof setTimeout>;
   private finalStderr = "";
   private failActive?: (error: unknown) => void;
+  private goalTimer?: ReturnType<typeof setInterval>;
+  private goalDelivery?: Promise<void>;
+  private lastGoal?: string;
+  private lastGoalState?: unknown;
+
+  get hasActiveTurn(): boolean {
+    return !!this.lease?.session.fold.activeTurnId;
+  }
 
   constructor(private readonly options: HostOptions) {}
   get closed(): boolean {
@@ -81,11 +92,17 @@ export class MuseSdkHost {
     }
     if (keepAlive) this.completedTurns++;
     const fold = this.lease?.session.fold;
+    const goalState = fold?.sessionState.get("session/goalChanged");
+    const goal =
+      goalState === undefined
+        ? this.options.initialGoal
+        : parseGoalObservation(goalState === null ? null : goalState.goal);
     const safeToReuse =
       fold?.current &&
-      !fold.activeTurnId &&
-      fold.pendingApprovals().length === 0 &&
-      fold.pendingUserInputs().length === 0;
+      ((!fold.activeTurnId &&
+        fold.pendingApprovals().length === 0 &&
+        fold.pendingUserInputs().length === 0) ||
+        (!!this.options.onGoal && goal?.status === "known" && goal.goal?.status === "active"));
     if (
       !keepAlive ||
       !safeToReuse ||
@@ -95,6 +112,7 @@ export class MuseSdkHost {
       await this.close();
       return;
     }
+    // Bound retention after foreground release even when Muse continues goal work.
     this.idleTimer = setTimeout(() => void this.close(), this.options.idleTimeoutMs ?? 60_000);
     this.idleTimer.unref();
   }
@@ -103,12 +121,14 @@ export class MuseSdkHost {
     if (!this.closing) {
       this.stopped = true;
       clearTimeout(this.idleTimer);
+      clearInterval(this.goalTimer);
       this.failActive?.(new Error("Muse SDK host closed during the turn"));
       this.closing = (async () => {
         try {
           if (this.lease) await this.lease.client.close().catch(() => {});
           else await this.handshake?.close().catch(() => {});
           await this.initialized?.catch(() => {});
+          await this.goalDelivery;
         } finally {
           this.failActive = undefined;
           this.finalStderr = this.stderr;
@@ -200,6 +220,32 @@ export class MuseSdkHost {
       await client.close().catch(() => {});
       throw new Error("Muse SDK host closed during startup");
     }
-    return (this.lease = { host, client, session });
+    this.lease = { host, client, session };
+    if (options.onGoal) {
+      this.goalTimer = setInterval(() => this.observeGoal(), 100);
+      this.goalTimer.unref();
+      this.observeGoal();
+    }
+    return this.lease;
+  }
+
+  private observeGoal(): void {
+    if (this.stopped || this.goalDelivery || !this.lease?.session.fold.current) return;
+    const state = this.lease.session.fold.sessionState.get("session/goalChanged");
+    if (state === undefined || state === this.lastGoalState) return;
+    this.lastGoalState = state;
+    const goal = parseGoalObservation(state === null ? null : state.goal);
+    const key = JSON.stringify(goal);
+    if (key === this.lastGoal) return;
+    this.lastGoal = key;
+    this.goalDelivery = Promise.resolve()
+      .then(() => this.options.onGoal?.(goal))
+      .catch(() => {
+        this.options.logger.log("goal update delivery failed");
+        void this.close();
+      })
+      .finally(() => {
+        this.goalDelivery = undefined;
+      });
   }
 }

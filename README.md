@@ -69,24 +69,25 @@ Requires Muse ≥ 0.2.1 for `exec`; the default SDK path requires ≥ 1.1.1 with
 
 ## Capabilities
 
-| Surface                                             | Status                                             |
-| --------------------------------------------------- | -------------------------------------------------- |
-| Prompt turns with streamed text                     | ✅                                                 |
-| Tool calls with results, diffs, locations           | ✅ (title upgraded at result time)                 |
-| Cancellation (`session/cancel`)                     | ✅                                                 |
-| Multi-turn sessions, `session/list`, `session/load` | ✅                                                 |
-| Session modes: default / read-only                  | ✅ (SDK default)                                   |
-| Session modes: bypass-approvals / yolo              | ✅ (`exec` only; gated)                            |
-| Model + reasoning-effort config options             | ✅                                                 |
-| Skills as slash commands                            | ✅                                                 |
-| Auth: browser login, `META_API_KEY`, logout         | ✅                                                 |
-| Interactive per-tool-call permission prompts        | ✅ (SDK backend)                                   |
-| Thinking/reasoning stream                           | ❌ (public summaries not yet forwarded)            |
-| Client-provided stdio and SDK HTTP MCP servers      | ✅ (see `docs/mcp-passthrough.md`)                 |
-| Additional workspace directories                    | ❌ (muse supports one workspace root)              |
-| Delegated workers                                   | ❌ (advertised in namespaced ACP metadata)         |
-| Token usage                                         | ❌ (not forwarded by the adapter)                  |
-| Editor-side file edits (fs proxying)                | ❌ (muse edits in its own sandbox; diffs reported) |
+| Surface                                             | Status                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------- |
+| Prompt turns with streamed text                     | ✅                                                                  |
+| Tool calls with results, diffs, locations           | ✅ (title upgraded at result time)                                  |
+| Cancellation (`session/cancel`)                     | ✅                                                                  |
+| Multi-turn sessions, `session/list`, `session/load` | ✅                                                                  |
+| Session modes: default / read-only                  | ✅ (SDK default)                                                    |
+| Session modes: bypass-approvals / yolo              | ✅ (`exec` only; gated)                                             |
+| Model + reasoning-effort config options             | ✅                                                                  |
+| Skills as slash commands                            | ✅                                                                  |
+| Auth: browser login, `META_API_KEY`, logout         | ✅                                                                  |
+| Interactive per-tool-call permission prompts        | ✅ (SDK backend)                                                    |
+| Thinking/reasoning stream                           | ❌ (public summaries not yet forwarded)                             |
+| Client-provided stdio and SDK HTTP MCP servers      | ✅ (see `docs/mcp-passthrough.md`)                                  |
+| Persistent goal observation and local `/goal`       | ✅ SDK; [observation contract](docs/goal-extension.md), no controls |
+| Additional workspace directories                    | ❌ (muse supports one workspace root)                               |
+| Delegated workers                                   | ❌ (advertised in namespaced ACP metadata)                          |
+| Token usage                                         | ❌ (not forwarded by the adapter)                                   |
+| Editor-side file edits (fs proxying)                | ❌ (muse edits in its own sandbox; diffs reported)                  |
 
 ### Exec backend notes
 

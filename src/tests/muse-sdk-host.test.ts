@@ -9,7 +9,7 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
-function fixture(mode = "complete", idleTimeoutMs = 60_000, maxTurns = 32) {
+function fixture(mode = "complete", idleTimeoutMs = 60_000, maxTurns = 32, observeGoal = false) {
   const root = mkdtempSync(join(tmpdir(), "muse-reuse-"));
   const binary = join(root, "host.cjs");
   copyFileSync(join(fixturesDir, "fake-msp.cjs"), binary);
@@ -47,6 +47,7 @@ function fixture(mode = "complete", idleTimeoutMs = 60_000, maxTurns = 32) {
     ...options,
     idleTimeoutMs,
     maxTurns,
+    ...(observeGoal ? { onGoal: () => {} } : {}),
     onClose: async () => {
       closed++;
     },
@@ -89,6 +90,21 @@ test("idle expiry closes host and releases its overlay callback", async () => {
   await expect.poll(f.closed).toBe(1);
   expect(f.owner.closed).toBe(true);
   expect(() => process.kill(f.pid(), 0)).toThrow();
+});
+
+test("retention expiry closes a host with active native goal work and releases resources once", async () => {
+  const f = fixture("nativeGoal", 30, 32, true);
+  await expect(spawnMuseSdkTurn({ ...f.options, hostOwner: f.owner }).done).resolves.toEqual({
+    stopReason: "end_turn",
+  });
+  expect(f.owner.hasActiveTurn).toBe(true);
+  expect(f.owner.closed).toBe(false);
+  expect(() => process.kill(f.pid(), 0)).not.toThrow();
+  await expect.poll(f.closed).toBe(1);
+  expect(f.owner.closed).toBe(true);
+  expect(() => process.kill(f.pid(), 0)).toThrow();
+  await f.owner.close();
+  expect(f.closed()).toBe(1);
 });
 
 test("steering targets only an acknowledged active turn and never a later turn", async () => {

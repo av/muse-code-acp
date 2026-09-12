@@ -62,6 +62,7 @@ function approvalParams(id, toolName, toolCallId, rawArgs) {
 const pendingApprovals = new Map();
 const pendingUserInputs = new Map();
 let gapFillCursor = null;
+let goalEmitted = false;
 
 const rl = createInterface({ input: process.stdin });
 rl.on("close", () => process.exit(0));
@@ -128,6 +129,14 @@ rl.on("line", async (line) => {
       });
       break;
     case "turn/start": {
+      if (process.env.FAKE_MSP_GOAL === "lifecycle" && !goalEmitted) {
+        goalEmitted = true;
+        const goal = { objective: "wire-goal", status: "active", percentComplete: 140, currentWork: "observed", nextWork: "clear" };
+        notify("session/goalChanged", { goal });
+        setTimeout(() => notify("session/goalChanged", { goal }), 200);
+        setTimeout(() => notify("session/goalChanged", { goal: null }), 400);
+        setTimeout(() => notify("session/goalChanged", { goal: null }), 600);
+      }
       turnId = params.commandId;
       if (barrier === "ack") {
         await sleep(60_000);
@@ -181,8 +190,12 @@ rl.on("line", async (line) => {
       } else if (mode === "malformed") {
         console.log("{not-json");
       } else if (mode !== "block" && mode !== "approval" && mode !== "approvalAllow" && mode !== "approvalDeny" && mode !== "concurrentApprovals" && mode !== "userInput" && mode !== "gapRecoverable") {
+        if (mode === "nativeGoal")
+          notify("session/goalChanged", { goal: { objective: "Native work", status: "active", percentComplete: 10 } });
         notify("item/completed", { item: { ...item, revision: 2, status: "completed", text: "hello world" } });
         terminal("completed");
+        if (mode === "nativeGoal")
+          notify("turn/started", { turnId: "native-turn", commandId: "native-turn", sourceRange: { start: 0, end: 0 } });
       }
       // Deliberately acknowledge AFTER the notifications, in the same read.
       reply({

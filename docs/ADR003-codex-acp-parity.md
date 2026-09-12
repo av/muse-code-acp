@@ -102,28 +102,28 @@ workspace, mode, or MCP changes can require replacement. See
 
 ## Runtime visibility, tools and review
 
-| Feature                                        | Codex ACP reference                                 | Muse Code ACP | Parity limit / work                                                                                                                      |
-| ---------------------------------------------- | --------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Tool lifecycle, arguments and text results     | Supported                                           | Supported     | Muse correlates tool IDs, revisions and completion-only items.                                                                           |
-| Live terminal/tool-output deltas               | Supported with terminal presentation modes          | Partial       | Muse shows tool snapshots/results but translator deltas handle assistant text only; m9.                                                  |
-| Rich tool-output images, links and artifacts   | Supported, including image view/generation          | Missing       | Input images do not imply output-artifact support; m17. Actual image-generation tool availability is provider-dependent.                 |
-| Web-search-specific presentation               | Specialized search/action mapping                   | Partial       | Muse maps web tools to generic fetch-kind calls and text; dedicated search presentation is not separately scheduled.                     |
-| File paths and edit presentation               | Supported                                           | Partial       | Muse reports recognized paths and can read back resulting text.                                                                          |
-| Accurate before/after diffs                    | Structured file-change mapping                      | Partial       | Muse overwrite readback may use `oldText: null`; m13 must establish trustworthy preimages.                                               |
-| Per-turn file-change report                    | Negotiated report with completeness/uncertainty     | Missing       | m13, including shell/generated changes where evidence supports attribution.                                                              |
-| Review commands / review events                | `/review`, `/review-branch`, `/review-commit`       | Missing       | Change reports in m13 are not a code-review execution mode; no dedicated review-mode task.                                               |
-| Plan/todo updates                              | Supported                                           | Missing       | m9 maps `session/todoListChanged`; currently not forwarded.                                                                              |
-| Reasoning summaries/thought chunks             | Supported                                           | Missing       | m9; public Muse summaries declared but actual summary emission remains provider/host-dependent. Private reasoning is not accessed.       |
-| Token usage                                    | Supported                                           | Missing       | Raw Muse usage has been observed, but ACP forwarding remains m9 work.                                                                    |
-| Context usage/pressure                         | Context-window and compaction reporting             | Missing       | m9; preserve unknown values and do not derive unsupported counters.                                                                      |
-| Explicit compaction and lifecycle              | `/compact` and compaction events                    | Blocked       | Muse durable `session/compact` rejects admission on the tested host; see blocker below.                                                  |
-| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Blocked       | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
-| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked       | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
-| Worker controls                                | Reference supports delegated-agent operations       | Blocked       | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
-| Background commands beyond prompt completion   | Negotiated async tasks, status and targeted stop    | Missing       | m15; m9 live output and m11 workers do not cover background command ownership.                                                           |
-| Persistent goal snapshots                      | Goal extension                                      | Missing       | m18; Muse snapshot/change declarations are not yet forwarded.                                                                            |
-| Goal set/pause/resume/clear                    | Advertised goal actions and `/goal`                 | Missing       | m18 conditions each control on verified public host support; observing a goal does not prove a control API exists.                       |
-| Unknown item kinds / truncation visibility     | Rich event handling and fallbacks                   | Partial       | Unrecognized Muse item kinds are silently omitted; generic rendering and truncation handling in m9.                                      |
+| Feature                                        | Codex ACP reference                                 | Muse Code ACP        | Parity limit / work                                                                                                                      |
+| ---------------------------------------------- | --------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool lifecycle, arguments and text results     | Supported                                           | Supported            | Muse correlates tool IDs, revisions and completion-only items.                                                                           |
+| Live terminal/tool-output deltas               | Supported with terminal presentation modes          | Partial              | Muse shows tool snapshots/results but translator deltas handle assistant text only; m9.                                                  |
+| Rich tool-output images, links and artifacts   | Supported, including image view/generation          | Missing              | Input images do not imply output-artifact support; m17. Actual image-generation tool availability is provider-dependent.                 |
+| Web-search-specific presentation               | Specialized search/action mapping                   | Partial              | Muse maps web tools to generic fetch-kind calls and text; dedicated search presentation is not separately scheduled.                     |
+| File paths and edit presentation               | Supported                                           | Partial              | Muse reports recognized paths and can read back resulting text.                                                                          |
+| Accurate before/after diffs                    | Structured file-change mapping                      | Partial              | Muse overwrite readback may use `oldText: null`; m13 must establish trustworthy preimages.                                               |
+| Per-turn file-change report                    | Negotiated report with completeness/uncertainty     | Missing              | m13, including shell/generated changes where evidence supports attribution.                                                              |
+| Review commands / review events                | `/review`, `/review-branch`, `/review-commit`       | Missing              | Change reports in m13 are not a code-review execution mode; no dedicated review-mode task.                                               |
+| Plan/todo updates                              | Supported                                           | Missing              | m9 maps `session/todoListChanged`; currently not forwarded.                                                                              |
+| Reasoning summaries/thought chunks             | Supported                                           | Missing              | m9; public Muse summaries declared but actual summary emission remains provider/host-dependent. Private reasoning is not accessed.       |
+| Token usage                                    | Supported                                           | Missing              | Raw Muse usage has been observed, but ACP forwarding remains m9 work.                                                                    |
+| Context usage/pressure                         | Context-window and compaction reporting             | Missing              | m9; preserve unknown values and do not derive unsupported counters.                                                                      |
+| Explicit compaction and lifecycle              | `/compact` and compaction events                    | Blocked              | Muse durable `session/compact` rejects admission on the tested host; see blocker below.                                                  |
+| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Blocked              | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
+| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked              | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
+| Worker controls                                | Reference supports delegated-agent operations       | Blocked              | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence). |
+| Background commands beyond prompt completion   | Negotiated async tasks, status and targeted stop    | Missing              | m15; m9 live output and m11 workers do not cover background command ownership.                                                           |
+| Persistent goal snapshots                      | Goal extension                                      | Supported (SDK)      | m18 forwards negotiated public goal observations, restores history and preserves explicit clearing. See [contract](goal-extension.md).   |
+| Goal set/pause/resume/clear                    | Advertised goal actions and `/goal`                 | Controls unavailable | Read-only `/goal` is supported; no verified public MSP control API, so controls remain unadvertised.                                     |
+| Unknown item kinds / truncation visibility     | Rich event handling and fallbacks                   | Partial              | Unrecognized Muse item kinds are silently omitted; generic rendering and truncation handling in m9.                                      |
 
 Evidence: [SDK translator](../src/muse-sdk-events.ts),
 [tool presentation](../src/tool-calls.ts), [turn handling](../src/muse-sdk.ts),
@@ -179,7 +179,7 @@ Codex [auth status](../.tmp/codex-acp/src/AuthStatusMeta.ts), and
 | Skills as slash commands                                  | Supported                                             | Supported                         | Muse advertises CLI-discovered skills and passes prompts through.                                                                                           |
 | `/status`, `/compact`                                     | Built-in handlers                                     | Missing / compaction blocked      | m9; a skill with the same name is not an adapter-owned handler.                                                                                             |
 | `/mcp`                                                    | Built-in handler                                      | Supported (SDK inventory)         | Local command; no model execution, connection probe or credential output.                                                                                   |
-| `/goal`                                                   | Built-in inspection/control                           | Missing                           | m18.                                                                                                                                                        |
+| `/goal`                                                   | Built-in inspection/control                           | Inspection supported (SDK)        | m18; no model turn and no advertised control actions.                                                                                                       |
 | `/skills`, `/logout`, `/rename`, `/plan`, review commands | Built-in handlers                                     | Missing as dedicated handlers     | Skill discovery and ACP logout already exist; not equivalent to these command handlers. Metadata work in m19 does not automatically deliver rename control. |
 | npm CLI and executable override                           | Supported                                             | Supported                         | Muse requires separately installed `muse`; Codex package includes its compatible CLI dependency.                                                            |
 | Standalone platform binaries                              | Build/package scripts for multiple platforms          | Missing                           | Muse package currently requires Node.js 22+ and a Muse installation; no dedicated packaging task.                                                           |
@@ -196,21 +196,21 @@ Sources: [skills](../src/skills.ts), [package scripts](../package.json),
 The [w1 board](../.pm/w1/README.md) owns task status and dependencies. These labels
 are a dated summary; update links if open milestones are archived.
 
-| Milestone | Scope                                                                      | Snapshot status                   |
-| --------- | -------------------------------------------------------------------------- | --------------------------------- |
-| m7        | Shutdown, workspace ownership, content metadata and lifecycle combinations | Done                              |
-| m8        | Embedded text, model discovery and verified support claims                 | Done                              |
-| m9        | Usage/context, compaction, plans, summaries, live output and status        | Open; durable compaction blocked  |
-| m10       | Reusable hosts and negotiated exact-target steering                        | Done                              |
-| m11       | Worker visibility, child sessions, histories, approvals and controls       | Open; worker host support blocked |
-| m12       | Session branching                                                          | Planned                           |
-| m13       | Accurate diffs and per-turn change reports                                 | Planned                           |
-| m14       | Failure categories, retry progress and truthful authentication state       | Planned                           |
-| m15       | Background command lifecycle and verified targeted controls                | Planned                           |
-| m16       | Remote MCP and diagnostics                                                 | Done                              |
-| m17       | Rich tool results and artifacts                                            | Planned                           |
-| m18       | Goal state and independently verified controls                             | Planned                           |
-| m19       | Public/paginated session discovery, history and live metadata              | Planned                           |
+| Milestone | Scope                                                                      | Snapshot status                                           |
+| --------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
+| m7        | Shutdown, workspace ownership, content metadata and lifecycle combinations | Done                                                      |
+| m8        | Embedded text, model discovery and verified support claims                 | Done                                                      |
+| m9        | Usage/context, compaction, plans, summaries, live output and status        | Open; durable compaction blocked                          |
+| m10       | Reusable hosts and negotiated exact-target steering                        | Done                                                      |
+| m11       | Worker visibility, child sessions, histories, approvals and controls       | Open; worker host support blocked                         |
+| m12       | Session branching                                                          | Planned                                                   |
+| m13       | Accurate diffs and per-turn change reports                                 | Planned                                                   |
+| m14       | Failure categories, retry progress and truthful authentication state       | Planned                                                   |
+| m15       | Background command lifecycle and verified targeted controls                | Planned                                                   |
+| m16       | Remote MCP and diagnostics                                                 | Done                                                      |
+| m17       | Rich tool results and artifacts                                            | Planned                                                   |
+| m18       | Goal state and independently verified controls                             | Observation delivered; controls conditionally unavailable |
+| m19       | Public/paginated session discovery, history and live metadata              | Planned                                                   |
 
 Rows explicitly marked without a dedicated task are documented gaps, not new
 commitments. This ADR does not silently expand milestones to include all Codex

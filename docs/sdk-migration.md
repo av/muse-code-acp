@@ -269,3 +269,12 @@ last-observed startup failures locally; current connectivity remains unknown
 because the public SDK has no MCP status method. The built-in command reserves
 the `mcp` skill name. Legacy exec retains stdio only. See
 [MCP configuration, diagnostics and evidence](mcp-passthrough.md).
+
+## Goal observation (m18)
+
+SDK sessions retain observed public goal state after prompts, restore it from
+history, and expose local `/goal` inspection without a provider call. Opted-in
+clients receive session-info metadata; baseline clients can use the command.
+Goal controls are unadvertised because public MSP support is unavailable.
+Host-owned turns, retention bounds and foreground prompt controls remain distinct;
+see the [goal contract and acceptance evidence](goal-extension.md). Exec is unchanged.

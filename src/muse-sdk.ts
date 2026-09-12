@@ -34,6 +34,7 @@ import {
 } from "./muse-user-input.js";
 import { MuseSdkHost } from "./muse-sdk-host.js";
 export { MuseSdkHost } from "./muse-sdk-host.js";
+import { readGoalFromConnection, type GoalObservation } from "./goal-state.js";
 import { Pushable } from "./utils.js";
 
 export interface MuseSdkOptions {
@@ -74,8 +75,8 @@ export async function readMuseSdkSession(
   options: Pick<
     MuseSdkOptions,
     "sessionId" | "cwd" | "env" | "museBinary" | "logger" | "checkHost"
-  >,
-): Promise<{ modelId: string | null }> {
+  > & { readGoal?: boolean; allowActive?: boolean },
+): Promise<{ modelId: string | null; goal?: GoalObservation }> {
   if (options.checkHost !== false) assertSdkHostSupport(options.env, options.museBinary);
   const handshake = spawnMspConnection({
     command: options.museBinary ?? museCliPath(options.env),
@@ -92,7 +93,7 @@ export async function readMuseSdkSession(
     const host = await handshake.initialize({
       clientInfo: { name: "muse_code_acp", version: packageJson.version },
     });
-    const result = await host.connection.request("session/read", {
+    const result = await host.connection.command("session/read", {
       sessionId: options.sessionId,
       excludeItems: true,
     });
@@ -118,12 +119,18 @@ export async function readMuseSdkSession(
       throw new Error("Saved Muse session belongs to a different workspace");
     }
     if (
-      session.activeTurnId ||
-      (Array.isArray(result.pendingRequests) && result.pendingRequests.length)
+      !options.allowActive &&
+      (session.activeTurnId ||
+        (Array.isArray(result.pendingRequests) && result.pendingRequests.length))
     ) {
       throw new Error("Saved Muse session has an unfinished turn or pending input");
     }
-    return { modelId: session.modelId };
+    return {
+      modelId: session.modelId,
+      ...(options.readGoal
+        ? { goal: await readGoalFromConnection(host.connection, options.sessionId, result) }
+        : {}),
+    };
   } finally {
     clearTimeout(timer);
     await handshake.close();

@@ -21,7 +21,7 @@
 - [ ] **m15** — Background command lifecycle and targeted controls (7 tasks) ← from second codex-acp comparison (2026-09-12)
 - [x] **m16** — Remote MCP transport and connection diagnostics (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m17** — Rich tool results and output artifacts (6 tasks) ← from second codex-acp comparison (2026-09-12)
-- [ ] **m18** — Session goal state and verified goal controls (6 tasks) ← from second codex-acp comparison (2026-09-12)
+- [x] **m18** — Session goal state and verified goal controls (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m19** — Paginated session discovery and live metadata (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m20** — Remaining prompt context and elicitation parity (7 tasks) ← from ADR003 parity handoff (2026-09-12)
 - [ ] **m21** — Provider configuration, recommendations and account limits (8 tasks) ← from ADR003 parity handoff (2026-09-12)
