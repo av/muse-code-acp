@@ -27,7 +27,7 @@
 - [ ] **m21** — Provider configuration, recommendations and account limits (8 tasks) ← from ADR003 parity handoff (2026-09-12)
 - [x] **m22** — Plan mode, review workflows and permission presentation (7 tasks) ← from ADR003 parity handoff (2026-09-12)
 - [ ] **m23** — Session commands and remaining editor presentation contracts (8 tasks) ← from ADR003 parity handoff (2026-09-12)
-- [ ] **m24** — Portable packaging and reference distribution assessment (6 tasks) ← from ADR003 parity handoff (2026-09-12)
+- [x] **m24** — Portable packaging and reference distribution assessment (6 tasks) ← from ADR003 parity handoff (2026-09-12)
 
 ## Inbox
 

@@ -287,3 +287,10 @@ plan into implementation. Git snapshots and MCP exclusions bound the supported
 workflow. Review status and public approval-stage metadata are opt-in, with
 ordinary ACP output and permission options as the baseline. See the
 [workflow contract](workflows.md) for exact commands, limits and real-host evidence.
+
+## Standalone packaging (m24)
+
+Native darwin-arm64 artifacts use Node's executable builder and retain the same
+SDK/exec entrypoint, external Muse discovery and override. Required installation
+smoke exercises a real loopback prompt with no Node or Bun on PATH. See
+[standalone targets, build provenance and distribution scope](standalone.md).

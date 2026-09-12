@@ -6,3 +6,5 @@ coverage
 CLAUDE.local.md
 .idea/
 .tmp
+
+artifacts/

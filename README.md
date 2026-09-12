@@ -170,3 +170,7 @@ The SDK retains a session's host between compatible turns and expires it after
 second client. Clients may explicitly negotiate mid-turn steering; it targets
 an exact active turn and does not change ordinary busy-prompt behavior.
 See [host lifecycle and steering](docs/sdk-migration.md#session-owned-hosts-and-steering).
+
+Standalone Apple Silicon macOS builds include Node and keep Muse external. See
+[build, verification and distribution scope](docs/standalone.md). The published
+npm installation remains unchanged.
