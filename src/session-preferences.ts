@@ -45,9 +45,9 @@ export function readSessionEffort(
 ): string | undefined {
   return readSessionPreferences(sessionId, env).reasoningEffort;
 }
-function writePreferences(
+export function writeSessionPreferences(
   sessionId: string,
-  change: Partial<Preferences>,
+  change: Pick<Preferences, "reasoningEffort" | "modeId">,
   env: Record<string, string | undefined>,
 ): void {
   const doc = { ...readSessionPreferences(sessionId, env), ...change };
@@ -66,12 +66,12 @@ export function writeSessionEffort(
   reasoningEffort: string,
   env: Record<string, string | undefined>,
 ): void {
-  writePreferences(sessionId, { reasoningEffort }, env);
+  writeSessionPreferences(sessionId, { reasoningEffort }, env);
 }
 export function writeSessionMode(
   sessionId: string,
   modeId: NonNullable<Preferences["modeId"]>,
   env: Record<string, string | undefined>,
 ): void {
-  writePreferences(sessionId, { modeId }, env);
+  writeSessionPreferences(sessionId, { modeId }, env);
 }

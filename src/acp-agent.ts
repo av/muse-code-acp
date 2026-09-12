@@ -4,6 +4,8 @@ import {
   AuthenticateRequest,
   AuthenticateResponse,
   CancelNotification,
+  ForkSessionRequest,
+  ForkSessionResponse,
   ResumeSessionRequest,
   ResumeSessionResponse,
   CloseSessionRequest,
@@ -56,6 +58,8 @@ import {
   defaultSessionConfig,
   SessionConfig,
 } from "./config-options.js";
+import { forkMuseSession, FORK_METADATA } from "./session-fork.js";
+import { probeSdkHost } from "./muse-host.js";
 import { Logger } from "./logger.js";
 import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery.js";
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
@@ -63,6 +67,7 @@ import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
 import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from "./muse-sdk.js";
 import {
   readSessionPreferences,
+  writeSessionPreferences,
   writeSessionEffort,
   writeSessionMode,
 } from "./session-preferences.js";
@@ -222,6 +227,23 @@ export class MuseAcpAgent {
     return state;
   }
 
+  private supportsFork(): boolean {
+    if (this.backend !== "sdk") return false;
+    if (this.options.skipSdkHostCheck) return true;
+    try {
+      const host = probeSdkHost(this.options.env, this.options.museBinary);
+      const version = host.version?.split(".").map(Number);
+      return (
+        host.serveHelpOk &&
+        !!version &&
+        (version[0] > 1 ||
+          (version[0] === 1 && (version[1] > 1 || (version[1] === 1 && version[2] >= 1))))
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
     // ACP v1: if we support the requested version, echo it; otherwise return
     // our latest supported version. This adapter supports only PROTOCOL_VERSION.
@@ -229,6 +251,7 @@ export class MuseAcpAgent {
     const authMethods = museAuthMethods({
       includeTerminal: this.clientCapabilities.auth?.terminal === true,
     });
+    const forkSupported = this.supportsFork();
     return {
       protocolVersion: PROTOCOL_VERSION,
       // Only advertise what is actually implemented; capabilities grow with
@@ -237,7 +260,12 @@ export class MuseAcpAgent {
         promptCapabilities: { image: true, embeddedContext: true },
         mcpCapabilities: this.backend === "sdk" ? { http: true } : {},
         loadSession: true,
-        sessionCapabilities: { list: {}, close: {}, resume: {} },
+        sessionCapabilities: {
+          list: {},
+          close: {},
+          resume: {},
+          ...(forkSupported ? { fork: {} } : {}),
+        },
         auth: { logout: {} },
       },
       authMethods,
@@ -246,6 +274,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(forkSupported && this.clientCapabilities._meta?.[FORK_METADATA] === 1
+          ? { [FORK_METADATA]: { version: 1, completedTurnBoundary: true } }
+          : {}),
         ...(this.backend === "sdk" && this.clientCapabilities._meta?.["muse/review"] === 1
           ? { "muse/review": { version: 1 } }
           : {}),
@@ -580,6 +611,124 @@ export class MuseAcpAgent {
       modes: this.sessionModes(this.sessions.get(params.sessionId)!.modeId),
       configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
     };
+  }
+
+  async forkSession(params: ForkSessionRequest): Promise<ForkSessionResponse> {
+    if (!this.supportsFork())
+      throw RequestError.invalidRequest(
+        undefined,
+        "Session fork requires supported Muse SDK host 1.1.1+",
+      );
+    this.validateMcp(params.mcpServers ?? []);
+    if (params.additionalDirectories?.length)
+      throw RequestError.invalidParams(undefined, "Muse fork supports one workspace root");
+    const cwd = resolveWorkspace(params.cwd);
+    const extension = params._meta?.[FORK_METADATA];
+    let lastTurnId: string | undefined;
+    if (extension !== undefined) {
+      if (
+        this.clientCapabilities._meta?.[FORK_METADATA] !== 1 ||
+        !extension ||
+        typeof extension !== "object" ||
+        Array.isArray(extension) ||
+        typeof (extension as { lastTurnId?: unknown }).lastTurnId !== "string" ||
+        !(extension as { lastTurnId: string }).lastTurnId.trim()
+      )
+        throw RequestError.invalidParams(
+          undefined,
+          "Explicit fork boundary requires negotiated muse/fork and a lastTurnId",
+        );
+      lastTurnId = (extension as { lastTurnId: string }).lastTurnId;
+    }
+    return this.withSessionBinding(params.sessionId, async () => {
+      const source = this.sessions.get(params.sessionId);
+      const env = this.options.env ?? process.env;
+      const stored =
+        source ??
+        listStoredSessions(null, env, this.logger).find((s) => s.sessionId === params.sessionId);
+      if (!stored || resolveWorkspace(stored.cwd, true) !== cwd)
+        throw RequestError.invalidParams(
+          undefined,
+          "Fork source not found in the requested workspace",
+        );
+      if (source?.sdkHost?.owner.hasActiveTurn)
+        throw RequestError.invalidRequest(undefined, "Cannot fork an active Muse session");
+      await source?.sdkHost?.owner.close();
+      if (source) source.sdkHost = undefined;
+      this.assertRunning();
+      const saved = await readMuseSdkSession({
+        sessionId: params.sessionId,
+        cwd,
+        env,
+        museBinary: this.options.museBinary,
+        logger: this.logger,
+        checkHost: !this.options.skipSdkHostCheck,
+      });
+      this.assertRunning();
+      const preferences = readSessionPreferences(params.sessionId, env);
+      const config = {
+        ...(source?.config ?? defaultSessionConfig(readMuseSettings(env, this.logger))),
+      };
+      config.model = saved.modelId ?? config.model;
+      config.reasoningEffort =
+        source?.config.reasoningEffort ?? preferences.reasoningEffort ?? config.reasoningEffort;
+      // Muse 1.1.1 constructs fork metadata from host settings. Use the same
+      // isolated execution configuration as ordinary SDK turns, then verify
+      // the fork's authoritative model rather than trusting an accepted setter.
+      const overlay = createMuseMcpOverlay([], env, config);
+      let result;
+      try {
+        result = await forkMuseSession({
+          sessionId: params.sessionId,
+          cwd,
+          lastTurnId,
+          env: overlay.env,
+          museBinary: this.options.museBinary,
+          checkHost: !this.options.skipSdkHostCheck,
+          logger: this.logger,
+        });
+      } finally {
+        overlay.cleanup();
+      }
+      this.assertRunning();
+      const sessionId = result.session.sessionId;
+      if (this.sessions.has(sessionId)) throw new Error("Muse fork identity is already bound");
+      // A branch starts with default sandbox/approval policy, not inherited grants.
+      writeSessionPreferences(
+        sessionId,
+        { reasoningEffort: config.reasoningEffort, modeId: "default" },
+        env,
+      );
+      this.sessions.set(sessionId, {
+        cwd,
+        museSessionId: sessionId,
+        activeTurn: null,
+        turnFinished: null,
+        cancelRequested: false,
+        modeId: "default",
+        config,
+        modelDiscovery: source?.modelDiscovery ? structuredClone(source.modelDiscovery) : undefined,
+        mcpServers: structuredClone(params.mcpServers ?? []),
+        activeMcpOverlay: null,
+      });
+      this.advertiseCommands(sessionId, cwd);
+      return {
+        sessionId,
+        modes: this.sessionModes("default"),
+        configOptions: buildConfigOptions(config, this.backend, source?.modelDiscovery),
+        ...(this.clientCapabilities._meta?.[FORK_METADATA] === 1
+          ? {
+              _meta: {
+                [FORK_METADATA]: {
+                  sourceSessionId: params.sessionId,
+                  cutCursor: result.session.forkedFrom?.cutCursor,
+                  explicitBoundary: result.session.forkedFrom?.cutExplicit,
+                },
+              },
+            }
+          : {}),
+      };
+    });
   }
 
   async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
@@ -1182,6 +1331,7 @@ export function createAgentConnection(
     .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
     .onRequest(methods.agent.session.new, (ctx) => agent.newSession(ctx.params))
     .onRequest(methods.agent.session.list, (ctx) => agent.listSessions(ctx.params))
+    .onRequest(methods.agent.session.fork, (ctx) => agent.forkSession(ctx.params))
     .onRequest(methods.agent.session.resume, (ctx) => agent.resumeSession(ctx.params))
     .onRequest(methods.agent.session.close, (ctx) => agent.closeSession(ctx.params))
     .onRequest(methods.agent.session.load, (ctx) => agent.loadSession(ctx.params))

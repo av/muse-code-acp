@@ -26,20 +26,21 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 
 ## ACP surface (advertised)
 
-| Capability                            | Advertised?                                    | Contract owner                                               |
-| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| Protocol major 1                      | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts` |
-| Prompt: text + resource_link          | baseline (no capability flag required)         | `src/prompt-content.ts`                                      |
-| Prompt: embedded text resource        | yes (`embeddedContext`)                        | attributed text; binary resources rejected                   |
-| Prompt: audio                         | **no**                                         | rejected with invalid params                                 |
-| MCP stdio                             | stdio and HTTP (SDK); SSE not advertised       | `docs/mcp-passthrough.md`                                    |
-| `session/load`, `session/list`        | yes                                            | session store + export helpers                               |
-| Auth logout                           | yes                                            | `src/auth.ts`                                                |
-| Terminal auth method                  | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                |
-| Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite              |
-| Form elicitation (SDK user input)     | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                     |
-| fs / terminal RPC                     | **no**                                         | omitted client caps never invoked                            |
-| Session fork/delete                   | **no**                                         | unadvertised                                                 |
+| Capability                            | Advertised?                                    | Contract owner                                                                    |
+| ------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| Protocol major 1                      | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts`                      |
+| Prompt: text + resource_link          | baseline (no capability flag required)         | `src/prompt-content.ts`                                                           |
+| Prompt: embedded text resource        | yes (`embeddedContext`)                        | attributed text; binary resources rejected                                        |
+| Prompt: audio                         | **no**                                         | rejected with invalid params                                                      |
+| MCP stdio                             | stdio and HTTP (SDK); SSE not advertised       | `docs/mcp-passthrough.md`                                                         |
+| `session/load`, `session/list`        | yes                                            | session store + export helpers                                                    |
+| Auth logout                           | yes                                            | `src/auth.ts`                                                                     |
+| Terminal auth method                  | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                                     |
+| Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite                                   |
+| Form elicitation (SDK user input)     | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                                          |
+| fs / terminal RPC                     | **no**                                         | omitted client caps never invoked                                                 |
+| Session fork                          | **yes** (SDK host 1.1.1+)                      | native history with verified restart continuity; see [branching](session-fork.md) |
+| Session delete                        | **no**                                         | unadvertised                                                                      |
 
 ## Public SDK API map
 
@@ -199,16 +200,16 @@ resource order in its prompt string; images remain separate ordered `--image` fl
 Evidence uses `@muse-code/sdk@0.1.1`, Muse Code 1.1.1-R2514.1 on macOS, isolated
 dummy credentials and a local loopback endpoint; no paid provider was called.
 
-| Surface              | Evidence and current adapter behavior                                                                                                                                                                                   |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Initialize           | Observed server version 1.1.1, schema version 1, durable sessions, empty grantedCapabilities and experimentalApi false. These fields alone do not prove every declared method works.                                    |
-| Model discovery      | `initialize` followed by `model/list {}` returned `bundledCatalog` with configured `fake-model`; provider discovery need not run and nullable catalog metadata is valid. ACP consumes the returned snapshot.            |
-| Effort               | Public schema declares seven tiers; all seven raw SDK turns completed against the loopback host. Adapter forwards exactly those tiers and rejects unknown values. Per-model restrictions are not present in model/list. |
-| Embedded context     | ACP resource-only prompt traversed the real SDK/host; captured provider input decoded to the exact unsaved text, URI and MIME attribution.                                                                              |
-| Reasoning summaries  | Public item schema declares `reasoning.summary` and indexed summary deltas. Actual summary events are not yet verified or forwarded; private/encrypted reasoning is not accessed.                                       |
-| Usage/context        | Public schema declares usage/context data. End-to-end ACP reporting is unverified and remains unadvertised until m9.                                                                                                    |
-| Compaction, steering | Public schema declares session/compact and turn/steer. Accepted/terminal lifecycle and provider effects are not verified by m8; implementation remains in m9/m10.                                                       |
-| Subagents, fork      | Public schema declares worker lifecycle/control and session/fork. Native ACP routing, permission isolation and branch continuity remain unverified, unadvertised m11/m12 work.                                          |
+| Surface              | Evidence and current adapter behavior                                                                                                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initialize           | Observed server version 1.1.1, schema version 1, durable sessions, empty grantedCapabilities and experimentalApi false. These fields alone do not prove every declared method works.                                                   |
+| Model discovery      | `initialize` followed by `model/list {}` returned `bundledCatalog` with configured `fake-model`; provider discovery need not run and nullable catalog metadata is valid. ACP consumes the returned snapshot.                           |
+| Effort               | Public schema declares seven tiers; all seven raw SDK turns completed against the loopback host. Adapter forwards exactly those tiers and rejects unknown values. Per-model restrictions are not present in model/list.                |
+| Embedded context     | ACP resource-only prompt traversed the real SDK/host; captured provider input decoded to the exact unsaved text, URI and MIME attribution.                                                                                             |
+| Reasoning summaries  | Public item schema declares `reasoning.summary` and indexed summary deltas. Actual summary events are not yet verified or forwarded; private/encrypted reasoning is not accessed.                                                      |
+| Usage/context        | Public schema declares usage/context data. End-to-end ACP reporting is unverified and remains unadvertised until m9.                                                                                                                   |
+| Compaction, steering | Public schema declares session/compact and turn/steer. Accepted/terminal lifecycle and provider effects are not verified by m8; implementation remains in m9/m10.                                                                      |
+| Subagents, fork      | Public schema declares worker lifecycle/control and session/fork. Worker routing and permission isolation remain unverified m11 work. m12 delivers native forks with independent restart continuity; see [branching](session-fork.md). |
 
 Schema presence is a discovery lead, not delivery evidence. Later milestones must
 verify their required host behavior before claiming support. Existing explicit
@@ -294,3 +295,10 @@ Native darwin-arm64 artifacts use Node's executable builder and retain the same
 SDK/exec entrypoint, external Muse discovery and override. Required installation
 smoke exercises a real loopback prompt with no Node or Bun on PATH. See
 [standalone targets, build provenance and distribution scope](standalone.md).
+
+## Session branching (m12)
+
+The SDK backend maps ACP `session/fork` onto public Muse fork. Default history and
+negotiated completed-turn boundaries preserve the source workspace, saved model
+and effort, with separate MCP inventory and reset default safety mode. Real-host
+acceptance verifies history isolation after ACP restart. See [semantics and limits](session-fork.md).

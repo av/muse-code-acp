@@ -174,3 +174,5 @@ See [host lifecycle and steering](docs/sdk-migration.md#session-owned-hosts-and-
 Standalone Apple Silicon macOS builds include Node and keep Muse external. See
 [build, verification and distribution scope](docs/standalone.md). The published
 npm installation remains unchanged.
+
+The SDK backend supports native [session branching](docs/session-fork.md), including negotiated completed-turn boundaries and independent continuation after restart.
