@@ -1,22 +1,22 @@
 # w1 · m6 — Session continuity and SDK default cutover
 
-**Worker:** worker1 **Goal:** SDK execution becomes the default with preserved session history, truthful auth/config/MCP behavior, and required process-level integration tests. **Status:** todo
+**Worker:** worker1 **Goal:** SDK execution becomes the default with preserved session history, truthful auth/config/MCP behavior, and required process-level integration tests. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                              | est | depends_on |
-| ---- | ------------------------------------------------------------------ | --- | ---------- |
-| t001 | Preserve durable session identity and SDK load semantics           | 60m | w1/m5/t010 |
-| t002 | Test complete history replay and pagination boundaries             | 60m | t001       |
-| t003 | Verify model, effort, and mode behavior through the SDK            | 45m | t002       |
-| t004 | Preserve authentication and advertised command behavior            | 45m | t003       |
-| t005 | Verify MCP configuration and overlay lifecycle under SDK execution | 45m | t004       |
-| t006 | Exercise real ACP process restart and legacy session continuity    | 60m | t005       |
-| t007 | Make protocol and real-host integration suites required CI checks  | 45m | t006       |
-| t008 | Switch the default backend to SDK and document compatibility       | 45m | t007       |
-| t009 | Simplify                                                           | 30m | t008       |
-| t010 | CI + test coverage                                                 | 45m | t008, t009 |
-| t011 | Closeout                                                           | 15m | t010       |
+| id   | title                                                              | est | depends_on |            |
+| ---- | ------------------------------------------------------------------ | --- | ---------- | ---------- |
+| t001 | Preserve durable session identity and SDK load semantics           | 60m | w1/m5/t010 | — **DONE** |
+| t002 | Test complete history replay and pagination boundaries             | 60m | t001       | — **DONE** |
+| t003 | Verify model, effort, and mode behavior through the SDK            | 45m | t002       | — **DONE** |
+| t004 | Preserve authentication and advertised command behavior            | 45m | t003       | — **DONE** |
+| t005 | Verify MCP configuration and overlay lifecycle under SDK execution | 45m | t004       | — **DONE** |
+| t006 | Exercise real ACP process restart and legacy session continuity    | 60m | t005       | — **DONE** |
+| t007 | Make protocol and real-host integration suites required CI checks  | 45m | t006       | — **DONE** |
+| t008 | Switch the default backend to SDK and document compatibility       | 45m | t007       | — **DONE** |
+| t009 | Simplify                                                           | 30m | t008       | — **DONE** |
+| t010 | CI + test coverage                                                 | 45m | t008, t009 | — **DONE** |
+| t011 | Closeout                                                           | 15m | t010       | — **DONE** |
 
 ## Definition of done
 
@@ -45,3 +45,13 @@
 - Prefer declared SDK session/history operations; do not assume the high-level facade exposes list/history/config helpers it does not have. The m4 support matrix determines permitted typed commands and bounded fallbacks.
 - The minimal cutover retains one Muse serve host per turn and an explicit exec compatibility option. Host pooling, removal of every CLI helper, optional client filesystem/terminal delegation, remote MCP transports, and Codex/AIR extensions are deferred.
 - Full protocol claims are scoped to the selected ACP major, mandatory methods/content, and actually advertised optional features. Unsupported capabilities stay absent; a terminal-looking tool update does not claim client terminal RPC support.
+
+
+## Validation evidence (t010)
+
+- Host: Muse Code 1.1.1; SDK `@muse-code/sdk` 0.1.1; ACP SDK 1.3.0
+- `npm run build` + `npm run check` passed
+- `npm run test:unit` — 147 deterministic tests passed (live suites excluded)
+- `npm run test:pack-smoke` — packed install initialized over stdio
+- `muse-sdk-approval-live` + `acp-restart-live` — 6 real-host tests passed
+- Default backend is `sdk`; rollback via `MUSE_CODE_ACP_BACKEND=exec`

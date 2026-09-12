@@ -32,7 +32,7 @@ describe("isAuthenticated", () => {
 
 describe("auth over ACP", () => {
   it("initialize advertises both auth methods and the logout capability", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ backend: "exec" });
     const ctx = await testClient.connect();
     const response = await ctx.request(methods.agent.initialize, {
       protocolVersion: 1,
@@ -46,7 +46,7 @@ describe("auth over ACP", () => {
   });
 
   it("omits terminal auth when the client does not advertise it", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ backend: "exec" });
     const ctx = await testClient.connect();
     const response = await ctx.request(methods.agent.initialize, { protocolVersion: 1 });
     expect(response.authMethods?.map((m) => m.id)).toEqual(["meta-api-key"]);
@@ -61,6 +61,7 @@ describe("auth over ACP", () => {
     ).rejects.toMatchObject({ message: expect.stringMatching(/META_API_KEY/) });
 
     const authenticated = connectTestClient({
+      backend: "exec",
       env: { ...isolatedEnv(false), META_API_KEY: "k" },
     });
     const ctx2 = await authenticated.connect();
@@ -76,6 +77,7 @@ describe("auth over ACP", () => {
 
   it("logout execs muse logout (fake binary) and resolves", async () => {
     const testClient = connectTestClient({
+      backend: "exec",
       museBinary: fakeMuseBinary(),
       env: { ...isolatedEnv(true), FAKE_MUSE_MODE: "exit0" },
     });
@@ -86,6 +88,7 @@ describe("auth over ACP", () => {
 
   it("logout surfaces a failing muse logout", async () => {
     const testClient = connectTestClient({
+      backend: "exec",
       museBinary: fakeMuseBinary(),
       env: { ...isolatedEnv(true), FAKE_MUSE_MODE: "exit2" },
     });

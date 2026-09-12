@@ -36,6 +36,7 @@ describe.skipIf(!museAvailable())("multi-turn continuity (live echo provider)", 
   it("consecutive prompts share one muse session log with continuing sequences", async () => {
     const xdg = mkdtempSync(join(tmpdir(), "muse-continuity-xdg-"));
     const testClient = connectTestClient({
+      backend: "exec",
       provider: "echo",
       env: { ...process.env, XDG_DATA_HOME: xdg },
     });
@@ -87,6 +88,7 @@ describe.skipIf(!museAvailable())("multi-turn continuity (live echo provider)", 
   it("a killed turn resumes cleanly on the next prompt", async () => {
     const xdg = mkdtempSync(join(tmpdir(), "muse-continuity-xdg-"));
     const testClient = connectTestClient({
+      backend: "exec",
       provider: "echo",
       env: { ...process.env, XDG_DATA_HOME: xdg },
     });

@@ -65,7 +65,7 @@ describe("session config options over ACP", () => {
     const env = settingsEnv(
       JSON.stringify({ schema_version: 1, model: "muse-spark-9.9-beta", reasoning_effort: "low" }),
     );
-    const testClient = connectTestClient({ museBinary: fakeMuseBinary(), env });
+    const testClient = connectTestClient({ backend: "exec", museBinary: fakeMuseBinary(), env });
     const ctx = await initialized(testClient);
 
     const { configOptions } = await ctx.request(methods.agent.session.new, {
@@ -86,6 +86,7 @@ describe("session config options over ACP", () => {
     const lines: string[] = [];
     const testClient = connectTestClient(
       {
+        backend: "exec",
         museBinary: fakeMuseBinary(),
         env: { ...settingsEnv(null), FAKE_MUSE_MODE: "exit1" },
       },
@@ -121,7 +122,11 @@ describe("session config options over ACP", () => {
   });
 
   it("rejects unknown config ids and invalid efforts", async () => {
-    const testClient = connectTestClient({ museBinary: fakeMuseBinary(), env: settingsEnv(null) });
+    const testClient = connectTestClient({
+      backend: "exec",
+      museBinary: fakeMuseBinary(),
+      env: settingsEnv(null),
+    });
     const ctx = await initialized(testClient);
     const { sessionId } = await ctx.request(methods.agent.session.new, {
       cwd: mkdtempSync(join(tmpdir(), "muse-config-test-")),

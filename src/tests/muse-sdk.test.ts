@@ -195,4 +195,42 @@ describe("MSP tool translation", () => {
       status: "completed",
     });
   });
+
+  it("forwards slash-command prompts on the SDK turn input", async () => {
+    const client = sdkClient();
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "/plan do the thing" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(client.requests().find((r) => r.method === "turn/start").params.input).toEqual([
+      { type: "text", text: "/plan do the thing" },
+    ]);
+  });
+
+  it("defaults to the SDK backend when MUSE_CODE_ACP_BACKEND is unset", () => {
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      FAKE_MSP_MODE: "complete",
+    };
+    delete env.MUSE_CODE_ACP_BACKEND;
+    const binary = join(fixturesDir, "fake-msp.cjs");
+    chmodSync(binary, 0o755);
+    const client = connectTestClient({
+      museBinary: binary,
+      skipSdkHostCheck: true,
+      env,
+    });
+    expect(client.agent.backend).toBe("sdk");
+  });
+
+  it("maps extreme effort labels onto MSP low/medium/high", async () => {
+    const { sdkReasoningEffort } = await import("../muse-sdk.js");
+    expect(sdkReasoningEffort("none")).toBe("low");
+    expect(sdkReasoningEffort("xhigh")).toBe("high");
+    expect(sdkReasoningEffort("medium")).toBe("medium");
+    expect(sdkReasoningEffort("bogus")).toBeUndefined();
+  });
 });

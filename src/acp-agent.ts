@@ -37,6 +37,7 @@ import {
 import { createUuidV7Mint } from "@muse-code/sdk";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
 import packageJson from "../package.json" with { type: "json" };
 import {
   isAuthenticated,
@@ -144,7 +145,7 @@ export class MuseAcpAgent {
     readonly logger: Logger = console,
     readonly options: MuseAgentOptions = {},
   ) {
-    const backend = options.backend ?? (options.env ?? process.env).MUSE_CODE_ACP_BACKEND ?? "exec";
+    const backend = options.backend ?? (options.env ?? process.env).MUSE_CODE_ACP_BACKEND ?? "sdk";
     if (backend !== "exec" && backend !== "sdk") {
       throw new Error(`unknown MUSE_CODE_ACP_BACKEND: ${backend}; expected exec or sdk`);
     }
@@ -152,7 +153,7 @@ export class MuseAcpAgent {
   }
 
   private sessionModes(current: MuseModeId) {
-    const state = modeState(current, guardContext());
+    const state = modeState(current, guardContext(), this.backend);
     if (this.backend === "sdk") {
       state.availableModes = state.availableModes.filter(
         (mode) => mode.id === "default" || mode.id === "readOnly",
@@ -258,6 +259,9 @@ export class MuseAcpAgent {
   private advertiseCommands(sessionId: string, cwd: string): void {
     listMuseSkills(cwd, this.options.env ?? process.env, this.options.museBinary, this.logger)
       .then((skills) => {
+        if (!this.sessions.has(sessionId)) {
+          return;
+        }
         const availableCommands = skillsToCommands(skills);
         if (availableCommands.length === 0) {
           return;
@@ -297,6 +301,37 @@ export class MuseAcpAgent {
         `session ${params.sessionId} not found in the muse session store`,
       );
     }
+    if (!isAbsolute(params.cwd)) {
+      throw RequestError.invalidParams(
+        undefined,
+        `cwd must be an absolute path, got "${params.cwd}"`,
+      );
+    }
+    // Fail closed before publishing adapter state: export must succeed and the
+    // stored workspace must match the client's load cwd when Muse recorded one.
+    if (stored.cwd) {
+      try {
+        if (realpathSync(stored.cwd) !== realpathSync(params.cwd)) {
+          throw RequestError.invalidParams(
+            undefined,
+            `session ${params.sessionId} belongs to a different workspace`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof RequestError) {
+          throw error;
+        }
+        throw RequestError.invalidParams(
+          undefined,
+          `session ${params.sessionId} workspace path is not usable`,
+        );
+      }
+    }
+
+    const doc = await runMuseExport(params.sessionId, env, this.options.museBinary).catch((err) => {
+      this.logger.error(`session load: export failed: ${err}`);
+      throw RequestError.internalError(undefined, `could not export session history: ${err}`);
+    });
 
     const config = defaultSessionConfig(readMuseSettings(env, this.logger));
     this.sessions.set(params.sessionId, {
@@ -310,12 +345,13 @@ export class MuseAcpAgent {
       activeMcpOverlay: null,
     });
 
-    const doc = await runMuseExport(params.sessionId, env, this.options.museBinary).catch((err) => {
-      this.logger.error(`session load: export failed: ${err}`);
-      throw RequestError.internalError(undefined, `could not export session history: ${err}`);
-    });
-    for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
-      await this.client.sessionUpdate(notification);
+    try {
+      for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
+        await this.client.sessionUpdate(notification);
+      }
+    } catch (error) {
+      this.sessions.delete(params.sessionId);
+      throw error;
     }
 
     this.advertiseCommands(params.sessionId, params.cwd);

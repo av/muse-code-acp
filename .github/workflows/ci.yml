@@ -18,7 +18,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -41,5 +41,44 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run tests
-        run: npm run test:run
+      - name: Run deterministic contract tests
+        run: npm run test:unit
+
+      - name: Packed install smoke
+        run: npm run test:pack-smoke
+
+  muse-loopback:
+    name: Muse loopback integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: build
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Muse Code CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://dev.meta.ai/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          muse --version
+          muse serve --help >/dev/null
+
+      - name: Run required real-host loopback suites
+        run: npm run test:muse-loopback
+        env:
+          MUSE_CODE_ACP_REQUIRE_MUSE: "1"
+          PATH: ${{ env.PATH }}

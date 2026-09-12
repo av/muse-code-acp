@@ -24,7 +24,7 @@ describe("initialize", () => {
     expect(response._meta?.["bex.security/capabilities"]).toEqual({
       delegatedWorkers: false,
       usage: "unavailable",
-      interactivePermissions: false,
+      interactivePermissions: true,
     });
     expect(response.authMethods?.length).toBe(2);
   });

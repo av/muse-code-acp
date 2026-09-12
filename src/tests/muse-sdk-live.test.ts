@@ -10,6 +10,13 @@ import { museCliPath } from "../muse-cli.js";
 import { connectTestClient, initialized, museAvailable } from "./helpers.js";
 
 const available = museAvailable() && spawnSync(museCliPath(), ["serve", "--help"]).status === 0;
+const requireMuse = process.env.MUSE_CODE_ACP_REQUIRE_MUSE === "1";
+
+if (requireMuse && !available) {
+  throw new Error(
+    "muse serve ≥1.1.1 is required for MUSE_CODE_ACP_REQUIRE_MUSE=1 (m6 integration job)",
+  );
+}
 
 /** Real Muse + real SDK, with a loopback provider and isolated dummy credentials. */
 describe.skipIf(!available)("SDK live host (no external API)", () => {

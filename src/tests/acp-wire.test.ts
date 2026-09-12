@@ -46,6 +46,8 @@ describe("ACP stdio wire contracts", () => {
       expect(
         transcript.mspRequests.some((r) => (r as { method?: string }).method === "turn/start"),
       ).toBe(true);
+      // Default SDK path must not invoke muse exec for the turn.
+      expect(transcript.stderr).not.toMatch(/muse-exec spawn:|exec --json/);
     } finally {
       await wire.dispose();
     }

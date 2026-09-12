@@ -62,6 +62,25 @@ export interface MuseSdkHandle {
   kill(): void;
 }
 
+/** Map ACP/muse effort labels onto the MSP values Session.sendUserTurn accepts. */
+export function sdkReasoningEffort(
+  effort: string | undefined,
+): "low" | "medium" | "high" | undefined {
+  if (!effort) {
+    return undefined;
+  }
+  if (effort === "low" || effort === "medium" || effort === "high") {
+    return effort;
+  }
+  if (effort === "none" || effort === "minimal") {
+    return "low";
+  }
+  if (effort === "xhigh" || effort === "ultra") {
+    return "high";
+  }
+  return undefined;
+}
+
 /**
  * One durable `muse serve` host per turn. MuseClient/Session own MSP framing,
  * fold routing, and turn waits; this adapter translates folded items into ACP
@@ -293,8 +312,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
 
       const turn = await session.sendUserTurn({
         input: options.input,
-        ...(options.reasoningEffort
-          ? { reasoningEffort: options.reasoningEffort as "low" | "medium" | "high" }
+        ...(sdkReasoningEffort(options.reasoningEffort)
+          ? { reasoningEffort: sdkReasoningEffort(options.reasoningEffort)! }
           : {}),
       });
       adoptTurn(turn.turnId);
