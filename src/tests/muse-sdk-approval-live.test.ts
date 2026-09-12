@@ -1,4 +1,4 @@
-import { methods } from "@agentclientprotocol/sdk";
+import { methods, type RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { rm } from "node:fs/promises";
@@ -131,57 +131,63 @@ describe("SDK live approval gating (real Muse host)", () => {
     }
   }, 90_000);
 
-  it("cancel while pending blocks the tool; a later prompt still works", async () => {
-    expect(museReady).toBe(true);
+  it.each(["cancel", "close"] as const)(
+    "%s while pending blocks stale approval; a later prompt works",
+    async (method) => {
+      expect(museReady).toBe(true);
 
-    const provider = await startLoopbackProvider({
-      scriptedToolCallWhen: [ARTIFACT, `"bash"`],
-      scriptedToolCallCommand: COMMAND,
-      replyText: "after-cancel",
-      holdMs: 2_000,
-    });
-    const cwd = join(provider.root, "workspace");
-    mkdirSync(cwd);
-    const marker = join(cwd, ARTIFACT);
-    const client = connectTestClient({ env: liveEnv(provider) });
-
-    try {
-      let lateAllow = false;
-      client.setPermissionResponder(async (params) => {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        lateAllow = true;
-        const allow = params.options?.find((o) => o.optionId.includes("allow"));
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: allow?.optionId ?? params.options?.[0]?.optionId ?? "allow_once",
-          },
-        };
+      const provider = await startLoopbackProvider({
+        scriptedToolCallWhen: [ARTIFACT, `"bash"`],
+        scriptedToolCallCommand: COMMAND,
+        replyText: "after-cancel",
+        holdMs: 2_000,
       });
-      const ctx = await initialized(client);
-      const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
-      const prompt = ctx.request(methods.agent.session.prompt, {
-        sessionId,
-        prompt: [{ type: "text", text: PROMPT }],
-      });
-      await expect.poll(() => client.permissionRequests.length, { timeout: 30_000 }).toBe(1);
-      expect(existsSync(marker)).toBe(false);
-      await ctx.notify(methods.agent.session.cancel, { sessionId });
-      await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      expect(lateAllow).toBe(true);
-      expect(existsSync(marker)).toBe(false);
+      const cwd = join(provider.root, "workspace");
+      mkdirSync(cwd);
+      const marker = join(cwd, ARTIFACT);
+      const client = connectTestClient({ env: liveEnv(provider) });
 
-      await expect(
-        ctx.request(methods.agent.session.prompt, {
+      try {
+        const reply = Promise.withResolvers<RequestPermissionResponse>();
+        const returned = Promise.withResolvers<void>();
+        client.setPermissionResponder(async () => {
+          const response = await reply.promise;
+          returned.resolve();
+          return response;
+        });
+        const ctx = await initialized(client);
+        const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+        const prompt = ctx.request(methods.agent.session.prompt, {
           sessionId,
-          prompt: [{ type: "text", text: "say hello without tools" }],
-        }),
-      ).resolves.toEqual({ stopReason: "end_turn" });
-    } finally {
-      await client.agent.dispose();
-      await provider.close();
-      await rm(provider.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    }
-  }, 90_000);
+          prompt: [{ type: "text", text: PROMPT }],
+        });
+        await expect.poll(() => client.permissionRequests.length, { timeout: 30_000 }).toBe(1);
+        expect(existsSync(marker)).toBe(false);
+        if (method === "close") await ctx.request(methods.agent.session.close, { sessionId });
+        else await ctx.notify(methods.agent.session.cancel, { sessionId });
+        await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
+        if (method === "close")
+          await ctx.request(methods.agent.session.resume, { sessionId, cwd, mcpServers: [] });
+        const allow = client.permissionRequests[0].options.find((o) => o.kind === "allow_once");
+        expect(allow).toBeDefined();
+        reply.resolve({ outcome: { outcome: "selected", optionId: allow!.optionId } });
+        await returned.promise;
+        expect(existsSync(marker)).toBe(false);
+
+        await expect(
+          ctx.request(methods.agent.session.prompt, {
+            sessionId,
+            prompt: [{ type: "text", text: "say hello without tools" }],
+          }),
+        ).resolves.toEqual({ stopReason: "end_turn" });
+        expect(existsSync(marker)).toBe(false);
+        expect(provider.scriptedToolCalls()).toBe(1);
+      } finally {
+        await client.agent.dispose();
+        await provider.close();
+        await rm(provider.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      }
+    },
+    90_000,
+  );
 });

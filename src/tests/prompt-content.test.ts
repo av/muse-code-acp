@@ -36,7 +36,9 @@ describe("prompt content conversion", () => {
       return;
     }
     expect(converted.parts).toHaveLength(2);
-    expect((converted.parts[1] as { text: string }).text).toContain("URI: file:///tmp/日本語.md");
+    expect((converted.parts[1] as { text: string }).text).toContain(
+      '"uri":"file:///tmp/日本語.md"',
+    );
     expect((converted.parts[1] as { text: string }).text).toContain("café");
     expect(
       formatResourceLink({
@@ -44,7 +46,7 @@ describe("prompt content conversion", () => {
         name: "a",
         uri: "file:///a",
       }),
-    ).toBe("Resource: a\nURI: file:///a");
+    ).toBe('Resource link: {"name":"a","uri":"file:///a"}');
   });
 
   it("rejects empty and unsupported optional content", () => {

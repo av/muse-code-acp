@@ -141,7 +141,9 @@ export interface MuseAgentOptions {
   skipSdkHostCheck?: boolean;
 }
 
-function resolveResumeWorkspace(cwd: string, stored: boolean): string {
+function resolveWorkspace(cwd: string, stored = false): string {
+  if (!isAbsolute(cwd))
+    throw RequestError.invalidParams(undefined, `cwd must be an absolute path, got "${cwd}"`);
   try {
     const canonical = realpathSync(cwd);
     if (!statSync(canonical).isDirectory()) throw new Error("not a directory");
@@ -158,7 +160,10 @@ function resolveResumeWorkspace(cwd: string, stored: boolean): string {
 
 export class MuseAcpAgent {
   readonly sessions = new Map<string, SessionState>();
-  private readonly bindingSessions = new Set<string>();
+  private readonly bindingSessions = new Map<string, Promise<void>>();
+  private readonly backgroundTasks = new Set<Promise<void>>();
+  private disposed = false;
+  private disposal: Promise<void> | null = null;
   readonly backend: "exec" | "sdk";
   /** Client capabilities from initialize; omitted keys are unsupported. */
   clientCapabilities: ClientCapabilities = {};
@@ -244,12 +249,8 @@ export class MuseAcpAgent {
   }
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
-    if (!isAbsolute(params.cwd)) {
-      throw RequestError.invalidParams(
-        undefined,
-        `cwd must be an absolute path, got "${params.cwd}"`,
-      );
-    }
+    this.assertRunning();
+    const cwd = resolveWorkspace(params.cwd);
     // The ACP session id doubles as the muse `--session-id`. Muse creates its
     // on-disk session log lazily on the first exec, so nothing is spawned here.
     const sessionId = this.backend === "sdk" ? createUuidV7Mint()() : randomUUID();
@@ -258,7 +259,7 @@ export class MuseAcpAgent {
       this.backend,
     );
     this.sessions.set(sessionId, {
-      cwd: params.cwd,
+      cwd,
       museSessionId: sessionId,
       activeTurn: null,
       turnFinished: null,
@@ -268,7 +269,7 @@ export class MuseAcpAgent {
       mcpServers: params.mcpServers,
       activeMcpOverlay: null,
     });
-    this.advertiseCommands(sessionId, params.cwd);
+    this.advertiseCommands(sessionId, cwd);
     return {
       sessionId,
       modes: this.sessionModes("default"),
@@ -281,9 +282,14 @@ export class MuseAcpAgent {
    * Invocation is prompt passthrough — `/skill-id …` reaches muse verbatim.
    */
   private advertiseCommands(sessionId: string, cwd: string): void {
-    listMuseSkills(cwd, this.options.env ?? process.env, this.options.museBinary, this.logger)
+    const task = listMuseSkills(
+      cwd,
+      this.options.env ?? process.env,
+      this.options.museBinary,
+      this.logger,
+    )
       .then((skills) => {
-        if (!this.sessions.has(sessionId)) {
+        if (this.disposed || !this.sessions.has(sessionId)) {
           return;
         }
         const availableCommands = skillsToCommands(skills);
@@ -296,6 +302,8 @@ export class MuseAcpAgent {
         });
       })
       .catch((err) => this.logger.log(`skills advertisement failed: ${err}`));
+    this.backgroundTasks.add(task);
+    void task.finally(() => this.backgroundTasks.delete(task));
   }
 
   async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
@@ -319,17 +327,22 @@ export class MuseAcpAgent {
   }
 
   private async withSessionBinding<T>(sessionId: string, bind: () => Promise<T>): Promise<T> {
+    this.assertRunning();
     if (this.bindingSessions.has(sessionId) || this.sessions.get(sessionId)?.turnFinished) {
       throw RequestError.invalidRequest(
         undefined,
         "session has a prompt turn or binding operation in progress",
       );
     }
-    this.bindingSessions.add(sessionId);
+    const finished = Promise.withResolvers<void>();
+    this.bindingSessions.set(sessionId, finished.promise);
     try {
-      return await bind();
+      const result = await bind();
+      this.assertRunning();
+      return result;
     } finally {
       this.bindingSessions.delete(sessionId);
+      finished.resolve();
     }
   }
 
@@ -350,43 +363,25 @@ export class MuseAcpAgent {
         `session ${params.sessionId} not found in the muse session store`,
       );
     }
-    if (!isAbsolute(params.cwd)) {
+    const cwd = resolveWorkspace(params.cwd);
+    const storedCwd = resolveWorkspace(stored.cwd, true);
+    if (cwd !== storedCwd)
       throw RequestError.invalidParams(
         undefined,
-        `cwd must be an absolute path, got "${params.cwd}"`,
+        `session ${params.sessionId} belongs to a different workspace`,
       );
-    }
-    // Fail closed before publishing adapter state: export must succeed and the
-    // stored workspace must match the client's load cwd when Muse recorded one.
-    if (stored.cwd) {
-      try {
-        if (realpathSync(stored.cwd) !== realpathSync(params.cwd)) {
-          throw RequestError.invalidParams(
-            undefined,
-            `session ${params.sessionId} belongs to a different workspace`,
-          );
-        }
-      } catch (error) {
-        if (error instanceof RequestError) {
-          throw error;
-        }
-        throw RequestError.invalidParams(
-          undefined,
-          `session ${params.sessionId} workspace path is not usable`,
-        );
-      }
-    }
 
     const doc = await runMuseExport(params.sessionId, env, this.options.museBinary).catch((err) => {
       this.logger.error(`session load: export failed: ${err}`);
       throw RequestError.internalError(undefined, `could not export session history: ${err}`);
     });
 
+    this.assertRunning();
     const config = defaultSessionConfig(readMuseSettings(env, this.logger), this.backend);
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
-        cwd: params.cwd,
+        cwd,
         env,
         museBinary: this.options.museBinary,
         logger: this.logger,
@@ -395,8 +390,9 @@ export class MuseAcpAgent {
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
     }
+    this.assertRunning();
     this.sessions.set(params.sessionId, {
-      cwd: params.cwd,
+      cwd,
       museSessionId: params.sessionId,
       activeTurn: null,
       turnFinished: null,
@@ -409,14 +405,16 @@ export class MuseAcpAgent {
 
     try {
       for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
+        this.assertRunning();
         await this.client.sessionUpdate(notification);
       }
+      this.assertRunning();
     } catch (error) {
       this.sessions.delete(params.sessionId);
       throw error;
     }
 
-    this.advertiseCommands(params.sessionId, params.cwd);
+    this.advertiseCommands(params.sessionId, cwd);
     return {
       modes: this.sessionModes("default"),
       configOptions: buildConfigOptions(config, this.backend),
@@ -461,8 +459,8 @@ export class MuseAcpAgent {
         `session ${params.sessionId} not found in the muse session store`,
       );
     }
-    const storedCwd = resolveResumeWorkspace(stored.cwd, true);
-    const requestedCwd = resolveResumeWorkspace(params.cwd, false);
+    const storedCwd = resolveWorkspace(stored.cwd, true);
+    const requestedCwd = resolveWorkspace(params.cwd, false);
     if (requestedCwd !== storedCwd) {
       throw RequestError.invalidParams(
         undefined,
@@ -498,6 +496,7 @@ export class MuseAcpAgent {
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
     }
+    this.assertRunning();
     this.sessions.set(params.sessionId, {
       cwd: storedCwd,
       museSessionId: params.sessionId,
@@ -731,16 +730,23 @@ export class MuseAcpAgent {
     this.sessions.delete(params.sessionId);
     session.cancelRequested = true;
     session.activeTurn?.kill();
-    this.bindingSessions.add(params.sessionId);
+    const finished = Promise.withResolvers<void>();
+    this.bindingSessions.set(params.sessionId, finished.promise);
     try {
       await session.turnFinished;
     } finally {
       this.bindingSessions.delete(params.sessionId);
+      finished.resolve();
     }
     return {};
   }
 
+  private assertRunning(): void {
+    if (this.disposed) throw RequestError.invalidRequest(undefined, "agent is shutting down");
+  }
+
   requireSession(sessionId: string): SessionState {
+    this.assertRunning();
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw RequestError.invalidParams(undefined, `unknown session: ${sessionId}`);
@@ -750,14 +756,21 @@ export class MuseAcpAgent {
     return session;
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
+    if (this.disposal) return this.disposal;
+    this.disposed = true;
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
     for (const session of sessions) {
       session.cancelRequested = true;
       session.activeTurn?.kill();
     }
-    await Promise.all(sessions.map((session) => session.turnFinished));
+    this.disposal = Promise.all([
+      ...sessions.map((session) => session.turnFinished),
+      ...this.bindingSessions.values(),
+      ...this.backgroundTasks,
+    ]).then(() => {});
+    return this.disposal;
   }
 }
 

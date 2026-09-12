@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { methods, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import packageJson from "../../package.json" with { type: "json" };
@@ -63,7 +64,7 @@ describe("session/new", () => {
     const second = await ctx.request(methods.agent.session.new, { cwd: "/tmp", mcpServers: [] });
 
     expect(first.sessionId).not.toBe(second.sessionId);
-    expect(testClient.agent.sessions.get(first.sessionId)?.cwd).toBe("/tmp");
+    expect(testClient.agent.sessions.get(first.sessionId)?.cwd).toBe(realpathSync("/tmp"));
     expect(testClient.agent.sessions.get(first.sessionId)?.museSessionId).toBe(first.sessionId);
   });
 

@@ -14,17 +14,16 @@ export type MuseInputPart =
 export function formatResourceLink(
   block: Extract<ContentBlock, { type: "resource_link" }>,
 ): string {
-  const lines = [`Resource: ${block.name}`, `URI: ${block.uri}`];
-  if (block.title) {
-    lines.push(`Title: ${block.title}`);
-  }
-  if (block.description) {
-    lines.push(`Description: ${block.description}`);
-  }
-  if (block.mimeType) {
-    lines.push(`MIME: ${block.mimeType}`);
-  }
-  return lines.join("\n");
+  return `Resource link: ${JSON.stringify({
+    name: block.name,
+    uri: block.uri,
+    title: block.title,
+    description: block.description,
+    mimeType: block.mimeType,
+    size: block.size,
+    annotations: block.annotations,
+    _meta: block._meta,
+  })}`;
 }
 
 export type PromptConversion =

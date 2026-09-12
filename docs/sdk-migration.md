@@ -74,16 +74,15 @@ legacy surface. The **default turn path** uses only the SDK backend.
 MSP `TurnInputPart` only declares `text` \| `image`. ACP `resource_link` blocks
 are encoded as ordered text parts:
 
-```
-Resource: <name>
-URI: <uri>
-Title: <title>          # optional
-Description: <description>  # optional
-MIME: <mimeType>        # optional
+```text
+Resource link: {"name":"notes","uri":"file:///notes.md","size":0}
 ```
 
-No URI is fetched during conversion. The same text is used for the legacy
-`muse exec` prompt string.
+The JSON object preserves name, URI, title, description, MIME type, size,
+annotations and opaque metadata. Absent fields are omitted; explicit nulls,
+empty strings and zero sizes are retained. JSON escaping keeps quotes and
+newlines inside their original field. This replaces the older newline-delimited
+encoding. No URI is fetched; the same encoding is used for legacy exec.
 
 ## Modes
 
@@ -152,3 +151,9 @@ workspace (symlink-equivalent paths are accepted and canonicalized), refreshes
 MCP servers, and emits no history replay. Live mode/config are retained; after
 close or restart, the SDK model and saved effort are restored and mode defaults
 to `default`. Busy sessions and additional workspace directories are rejected.
+
+SDK image-only prompts are supported and verified against Muse 1.1.1 with the
+loopback provider. Legacy exec still requires accompanying text or a resource
+link. New, load and resume all retain canonical workspace directories. Disposal
+rejects further session admission and waits for pending bindings, turn cleanup
+and command advertisement before returning.

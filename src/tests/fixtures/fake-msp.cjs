@@ -80,6 +80,9 @@ rl.on("line", async (line) => {
       break;
     case "initialized":
       break;
+    case "session/read":
+      reply({session: {sessionId: params.sessionId, workspaceRoot: process.cwd(), modelId: "muse-spark-1.2", activeTurnId: null}, pendingRequests: []});
+      break;
     case "session/resume":
       if (mode === "busy" || mode === "wrongWorkspace") {
         reply({ session: {

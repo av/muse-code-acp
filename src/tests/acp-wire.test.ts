@@ -78,7 +78,7 @@ describe("ACP stdio wire contracts", () => {
         params: { input: Array<{ type: string; text: string }> };
       };
       expect(turnStart.params.input.map((p) => p.text).join("\n\n")).toContain(
-        "URI: file:///tmp/notes.md",
+        '"uri":"file:///tmp/notes.md"',
       );
       expect(turnStart.params.input.map((p) => p.text).join("\n\n")).toContain("café notes");
     } finally {

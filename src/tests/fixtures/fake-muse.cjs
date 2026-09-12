@@ -55,6 +55,7 @@ if (process.argv.includes("exec") && process.env.FAKE_MUSE_ARGV_CAPTURE) {
     process.env.FAKE_MUSE_ARGV_CAPTURE,
     JSON.stringify({
       argv: process.argv.slice(2),
+      cwd: process.cwd(),
       directoryMode: imagePaths[0] ? fs.statSync(require("node:path").dirname(imagePaths[0])).mode & 0o777 : null,
       images: imagePaths.map((imagePath) => ({
         path: imagePath,

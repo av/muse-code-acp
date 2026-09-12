@@ -32,16 +32,6 @@ function blockingClient(capture: string) {
   });
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2_000;
-  while (!predicate()) {
-    if (Date.now() >= deadline) {
-      throw new Error("timed out waiting for fake Muse");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
 function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -93,39 +83,52 @@ describe("session/close", () => {
     ).rejects.toMatchObject({ code: -32602, message: expect.stringMatching(/unknown session/) });
   });
 
-  it("waits for an active turn and its image cleanup before acknowledging close", async () => {
-    const capture = capturePath();
-    const testClient = blockingClient(capture);
-    const { ctx, sessionId } = await newTestSession(testClient);
-    const prompt = ctx.request(methods.agent.session.prompt, {
-      sessionId,
-      prompt: [
-        { type: "image", data: "YQ==", mimeType: "image/png" },
-        { type: "text", text: "Wait for close." },
-      ],
-    });
-    await waitFor(
-      () => existsSync(capture) && Boolean(testClient.agent.sessions.get(sessionId)?.activeTurn),
-    );
-    const turn = testClient.agent.sessions.get(sessionId)?.activeTurn;
-    const pid = turn && "pid" in turn ? turn.pid : undefined;
-    if (!pid) {
-      throw new Error("fake Muse did not expose its process id");
-    }
-    const captured = JSON.parse(readFileSync(capture, "utf8")) as MuseCapture;
-    const imagePath = captured.images[0]?.path;
-    if (!imagePath) {
-      throw new Error("fake Muse did not capture its image path");
-    }
+  it.each(["close", "dispose"] as const)(
+    "waits for active turn and image cleanup on %s",
+    async (method) => {
+      const capture = capturePath();
+      const testClient = blockingClient(capture);
+      const { ctx, sessionId } = await newTestSession(testClient);
+      try {
+        const prompt = ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [
+            { type: "image", data: "YQ==", mimeType: "image/png" },
+            { type: "text", text: "Wait for close." },
+          ],
+        });
+        await expect
+          .poll(
+            () => testClient.updates.some((n) => n.update.sessionUpdate === "agent_message_chunk"),
+            { timeout: 5000 },
+          )
+          .toBe(true);
+        const turn = testClient.agent.sessions.get(sessionId)?.activeTurn;
+        const pid = turn && "pid" in turn ? turn.pid : undefined;
+        if (!pid) {
+          throw new Error("fake Muse did not expose its process id");
+        }
+        const captured = JSON.parse(readFileSync(capture, "utf8")) as MuseCapture;
+        const imagePath = captured.images[0]?.path;
+        if (!imagePath) {
+          throw new Error("fake Muse did not capture its image path");
+        }
 
-    const close = ctx.request(methods.agent.session.close, { sessionId });
+        const close =
+          method === "close"
+            ? ctx.request(methods.agent.session.close, { sessionId })
+            : testClient.agent.dispose().then(() => ({}));
 
-    await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
-    await expect(close).resolves.toEqual({});
-    expect(testClient.agent.sessions.has(sessionId)).toBe(false);
-    expect(processIsAlive(pid)).toBe(false);
-    expect(existsSync(dirname(imagePath))).toBe(false);
-  });
+        await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
+        await expect(close).resolves.toEqual({});
+        expect(testClient.agent.sessions.has(sessionId)).toBe(false);
+        expect(processIsAlive(pid)).toBe(false);
+        expect(existsSync(dirname(imagePath))).toBe(false);
+      } finally {
+        await testClient.agent.dispose();
+      }
+    },
+  );
 
   it("revokes admission before a close issued during image staging waits", async () => {
     const capture = capturePath();
@@ -208,10 +211,18 @@ describe("session/close", () => {
     await updateEntered.promise;
 
     const close = agent.closeSession({ sessionId });
+    let disposed = false;
+    const disposal = agent.dispose().then(() => {
+      disposed = true;
+    });
+    await Promise.resolve();
+    expect(disposed).toBe(false);
     releaseUpdate.resolve();
 
     await expect(prompt).rejects.toThrow("client update failed");
     await expect(close).resolves.toEqual({});
+    await disposal;
+    expect(disposed).toBe(true);
     expect(agent.sessions.has(sessionId)).toBe(false);
   });
 

@@ -183,47 +183,53 @@ describe.skipIf(!available)("SDK live host (no external API)", () => {
 });
 
 describe.skipIf(!available)("SDK image provider input", () => {
-  it("forwards image bytes through the real host", async () => {
-    const provider = await startLoopbackProvider({
-      scriptedToolCallWhen: ["never-call-tools"],
-      scriptedToolCallCommand: "",
-      holdMs: 20,
-    });
-    const cwd = join(provider.root, "workspace");
-    mkdirSync(cwd);
-    const client = connectTestClient({
-      backend: "sdk",
-      env: {
-        HOME: provider.home,
-        PATH: process.env.PATH,
-        XDG_CONFIG_HOME: join(provider.root, "config"),
-        XDG_DATA_HOME: join(provider.root, "data"),
-        TBH_DISABLE_TELEMETRY: "1",
-        TBH_CREDENTIAL_BACKEND: "file",
-      },
-    });
-    try {
-      const ctx = await initialized(client);
-      const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
-      await expect(
-        ctx.request(methods.agent.session.prompt, {
-          sessionId,
-          prompt: [
-            { type: "text", text: "describe image-marker" },
-            { type: "image", mimeType: "image/png", data: CAT_IMAGE_BASE64 },
-          ],
-        }),
-      ).resolves.toEqual({ stopReason: "end_turn" });
-      expect(
-        provider.requests().some((r) => {
-          const input = JSON.stringify(r.input);
-          return input.includes("image-marker") && input.includes(CAT_IMAGE_BASE64);
-        }),
-      ).toBe(true);
-    } finally {
-      await client.agent.dispose();
-      await provider.close();
-      await rm(provider.root, { recursive: true, force: true });
-    }
-  }, 60000);
+  it.each([false, true])(
+    "forwards image bytes through the real host (image-only: %s)",
+    async (imageOnly) => {
+      const provider = await startLoopbackProvider({
+        scriptedToolCallWhen: ["never-call-tools"],
+        scriptedToolCallCommand: "",
+        holdMs: 20,
+      });
+      const cwd = join(provider.root, "workspace");
+      mkdirSync(cwd);
+      const client = connectTestClient({
+        backend: "sdk",
+        env: {
+          HOME: provider.home,
+          PATH: process.env.PATH,
+          XDG_CONFIG_HOME: join(provider.root, "config"),
+          XDG_DATA_HOME: join(provider.root, "data"),
+          TBH_DISABLE_TELEMETRY: "1",
+          TBH_CREDENTIAL_BACKEND: "file",
+        },
+      });
+      try {
+        const ctx = await initialized(client);
+        const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+        await expect(
+          ctx.request(methods.agent.session.prompt, {
+            sessionId,
+            prompt: [
+              ...(imageOnly ? [] : [{ type: "text" as const, text: "describe image-marker" }]),
+              { type: "image", mimeType: "image/png", data: CAT_IMAGE_BASE64 },
+            ],
+          }),
+        ).resolves.toEqual({ stopReason: "end_turn" });
+        expect(
+          provider.requests().some((r) => {
+            const input = JSON.stringify(r.input);
+            return (
+              (imageOnly || input.includes("image-marker")) && input.includes(CAT_IMAGE_BASE64)
+            );
+          }),
+        ).toBe(true);
+      } finally {
+        await client.agent.dispose();
+        await provider.close();
+        await rm(provider.root, { recursive: true, force: true });
+      }
+    },
+    60000,
+  );
 });
