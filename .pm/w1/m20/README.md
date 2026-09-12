@@ -44,3 +44,30 @@ Estimated total: 4h 30m across 7 tasks. Only listed dependencies are prerequisit
 ## Validation evidence
 
 Pending implementation. ADR003 is a source-based comparison; new host surfaces still require verification. No feature or task is marked delivered by this handoff.
+
+## Blocker — public workspace-root and URL contracts (2026-09-12)
+
+Triage outcome: blocked before implementation; no tasks are marked complete.
+With pinned SDK 0.1.1 and installed Muse 1.1.1-R2514.1, the public
+`SessionStartParams` in `node_modules/@muse-code/sdk/dist/src/msp.d.ts` offers one
+`workspaceRoot`; `SessionConfig` is reserved with no members. `muse serve --help`
+fixes sandbox posture at host construction and exposes no additional-roots flag.
+The general CLI's singular `--workspace` is not a multi-root authorization contract.
+No supported way to retain multiple independently authorized roots through
+start/resume was found. This blocks required t003; widening the root or disabling
+sandboxing would violate its acceptance criteria.
+
+The same public schema's `UserInputRequestParams` carries questions/options and
+`userInput/answer` / `userInput/cancel` settlement, with no URL elicitation ID,
+URL request variant or URL-completion event. The reference's
+`CodexElicitationHandler.buildElicitationRequest` explicitly depends on those
+fields for URL mode. Existing form support cannot establish required t004 URL
+semantics. No undocumented methods were probed or invented.
+
+Resume when a documented public Muse multi-root authorization contract and URL
+request/completion bridge are available, then prove scope and correlation with
+real-host fixtures. Embedded binary/image work remains wanted but is not claimed
+implemented; the milestone's complete input-contract investigation remains open.
+All tasks t001–t007 remain open; no dependent milestones are currently declared.
+Continue independent w1 work. This evidence update changes no runtime code;
+Markdown formatting and local reference paths were checked.
