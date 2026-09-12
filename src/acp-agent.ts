@@ -4,6 +4,8 @@ import {
   AuthenticateRequest,
   AuthenticateResponse,
   CancelNotification,
+  ResumeSessionRequest,
+  ResumeSessionResponse,
   CloseSessionRequest,
   CloseSessionResponse,
   ClientApp,
@@ -39,7 +41,7 @@ import {
 import { createUuidV7Mint } from "@muse-code/sdk";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import packageJson from "../package.json" with { type: "json" };
 import {
   isAuthenticated,
@@ -139,6 +141,21 @@ export interface MuseAgentOptions {
   skipSdkHostCheck?: boolean;
 }
 
+function resolveResumeWorkspace(cwd: string, stored: boolean): string {
+  try {
+    const canonical = realpathSync(cwd);
+    if (!statSync(canonical).isDirectory()) throw new Error("not a directory");
+    return canonical;
+  } catch {
+    throw RequestError.invalidParams(
+      undefined,
+      stored
+        ? `stored workspace directory is unavailable: ${cwd}; start a new session`
+        : `workspace directory does not exist or is unavailable: ${cwd}`,
+    );
+  }
+}
+
 export class MuseAcpAgent {
   readonly sessions = new Map<string, SessionState>();
   private readonly bindingSessions = new Set<string>();
@@ -183,7 +200,7 @@ export class MuseAcpAgent {
         promptCapabilities: { image: true },
         mcpCapabilities: {},
         loadSession: true,
-        sessionCapabilities: { list: {}, close: {} },
+        sessionCapabilities: { list: {}, close: {}, resume: {} },
         auth: { logout: {} },
       },
       authMethods,
@@ -400,6 +417,99 @@ export class MuseAcpAgent {
     }
 
     this.advertiseCommands(params.sessionId, params.cwd);
+    return {
+      modes: this.sessionModes("default"),
+      configOptions: buildConfigOptions(config, this.backend),
+    };
+  }
+
+  async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    return this.withSessionBinding(params.sessionId, () => this.resumeSessionState(params));
+  }
+
+  private async resumeSessionState(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    if (!isAbsolute(params.cwd)) {
+      throw RequestError.invalidParams(
+        undefined,
+        `cwd must be an absolute path, got "${params.cwd}"`,
+      );
+    }
+    if (params.additionalDirectories?.length) {
+      throw RequestError.invalidParams(
+        undefined,
+        "Muse Code supports one workspace root; start a separate session for another workspace",
+      );
+    }
+
+    const existing = this.sessions.get(params.sessionId);
+    if (existing?.turnFinished) {
+      throw RequestError.invalidRequest(
+        undefined,
+        `session ${params.sessionId} already has a prompt turn in flight`,
+      );
+    }
+    // Keep validation and mutation synchronous after the busy check so a prompt
+    // cannot enter while resume replaces the session's MCP server snapshot.
+    const stored = existing
+      ? { cwd: existing.cwd }
+      : listStoredSessions(null, this.options.env ?? process.env, this.logger).find(
+          (session) => session.sessionId === params.sessionId,
+        );
+    if (!stored) {
+      throw RequestError.invalidParams(
+        undefined,
+        `session ${params.sessionId} not found in the muse session store`,
+      );
+    }
+    const storedCwd = resolveResumeWorkspace(stored.cwd, true);
+    const requestedCwd = resolveResumeWorkspace(params.cwd, false);
+    if (requestedCwd !== storedCwd) {
+      throw RequestError.invalidParams(
+        undefined,
+        `session ${params.sessionId} belongs to ${stored.cwd}; ` +
+          "resume from that directory or start a new session",
+      );
+    }
+
+    const mcpServers = params.mcpServers ?? [];
+    if (existing) {
+      existing.cwd = storedCwd;
+      existing.mcpServers = mcpServers;
+      return {
+        modes: this.sessionModes(existing.modeId),
+        configOptions: buildConfigOptions(existing.config, this.backend),
+      };
+    }
+
+    const config = defaultSessionConfig(
+      readMuseSettings(this.options.env ?? process.env, this.logger),
+      this.backend,
+    );
+    if (this.backend === "sdk") {
+      const env = this.options.env ?? process.env;
+      const saved = await readMuseSdkSession({
+        sessionId: params.sessionId,
+        cwd: storedCwd,
+        env,
+        museBinary: this.options.museBinary,
+        logger: this.logger,
+        checkHost: !this.options.skipSdkHostCheck,
+      });
+      config.model = saved.modelId ?? config.model;
+      config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
+    }
+    this.sessions.set(params.sessionId, {
+      cwd: storedCwd,
+      museSessionId: params.sessionId,
+      activeTurn: null,
+      turnFinished: null,
+      cancelRequested: false,
+      modeId: "default",
+      config,
+      mcpServers,
+      activeMcpOverlay: null,
+    });
+    this.advertiseCommands(params.sessionId, storedCwd);
     return {
       modes: this.sessionModes("default"),
       configOptions: buildConfigOptions(config, this.backend),
@@ -670,6 +780,7 @@ export function createAgentConnection(
     .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
     .onRequest(methods.agent.session.new, (ctx) => agent.newSession(ctx.params))
     .onRequest(methods.agent.session.list, (ctx) => agent.listSessions(ctx.params))
+    .onRequest(methods.agent.session.resume, (ctx) => agent.resumeSession(ctx.params))
     .onRequest(methods.agent.session.close, (ctx) => agent.closeSession(ctx.params))
     .onRequest(methods.agent.session.load, (ctx) => agent.loadSession(ctx.params))
     .onRequest(methods.agent.session.setMode, (ctx) => agent.setSessionMode(ctx.params))

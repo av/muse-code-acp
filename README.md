@@ -141,3 +141,7 @@ remain unsupported.
 
 `session/close` cancels active work, waits for per-turn cleanup, and releases
 adapter session state. Native Muse history is retained for later loading.
+
+`session/resume` rebinds an existing or retained session without replaying its
+transcript. It refreshes MCP servers, preserves live settings, and restores saved
+SDK model/effort after close or restart. The original workspace is required.

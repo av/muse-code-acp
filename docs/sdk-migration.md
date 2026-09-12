@@ -146,3 +146,9 @@ files and requires text or a resource link alongside images.
 `session/close` is advertised on both backends. It revokes new prompt admission,
 cancels active work, and waits for host and temporary-file cleanup. Closing does
 not delete native Muse history. Binding a session and prompting it are serialized.
+
+`session/resume` is advertised on both backends. It requires the original
+workspace (symlink-equivalent paths are accepted and canonicalized), refreshes
+MCP servers, and emits no history replay. Live mode/config are retained; after
+close or restart, the SDK model and saved effort are restored and mode defaults
+to `default`. Busy sessions and additional workspace directories are rejected.
