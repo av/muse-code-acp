@@ -2,11 +2,11 @@ import { realpathSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { methods, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import packageJson from "../../package.json" with { type: "json" };
-import { connectTestClient, initialized } from "./helpers.js";
+import { connectTestClient, initialized, fakeMuseBinary } from "./helpers.js";
 
 describe("initialize", () => {
   it("returns protocol version, identity, and only implemented capabilities", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const ctx = await testClient.connect();
 
     const response = await ctx.request(methods.agent.initialize, {
@@ -35,7 +35,7 @@ describe("initialize", () => {
   });
 
   it("clamps future client protocol versions to our own", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const ctx = await testClient.connect();
 
     const response = await ctx.request(methods.agent.initialize, {
@@ -46,7 +46,7 @@ describe("initialize", () => {
   });
 
   it("returns our version for older unsupported clients too", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const ctx = await testClient.connect();
     const response = await ctx.request(methods.agent.initialize, {
       protocolVersion: 0 as typeof PROTOCOL_VERSION,
@@ -57,7 +57,7 @@ describe("initialize", () => {
 
 describe("session/new", () => {
   it("mints a fresh session per call, bound to the cwd", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const ctx = await initialized(testClient);
 
     const first = await ctx.request(methods.agent.session.new, { cwd: "/tmp", mcpServers: [] });
@@ -69,7 +69,7 @@ describe("session/new", () => {
   });
 
   it("rejects a relative cwd", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const ctx = await initialized(testClient);
 
     await expect(
@@ -80,7 +80,7 @@ describe("session/new", () => {
 
 describe("session/prompt (pre-t005)", () => {
   it("rejects prompts for unknown sessions", async () => {
-    const testClient = connectTestClient();
+    const testClient = connectTestClient({ museBinary: fakeMuseBinary() });
     const ctx = await initialized(testClient);
 
     await expect(

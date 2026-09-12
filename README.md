@@ -81,7 +81,7 @@ Requires Muse ≥ 0.2.1 for `exec`; the default SDK path requires ≥ 1.1.1 with
 | Skills as slash commands                            | ✅                                                 |
 | Auth: browser login, `META_API_KEY`, logout         | ✅                                                 |
 | Interactive per-tool-call permission prompts        | ✅ (SDK backend)                                   |
-| Thinking/reasoning stream                           | ❌ (muse encrypts reasoning)                       |
+| Thinking/reasoning stream                           | ❌ (public summaries not yet forwarded)            |
 | Client-provided stdio MCP servers                   | ✅ (see `docs/mcp-passthrough.md`)                 |
 | Additional workspace directories                    | ❌ (muse supports one workspace root)              |
 | Delegated workers                                   | ❌ (advertised in namespaced ACP metadata)         |
@@ -136,8 +136,16 @@ Apache-2.0. Portions derived from
 
 Prompt images (PNG, JPEG, GIF, WebP) are supported: the SDK receives inline image
 parts; legacy exec uses private per-turn files removed during cleanup. Exec
-requires accompanying text or a resource link. Audio and embedded resources
-remain unsupported.
+requires accompanying text, a resource link or embedded text. Embedded text
+resources carry unsaved editor context with URI/MIME attribution and a 64 KiB
+aggregate serialized UTF-8 limit per prompt; URIs are never fetched. Audio and
+binary resources remain unsupported. SDK input preserves block interleaving; exec
+keeps images as separate flags.
+
+SDK model choices come from public `model/list`, retaining the current configured
+or restored model. Discovery failures explicitly fall back to that model. All seven
+public effort tiers pass through unchanged; provider behavior may vary. See
+[SDK support and fallback details](docs/sdk-migration.md#runtime-discovery-and-editor-context).
 
 `session/close` cancels active work, waits for per-turn cleanup, and releases
 adapter session state. Native Muse history is retained for later loading.

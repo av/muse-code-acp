@@ -57,6 +57,7 @@ import {
   SessionConfig,
 } from "./config-options.js";
 import { Logger } from "./logger.js";
+import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery.js";
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
 import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession } from "./muse-sdk.js";
@@ -120,6 +121,7 @@ export interface SessionState {
   modeId: MuseModeId;
   /** Model + reasoning effort applied to every spawn for this session. */
   config: SessionConfig;
+  modelDiscovery?: ModelDiscoveryResult;
   /** ACP-provided MCP servers injected into Muse for each turn. */
   mcpServers: McpServer[];
   /** Live per-turn Muse configuration overlay, if this session uses MCP. */
@@ -165,6 +167,7 @@ export class MuseAcpAgent {
   private disposed = false;
   private disposal: Promise<void> | null = null;
   readonly backend: "exec" | "sdk";
+  private readonly modelDiscovery: MuseModelDiscovery;
   /** Client capabilities from initialize; omitted keys are unsupported. */
   clientCapabilities: ClientCapabilities = {};
 
@@ -178,6 +181,11 @@ export class MuseAcpAgent {
       throw new Error(`unknown MUSE_CODE_ACP_BACKEND: ${backend}; expected exec or sdk`);
     }
     this.backend = backend;
+    this.modelDiscovery = new MuseModelDiscovery({
+      env: options.env ?? process.env,
+      museBinary: options.museBinary,
+      logger,
+    });
   }
 
   private sessionModes(current: MuseModeId) {
@@ -202,7 +210,7 @@ export class MuseAcpAgent {
       // Only advertise what is actually implemented; capabilities grow with
       // the milestones that ship them. Images work on both backends.
       agentCapabilities: {
-        promptCapabilities: { image: true },
+        promptCapabilities: { image: true, embeddedContext: true },
         mcpCapabilities: {},
         loadSession: true,
         sessionCapabilities: { list: {}, close: {}, resume: {} },
@@ -252,29 +260,34 @@ export class MuseAcpAgent {
     this.assertRunning();
     const cwd = resolveWorkspace(params.cwd);
     // The ACP session id doubles as the muse `--session-id`. Muse creates its
-    // on-disk session log lazily on the first exec, so nothing is spawned here.
+    // on-disk session log lazily on the first turn; discovery only queries the host.
     const sessionId = this.backend === "sdk" ? createUuidV7Mint()() : randomUUID();
-    const config = defaultSessionConfig(
-      readMuseSettings(this.options.env ?? process.env, this.logger),
-      this.backend,
-    );
-    this.sessions.set(sessionId, {
-      cwd,
-      museSessionId: sessionId,
-      activeTurn: null,
-      turnFinished: null,
-      cancelRequested: false,
-      modeId: "default",
-      config,
-      mcpServers: params.mcpServers,
-      activeMcpOverlay: null,
+    return this.withSessionBinding(sessionId, async () => {
+      const config = defaultSessionConfig(
+        readMuseSettings(this.options.env ?? process.env, this.logger),
+      );
+      const modelDiscovery =
+        this.backend === "sdk" ? await this.modelDiscovery.discover(cwd) : undefined;
+      this.assertRunning();
+      this.sessions.set(sessionId, {
+        cwd,
+        museSessionId: sessionId,
+        activeTurn: null,
+        turnFinished: null,
+        cancelRequested: false,
+        modeId: "default",
+        config,
+        modelDiscovery,
+        mcpServers: params.mcpServers,
+        activeMcpOverlay: null,
+      });
+      this.advertiseCommands(sessionId, cwd);
+      return {
+        sessionId,
+        modes: this.sessionModes("default"),
+        configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
+      };
     });
-    this.advertiseCommands(sessionId, cwd);
-    return {
-      sessionId,
-      modes: this.sessionModes("default"),
-      configOptions: buildConfigOptions(config, this.backend),
-    };
   }
 
   /**
@@ -377,7 +390,7 @@ export class MuseAcpAgent {
     });
 
     this.assertRunning();
-    const config = defaultSessionConfig(readMuseSettings(env, this.logger), this.backend);
+    const config = defaultSessionConfig(readMuseSettings(env, this.logger));
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -390,6 +403,8 @@ export class MuseAcpAgent {
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
     }
+    const modelDiscovery =
+      this.backend === "sdk" ? await this.modelDiscovery.discover(cwd) : undefined;
     this.assertRunning();
     this.sessions.set(params.sessionId, {
       cwd,
@@ -399,6 +414,7 @@ export class MuseAcpAgent {
       cancelRequested: false,
       modeId: "default",
       config,
+      modelDiscovery,
       mcpServers: params.mcpServers,
       activeMcpOverlay: null,
     });
@@ -417,7 +433,7 @@ export class MuseAcpAgent {
     this.advertiseCommands(params.sessionId, cwd);
     return {
       modes: this.sessionModes("default"),
-      configOptions: buildConfigOptions(config, this.backend),
+      configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
     };
   }
 
@@ -475,13 +491,12 @@ export class MuseAcpAgent {
       existing.mcpServers = mcpServers;
       return {
         modes: this.sessionModes(existing.modeId),
-        configOptions: buildConfigOptions(existing.config, this.backend),
+        configOptions: buildConfigOptions(existing.config, this.backend, existing.modelDiscovery),
       };
     }
 
     const config = defaultSessionConfig(
       readMuseSettings(this.options.env ?? process.env, this.logger),
-      this.backend,
     );
     if (this.backend === "sdk") {
       const env = this.options.env ?? process.env;
@@ -496,6 +511,8 @@ export class MuseAcpAgent {
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
     }
+    const modelDiscovery =
+      this.backend === "sdk" ? await this.modelDiscovery.discover(storedCwd) : undefined;
     this.assertRunning();
     this.sessions.set(params.sessionId, {
       cwd: storedCwd,
@@ -505,13 +522,14 @@ export class MuseAcpAgent {
       cancelRequested: false,
       modeId: "default",
       config,
+      modelDiscovery,
       mcpServers,
       activeMcpOverlay: null,
     });
     this.advertiseCommands(params.sessionId, storedCwd);
     return {
       modes: this.sessionModes("default"),
-      configOptions: buildConfigOptions(config, this.backend),
+      configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
     };
   }
 
@@ -519,17 +537,14 @@ export class MuseAcpAgent {
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
     const session = this.requireSession(params.sessionId);
-    const config = applyConfigSelection(
-      session.config,
-      params.configId,
-      params.value,
-      this.backend,
-    );
+    const config = applyConfigSelection(session.config, params.configId, params.value);
     if (this.backend === "sdk" && params.configId === "reasoningEffort") {
       writeSessionEffort(params.sessionId, config.reasoningEffort, this.options.env ?? process.env);
     }
     session.config = config;
-    return { configOptions: buildConfigOptions(session.config, this.backend) };
+    return {
+      configOptions: buildConfigOptions(session.config, this.backend, session.modelDiscovery),
+    };
   }
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
@@ -769,6 +784,7 @@ export class MuseAcpAgent {
       ...sessions.map((session) => session.turnFinished),
       ...this.bindingSessions.values(),
       ...this.backgroundTasks,
+      this.modelDiscovery.dispose(),
     ]).then(() => {});
     return this.disposal;
   }

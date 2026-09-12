@@ -270,10 +270,10 @@ describe("MSP tool translation", () => {
     expect(client.agent.backend).toBe("sdk");
   });
 
-  it("maps extreme effort labels onto MSP low/medium/high", async () => {
+  it("preserves host-supported effort labels", async () => {
     const { sdkReasoningEffort } = await import("../muse-sdk.js");
-    expect(sdkReasoningEffort("none")).toBe("low");
-    expect(sdkReasoningEffort("xhigh")).toBe("high");
+    expect(sdkReasoningEffort("none")).toBe("none");
+    expect(sdkReasoningEffort("xhigh")).toBe("xhigh");
     expect(sdkReasoningEffort("medium")).toBe("medium");
     expect(sdkReasoningEffort("bogus")).toBeUndefined();
   });

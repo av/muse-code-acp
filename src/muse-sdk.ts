@@ -19,6 +19,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { realpathSync } from "node:fs";
 import type { AcpClient } from "./acp-agent.js";
 import { Logger } from "./logger.js";
+import { isReasoningEffort, type MuseReasoningEffort } from "./config-options.js";
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import {
@@ -123,23 +124,9 @@ export async function readMuseSdkSession(
   }
 }
 
-/** Map ACP/muse effort labels onto the MSP values Session.sendUserTurn accepts. */
-export function sdkReasoningEffort(
-  effort: string | undefined,
-): "low" | "medium" | "high" | undefined {
-  if (!effort) {
-    return undefined;
-  }
-  if (effort === "low" || effort === "medium" || effort === "high") {
-    return effort;
-  }
-  if (effort === "none" || effort === "minimal") {
-    return "low";
-  }
-  if (effort === "xhigh" || effort === "ultra") {
-    return "high";
-  }
-  return undefined;
+/** Preserve the public MSP effort vocabulary verified against Muse 1.1.1. */
+export function sdkReasoningEffort(effort: string | undefined): MuseReasoningEffort | undefined {
+  return isReasoningEffort(effort) ? effort : undefined;
 }
 
 /**

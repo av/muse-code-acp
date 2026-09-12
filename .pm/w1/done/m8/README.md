@@ -1,18 +1,18 @@
 # w1 · m8 — Embedded editor context and runtime model discovery
 
-**Worker:** worker1 **Goal:** Forward editor-provided context faithfully and offer model settings verified against the Muse host. **Status:** todo
+**Worker:** worker1 **Goal:** Forward editor-provided context faithfully and offer model settings verified against the Muse host. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                          | est | depends_on             |
-| ---- | -------------------------------------------------------------- | --- | ---------------------- |
-| t001 | Verify public host support and correct capability claims       | 45m | w1/m7/t007             |
-| t002 | Discover models and supported reasoning settings               | 45m | w1/m8/t001             |
-| t003 | Forward embedded text resources as attributed context          | 45m | w1/m8/t002             |
-| t004 | Verify context and discovery through ACP and document fallback | 45m | w1/m8/t003             |
-| t005 | Simplify milestone changes                                     | 30m | w1/m8/t004             |
-| t006 | CI and behavior coverage                                       | 45m | w1/m8/t004, w1/m8/t005 |
-| t007 | Close out the milestone                                        | 15m | w1/m8/t006             |
+| id   | title                                                                     | est | depends_on             |
+| ---- | ------------------------------------------------------------------------- | --- | ---------------------- |
+| t001 | Verify public host support and correct capability claims — **DONE**       | 45m | w1/m7/t007             |
+| t002 | Discover models and supported reasoning settings — **DONE**               | 45m | w1/m8/t001             |
+| t003 | Forward embedded text resources as attributed context — **DONE**          | 45m | w1/m8/t002             |
+| t004 | Verify context and discovery through ACP and document fallback — **DONE** | 45m | w1/m8/t003             |
+| t005 | Simplify milestone changes — **DONE**                                     | 30m | w1/m8/t004             |
+| t006 | CI and behavior coverage — **DONE**                                       | 45m | w1/m8/t004, w1/m8/t005 |
+| t007 | Close out the milestone — **DONE**                                        | 15m | w1/m8/t006             |
 
 Estimated total: 4h 30m across 7 tasks. Priority: P1 context; P2 model discovery. Scheduled after w1/m7/t007; cross-milestone dependencies refer to logical task IDs even after archival.
 
@@ -44,4 +44,20 @@ Estimated total: 4h 30m across 7 tasks. Priority: P1 context; P2 model discovery
 
 ## Validation evidence
 
-Pending implementation. The source comparison inspected code and installed SDK declarations; it did not establish real-host acceptance of the proposed features.
+Implemented 2026-09-12. Public model/list accepted by Muse 1.1.1-R2514.1; returned bundledCatalog with configured fake-model and nullable metadata. Exact source and verification limits are in docs/sdk-migration.md. All seven public effort tiers completed through raw SDK turns; per-model restrictions are not supplied by the catalog.
+
+- Model discovery tests cover coalescing, bounded TTL/LRU, settings/auth/environment/binary invalidation, malformed/unsupported/empty catalogs, timeout child cleanup and disposal.
+- Spawned ACP config tests cover changing catalogs, retained custom model and effort, unsupported selection rejection, explicit fallback and SDK turn parameters. New-session disposal regression prevents publication after pending discovery.
+- Embedded text tests cover lossless metadata, Unicode/newlines/field-looking content, exact aggregate UTF-8 size boundaries, binary/malformed rejection before turn/start and SDK/exec content ordering. Exec retains separate image flags.
+- Focused real-host suite: 5 tests passed, including exact unsaved embedded text decoded from captured provider input and all seven effort tiers. Dummy loopback credentials only; paid providers not tested.
+- Simplify: reuse, quality and efficiency passes completed. Centralized effort vocabulary/type validation and removed duplicate backend branches; no further efficiency changes needed.
+- Initial full contracts exposed exec-only fixtures hanging during new discovery and shared executable chmod invalidating cache assertions. Fixtures now explicitly reject unsupported serve; cache tests own private binaries and still verify replacement invalidation. Final CI passed.
+
+Final validation:
+
+- `npm ci`: clean dependency install, zero audit vulnerabilities.
+- `npm run check` and `npm run build`: lint, formatting and TypeScript build passed.
+- `npm run test:unit`: 217 tests across 35 files passed.
+- `MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback`: 13 tests across all three required real-host suites passed (44.88 seconds); no required test skipped.
+- `npm run test:pack-smoke`: packed initialize/new/prompt/stream/end_turn passed.
+- `git diff --check`: passed. Local Muse 1.1.1-R2514.1 on macOS; remote Linux CI and paid-provider acceptance not claimed by these local results.

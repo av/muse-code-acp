@@ -29,8 +29,9 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 | Capability                            | Advertised?                                    | Contract owner                                               |
 | ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
 | Protocol major 1                      | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts` |
-| Prompt: text + resource_link          | baseline (empty `promptCapabilities`)          | `src/prompt-content.ts`                                      |
-| Prompt: audio / embedded resource     | **no**                                         | rejected with invalid params                                 |
+| Prompt: text + resource_link          | baseline (no capability flag required)         | `src/prompt-content.ts`                                      |
+| Prompt: embedded text resource        | yes (`embeddedContext`)                        | attributed text; binary resources rejected                   |
+| Prompt: audio                         | **no**                                         | rejected with invalid params                                 |
 | MCP stdio                             | yes (baseline; http/sse not advertised)        | `docs/mcp-passthrough.md`                                    |
 | `session/load`, `session/list`        | yes                                            | session store + export helpers                               |
 | Auth logout                           | yes                                            | `src/auth.ts`                                                |
@@ -86,9 +87,11 @@ encoding. No URI is fetched; the same encoding is used for legacy exec.
 
 ## Modes
 
-SDK reasoning-effort choices are `low`, `medium`, and `high`, matching MSP.
-Legacy settings aliases are normalized before advertisement (`none`/`minimal`
-to `low`, `xhigh`/`ultra` to `high`); unsupported SDK selections are rejected.
+SDK reasoning-effort choices are `none`, `minimal`, `low`, `medium`, `high`,
+`xhigh`, and `ultra`, the public MSP vocabulary accepted in completed Muse 1.1.1
+loopback turns. Values pass through unchanged; unknown selections are rejected.
+The catalog does not supply per-model effort restrictions. These controls request
+a host effort tier; individual providers determine its effect and may map tiers.
 An explicit ACP effort selection is saved in adapter-owned
 `$XDG_DATA_HOME/muse-code-acp/sessions/` (or `~/.local/share/muse-code-acp/sessions/`).
 Loading reads the authoritative model through MSP `session/read` and restores
@@ -157,3 +160,58 @@ loopback provider. Legacy exec still requires accompanying text or a resource
 link. New, load and resume all retain canonical workspace directories. Disposal
 rejects further session admission and waits for pending bindings, turn cleanup
 and command advertisement before returning.
+
+## Runtime discovery and editor context
+
+SDK session creation, load and retained-session resume query public `model/list`
+without starting a model turn. ACP model choices use host IDs and labels; the
+current configured/restored model is retained even when absent from the catalog.
+The option description identifies the catalog source. An unavailable, malformed
+or unsupported catalog falls back to the current model only and says so explicitly.
+Legacy exec retains its compatibility menu. Changing a model preserves the saved
+effort, and previously saved selections survive reload; explicit custom model
+selections retain the existing host-validation behavior at submission.
+
+Discovery uses a per-agent 30-second cache (including failures), with at most four
+entries and four concurrent probes. Identity includes canonical workspace, binary
+identity, environment, settings and auth content hashes. Compatible concurrent
+queries share work. The probe deadline is five seconds plus bounded process
+shutdown; agent disposal closes pending discovery hosts and prevents session
+publication. Catalog changes appear on the next binding after expiry or config
+change; existing live session menus remain their binding snapshot.
+
+ACP embedded text resources are encoded as a single ordered text part:
+
+```text
+Embedded text resource: {"resource":{"uri":"file:///unsaved.ts","mimeType":"text/typescript","text":"unsaved buffer\n"}}
+```
+
+JSON preserves the text, URI, optional MIME type, annotations and opaque metadata
+without ambiguous field boundaries. No URI is fetched and an on-disk file is not
+required. The aggregate serialized embedded context limit is 64 KiB of UTF-8 per
+prompt, including attribution and metadata. Empty text is valid attributed context;
+binary/blob resources, missing text/URI and oversized context are rejected before
+turn submission. ACP's SDK validates/normalizes the wire schema before conversion.
+SDK input retains text/resource/image interleaving. Legacy exec preserves text and
+resource order in its prompt string; images remain separate ordered `--image` flags.
+
+## Observed host support (m8)
+
+Evidence uses `@muse-code/sdk@0.1.1`, Muse Code 1.1.1-R2514.1 on macOS, isolated
+dummy credentials and a local loopback endpoint; no paid provider was called.
+
+| Surface              | Evidence and current adapter behavior                                                                                                                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initialize           | Observed server version 1.1.1, schema version 1, durable sessions, empty grantedCapabilities and experimentalApi false. These fields alone do not prove every declared method works.                                    |
+| Model discovery      | `initialize` followed by `model/list {}` returned `bundledCatalog` with configured `fake-model`; provider discovery need not run and nullable catalog metadata is valid. ACP consumes the returned snapshot.            |
+| Effort               | Public schema declares seven tiers; all seven raw SDK turns completed against the loopback host. Adapter forwards exactly those tiers and rejects unknown values. Per-model restrictions are not present in model/list. |
+| Embedded context     | ACP resource-only prompt traversed the real SDK/host; captured provider input decoded to the exact unsaved text, URI and MIME attribution.                                                                              |
+| Reasoning summaries  | Public item schema declares `reasoning.summary` and indexed summary deltas. Actual summary events are not yet verified or forwarded; private/encrypted reasoning is not accessed.                                       |
+| Usage/context        | Public schema declares usage/context data. End-to-end ACP reporting is unverified and remains unadvertised until m9.                                                                                                    |
+| Compaction, steering | Public schema declares session/compact and turn/steer. Accepted/terminal lifecycle and provider effects are not verified by m8; implementation remains in m9/m10.                                                       |
+| Subagents, fork      | Public schema declares worker lifecycle/control and session/fork. Native ACP routing, permission isolation and branch continuity remain unverified, unadvertised m11/m12 work.                                          |
+
+Schema presence is a discovery lead, not delivery evidence. Later milestones must
+verify their required host behavior before claiming support. Existing explicit
+exec fallback remains user-selected; an ambiguous SDK turn is never replayed
+through another backend.

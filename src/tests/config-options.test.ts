@@ -74,14 +74,16 @@ describe("session config options over ACP", () => {
       mcpServers: [],
     });
     expect(configOptions?.find((o) => o.id === "reasoningEffort")).toMatchObject({
-      currentValue: "high",
-      options: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+      currentValue: "ultra",
+      options: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"].map((value) => ({
+        value,
+      })),
     });
     await expect(
       ctx.request(methods.agent.session.setConfigOption, {
         sessionId,
         configId: "reasoningEffort",
-        value: "ultra",
+        value: "unsupported-effort",
       }),
     ).rejects.toMatchObject({ code: -32602 });
     await ctx.request(methods.agent.session.setConfigOption, {

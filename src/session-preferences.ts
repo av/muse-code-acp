@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { museDataDir } from "./session-store.js";
-import { SDK_EFFORT_LEVELS } from "./config-options.js";
+import { isReasoningEffort } from "./config-options.js";
 
 // MSP persists the model, but has no session-level reasoning-effort field.
 // Keep only the explicit ACP effort selection in adapter-owned storage.
@@ -26,7 +26,7 @@ export function readSessionEffort(
     if ((error as { code?: string }).code === "ENOENT") return undefined;
     throw error;
   }
-  if (doc.schemaVersion !== 1 || !SDK_EFFORT_LEVELS.includes(doc.reasoningEffort)) {
+  if (doc.schemaVersion !== 1 || !isReasoningEffort(doc.reasoningEffort)) {
     throw new Error("Invalid stored ACP reasoning-effort preference");
   }
   return doc.reasoningEffort;

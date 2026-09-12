@@ -23,6 +23,7 @@ if (mode === "disabled") {
   process.stderr.write("the experimental SDK tier is disabled\n");
   process.exit(5);
 }
+if (process.env.FAKE_MSP_PID) writeFileSync(process.env.FAKE_MSP_PID, String(process.pid));
 let sessionId;
 let turnId;
 let cursor = 0;
@@ -79,6 +80,14 @@ rl.on("line", async (line) => {
       reply({ schema: { fingerprint: "fake-schema" }, sessionDurability: "durable" });
       break;
     case "initialized":
+      break;
+    case "model/list":
+      if (mode === "model-timeout") break;
+      if (process.env.FAKE_MSP_MODELS) {
+        reply(JSON.parse(readFileSync(process.env.FAKE_MSP_MODELS, "utf8")));
+      } else {
+        write({ id, error: { code: -32601, message: "model discovery unavailable" } });
+      }
       break;
     case "session/read":
       reply({session: {sessionId: params.sessionId, workspaceRoot: process.cwd(), modelId: "muse-spark-1.2", activeTurnId: null}, pendingRequests: []});

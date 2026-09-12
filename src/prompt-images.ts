@@ -11,8 +11,7 @@ function unsupportedContent(type: string, detail?: string): RequestError {
   return RequestError.invalidParams(
     undefined,
     `unsupported ACP prompt content: ${type}${suffix}. ` +
-      "Muse Code accepts text, resource links, and PNG/JPEG/GIF/WebP images; " +
-      "send embedded resources as resource_link blocks instead.",
+      "Muse Code accepts text, embedded text resources, resource links, and PNG/JPEG/GIF/WebP images.",
   );
 }
 

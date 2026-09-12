@@ -32,7 +32,7 @@ function readCapture(path: string): MuseCapture {
 }
 
 describe("ACP prompt content", () => {
-  it("advertises image support without claiming audio or embedded resources", async () => {
+  it("advertises images and embedded text without claiming audio", async () => {
     const testClient = fakeClient(capturePath());
     const ctx = await testClient.connect();
 
@@ -40,7 +40,10 @@ describe("ACP prompt content", () => {
       protocolVersion: PROTOCOL_VERSION,
     });
 
-    expect(response.agentCapabilities?.promptCapabilities).toEqual({ image: true });
+    expect(response.agentCapabilities?.promptCapabilities).toEqual({
+      image: true,
+      embeddedContext: true,
+    });
   });
 
   it("stages supported images privately and removes them after the turn", async () => {
@@ -125,9 +128,9 @@ describe("ACP prompt content", () => {
       name: "embedded resource",
       block: {
         type: "resource",
-        resource: { uri: "file:///context.txt", text: "context" },
+        resource: { uri: "file:///context.bin", blob: "YQ==" },
       } satisfies ContentBlock,
-      message: /send embedded resources as resource_link blocks/,
+      message: /embedded.*text|binary/i,
     },
     {
       name: "unsupported image MIME",

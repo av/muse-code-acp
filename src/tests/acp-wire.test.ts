@@ -86,6 +86,48 @@ describe("ACP stdio wire contracts", () => {
     }
   }, 30_000);
 
+  it("accepts attributed embedded text and rejects binary resources before starting a turn", async () => {
+    const wire = await createWireFixture();
+    try {
+      const { sessionId } = await wire.ctx.request(methods.agent.session.new, {
+        cwd: wire.workspace,
+        mcpServers: [],
+      });
+      await expect(
+        wire.ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "resource", resource: { uri: "file:///binary", blob: "YQ==" } }],
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+      expect(
+        wire
+          .getTranscript()
+          .mspRequests.some((r) => (r as { method?: string }).method === "turn/start"),
+      ).toBe(false);
+      const resource = {
+        uri: "untitled:///buffer.ts",
+        mimeType: "text/typescript",
+        text: '  unsaved\n"quoted"\n',
+      };
+      await expect(
+        wire.ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "resource", resource }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      const turn = wire
+        .getTranscript()
+        .mspRequests.find((r) => (r as { method?: string }).method === "turn/start") as {
+        params: { input: Array<{ text: string }> };
+      };
+      expect(
+        JSON.parse(turn.params.input[0].text.slice("Embedded text resource: ".length)),
+      ).toEqual({ resource });
+    } finally {
+      await wire.dispose();
+    }
+  }, 30_000);
+
   it("negotiates protocol version and rejects unknown sessions over the wire", async () => {
     const wire = await createWireFixture();
     try {

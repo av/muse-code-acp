@@ -233,3 +233,140 @@ describe.skipIf(!available)("SDK image provider input", () => {
     60000,
   );
 });
+
+describe.skipIf(!available)("SDK discovered capabilities and embedded context", () => {
+  it("discovers real host models and forwards unsaved embedded text to provider input", async () => {
+    const provider = await startLoopbackProvider({
+      scriptedToolCallWhen: ["never-tool"],
+      scriptedToolCallCommand: "",
+      holdMs: 10,
+    });
+    const cwd = join(provider.root, "workspace");
+    mkdirSync(cwd);
+    const client = connectTestClient({
+      backend: "sdk",
+      env: {
+        HOME: provider.home,
+        PATH: process.env.PATH,
+        XDG_CONFIG_HOME: join(provider.root, "config"),
+        XDG_DATA_HOME: join(provider.root, "data"),
+        TBH_CREDENTIAL_BACKEND: "file",
+        TBH_DISABLE_TELEMETRY: "1",
+      },
+    });
+    const text = 'unsaved m8 buffer 日本語\nURI: "not another resource"\n';
+    try {
+      const ctx = await initialized(client);
+      const created = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+      expect(client.agent.sessions.get(created.sessionId)?.modelDiscovery).toMatchObject({
+        status: "available",
+        models: expect.arrayContaining([expect.objectContaining({ id: "fake-model" })]),
+      });
+      expect(created.configOptions?.find((o) => o.id === "model")).toMatchObject({
+        description: expect.stringContaining("catalog"),
+        options: expect.arrayContaining([{ value: "fake-model", name: "fake-model" }]),
+      });
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId: created.sessionId,
+          prompt: [
+            {
+              type: "resource",
+              resource: { uri: "file:///unsaved-m8.ts", mimeType: "text/typescript", text },
+            },
+          ],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      const strings = (value: unknown): string[] =>
+        typeof value === "string"
+          ? [value]
+          : value && typeof value === "object"
+            ? Object.values(value).flatMap(strings)
+            : [];
+      const line = provider
+        .requests()
+        .flatMap((r) => strings(r.input))
+        .flatMap((s) => s.split("\n"))
+        .find((s) => s.startsWith("Embedded text resource: "));
+      expect(line).toBeDefined();
+      expect(JSON.parse(line!.slice("Embedded text resource: ".length)).resource).toEqual({
+        uri: "file:///unsaved-m8.ts",
+        mimeType: "text/typescript",
+        text,
+      });
+    } finally {
+      await client.agent.dispose();
+      await provider.close();
+      await rm(provider.root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("accepts the public seven-tier effort vocabulary through completed real-host turns", async () => {
+    const { spawnMspConnection, MuseClient, readSessionDurability } =
+      await import("@muse-code/sdk");
+    const provider = await startLoopbackProvider({
+      scriptedToolCallWhen: ["never-tool"],
+      scriptedToolCallCommand: "",
+      holdMs: 10,
+    });
+    const cwd = join(provider.root, "workspace");
+    mkdirSync(cwd);
+    const handshake = spawnMspConnection({
+      command: museCliPath(),
+      args: ["serve"],
+      cwd,
+      env: {
+        HOME: provider.home,
+        PATH: process.env.PATH!,
+        XDG_CONFIG_HOME: join(provider.root, "config"),
+        XDG_DATA_HOME: join(provider.root, "data"),
+        TBH_CREDENTIAL_BACKEND: "file",
+        TBH_DISABLE_TELEMETRY: "1",
+      },
+      shutdownTimeoutMs: 1000,
+    });
+    const timer = setTimeout(() => void handshake.close(), 50_000);
+    try {
+      const host = await handshake.initialize({
+        clientInfo: { name: "m8_capability_test", version: "0.2.0" },
+      });
+      expect(host.initializeResult.serverInfo.version).toBeTruthy();
+      const catalog = await host.connection.request("model/list", {});
+      expect(catalog.models).toEqual(
+        expect.arrayContaining([expect.objectContaining({ modelId: "fake-model" })]),
+      );
+      const sdk = new MuseClient(host.connection, {
+        durability: readSessionDurability(host.initializeResult),
+        host,
+      });
+      const session = await sdk.startSession({
+        workspaceRoot: cwd,
+        modelId: "fake-model",
+        approvalMode: "onRequest",
+      });
+      for (const reasoningEffort of [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "ultra",
+      ] as const) {
+        const turn = await session.sendUserTurn({
+          input: [{ type: "text", text: `m8 effort ${reasoningEffort}` }],
+          reasoningEffort,
+        });
+        expect(await turn.completed).toMatchObject({
+          kind: "completed",
+          params: { terminal: "completed" },
+        });
+      }
+    } finally {
+      clearTimeout(timer);
+      await handshake.close();
+      await provider.close();
+      await rm(provider.root, { recursive: true, force: true });
+    }
+  }, 60_000);
+});

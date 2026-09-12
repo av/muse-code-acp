@@ -26,12 +26,49 @@ export function formatResourceLink(
   })}`;
 }
 
+/** Bound the total serialized embedded context, including metadata, per prompt. */
+export const MAX_EMBEDDED_CONTEXT_BYTES = 64 * 1024;
+
+/** JSON framing prevents resource text or URI newlines from spoofing boundaries. */
+export function formatEmbeddedTextResource(
+  block: Extract<ContentBlock, { type: "resource" }>,
+): string {
+  const resource = block.resource;
+  if (
+    !resource ||
+    typeof resource !== "object" ||
+    "blob" in resource ||
+    !("text" in resource) ||
+    typeof resource.text !== "string" ||
+    typeof resource.uri !== "string" ||
+    !resource.uri.trim() ||
+    (resource.mimeType !== undefined &&
+      resource.mimeType !== null &&
+      typeof resource.mimeType !== "string")
+  ) {
+    throw RequestError.invalidParams(
+      undefined,
+      "embedded resources require a nonempty URI and text; binary/blob resources are unsupported",
+    );
+  }
+  return `Embedded text resource: ${JSON.stringify({
+    resource: {
+      uri: resource.uri,
+      mimeType: resource.mimeType,
+      text: resource.text,
+      _meta: resource._meta,
+    },
+    annotations: block.annotations,
+    _meta: block._meta,
+  })}`;
+}
+
 export type PromptConversion =
   { ok: true; parts: MuseInputPart[]; text: string } | { ok: false; error: RequestError };
 
 /**
  * Convert ACP prompt content into Muse turn input and a legacy exec string.
- * Baseline ACP requires text + resource_link; images use inline MSP parts; audio and embedded resources are rejected.
+ * Baseline ACP requires text + resource_link; images use inline MSP parts; embedded text uses attributed JSON; audio and binary resources are rejected.
  */
 export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptConversion {
   if (blocks.length === 0) {
@@ -42,6 +79,7 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
   }
 
   const parts: MuseInputPart[] = [];
+  let embeddedBytes = 0;
   for (const block of blocks) {
     switch (block.type) {
       case "text":
@@ -71,13 +109,28 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
         }
         break;
       }
+      case "resource": {
+        try {
+          const text = formatEmbeddedTextResource(block);
+          embeddedBytes += Buffer.byteLength(text, "utf8");
+          if (embeddedBytes > MAX_EMBEDDED_CONTEXT_BYTES) {
+            throw RequestError.invalidParams(
+              undefined,
+              `embedded context exceeds ${MAX_EMBEDDED_CONTEXT_BYTES} serialized UTF-8 bytes per prompt`,
+            );
+          }
+          parts.push({ type: "text", text });
+        } catch (error) {
+          return { ok: false, error: error as RequestError };
+        }
+        break;
+      }
       case "audio":
-      case "resource":
         return {
           ok: false,
           error: RequestError.invalidParams(
             undefined,
-            `unsupported prompt content type: ${block.type}; this agent advertises text, resource_link and image; send embedded resources as resource_link blocks instead`,
+            `unsupported prompt content type: ${block.type}; this agent accepts text, resource_link, embedded text resources and image`,
           ),
         };
       default:
@@ -100,7 +153,7 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
       ok: false,
       error: RequestError.invalidParams(
         undefined,
-        "prompt contains no text or resource_link content",
+        "prompt contains no text, resource_link or embedded text content",
       ),
     };
   }
