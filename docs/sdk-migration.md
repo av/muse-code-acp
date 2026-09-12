@@ -278,3 +278,12 @@ clients receive session-info metadata; baseline clients can use the command.
 Goal controls are unadvertised because public MSP support is unavailable.
 Host-owned turns, retention bounds and foreground prompt controls remain distinct;
 see the [goal contract and acceptance evidence](goal-extension.md). Exec is unchanged.
+
+## Planning, reviews and permission presentation (m22)
+
+SDK planning and review turns use verified public read-only host flags. Explicit
+mode choices persist across adapter restart; ordinary text cannot transition a
+plan into implementation. Git snapshots and MCP exclusions bound the supported
+workflow. Review status and public approval-stage metadata are opt-in, with
+ordinary ACP output and permission options as the baseline. See the
+[workflow contract](workflows.md) for exact commands, limits and real-host evidence.

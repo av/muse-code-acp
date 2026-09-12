@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   choicesToPermissionOptions,
+  approvalStageMetadata,
   PermissionLifecycle,
   resolvePermissionChoice,
 } from "../muse-permissions.js";
@@ -161,3 +162,46 @@ describe("SDK approvals over ACP", () => {
 type RequestPermissionResponse = {
   outcome: { outcome: "cancelled" } | { outcome: "selected"; optionId: string };
 };
+
+it("negotiates observed permission fields and final decisions without changing choices", async () => {
+  const client = sdkClient();
+  const { ctx, sessionId } = await newTestSession(client, { _meta: { "muse/approval": 1 } });
+  client.setPermissionResponder((request) => ({
+    outcome: {
+      outcome: "selected",
+      optionId: request.options.find((option) => option.kind === "allow_once")!.optionId,
+    },
+  }));
+  await ctx.request(methods.agent.session.prompt, {
+    sessionId,
+    prompt: [{ type: "text", text: "hello" }],
+  });
+  expect(client.permissionRequests[0]._meta?.["muse/approval"]).toMatchObject({
+    judgeEscalated: false,
+    protectedWrite: false,
+    subjectKind: "toolCall",
+  });
+  const results = client.updates.flatMap((n) =>
+    n.update.sessionUpdate === "session_info_update" && n.update._meta?.["muse/approval"]
+      ? [n.update._meta["muse/approval"]]
+      : [],
+  );
+  expect(results).toHaveLength(1);
+  expect(results[0]).toMatchObject({ decision: "approved", resolvedBy: "user" });
+});
+
+it("preserves unknown observed reviewer stage kinds without inventing a decision", () => {
+  expect(
+    approvalStageMetadata({
+      position: 1,
+      totalStages: 2,
+      requirementId: { approvalId: "a", sourceIndex: 4 },
+      resolution: { kind: "futureReviewerState" },
+    }),
+  ).toEqual({
+    position: 1,
+    totalStages: 2,
+    requirementId: { approvalId: "a", sourceIndex: 4 },
+    resolutionKind: "futureReviewerState",
+  });
+});

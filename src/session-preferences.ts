@@ -4,8 +4,7 @@ import { dirname, join } from "node:path";
 import { museDataDir } from "./session-store.js";
 import { isReasoningEffort } from "./config-options.js";
 
-// MSP persists the model, but has no session-level reasoning-effort field.
-// Keep only the explicit ACP effort selection in adapter-owned storage.
+// ACP-only effort and safety-mode choices live outside native Muse logs.
 function preferencePath(sessionId: string, env: Record<string, string | undefined>): string {
   return join(
     dirname(museDataDir(env)),
@@ -15,35 +14,64 @@ function preferencePath(sessionId: string, env: Record<string, string | undefine
   );
 }
 
-export function readSessionEffort(
+type Preferences = {
+  schemaVersion: 1;
+  reasoningEffort?: string;
+  modeId?: "default" | "readOnly" | "plan";
+};
+export function readSessionPreferences(
   sessionId: string,
   env: Record<string, string | undefined>,
-): string | undefined {
+): Preferences {
   let doc;
   try {
     doc = JSON.parse(readFileSync(preferencePath(sessionId, env), "utf8"));
   } catch (error) {
-    if ((error as { code?: string }).code === "ENOENT") return undefined;
+    if ((error as { code?: string }).code === "ENOENT") return { schemaVersion: 1 };
     throw error;
   }
-  if (doc.schemaVersion !== 1 || !isReasoningEffort(doc.reasoningEffort)) {
-    throw new Error("Invalid stored ACP reasoning-effort preference");
-  }
-  return doc.reasoningEffort;
+  if (
+    !doc ||
+    doc.schemaVersion !== 1 ||
+    (doc.reasoningEffort !== undefined && !isReasoningEffort(doc.reasoningEffort)) ||
+    (doc.modeId !== undefined && !["default", "readOnly", "plan"].includes(doc.modeId))
+  )
+    throw new Error("Invalid stored ACP session preference");
+  return doc;
 }
-
+export function readSessionEffort(
+  sessionId: string,
+  env: Record<string, string | undefined>,
+): string | undefined {
+  return readSessionPreferences(sessionId, env).reasoningEffort;
+}
+function writePreferences(
+  sessionId: string,
+  change: Partial<Preferences>,
+  env: Record<string, string | undefined>,
+): void {
+  const doc = { ...readSessionPreferences(sessionId, env), ...change };
+  const path = preferencePath(sessionId, env);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(doc), { mode: 0o600 });
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
 export function writeSessionEffort(
   sessionId: string,
   reasoningEffort: string,
   env: Record<string, string | undefined>,
 ): void {
-  const path = preferencePath(sessionId, env);
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, JSON.stringify({ schemaVersion: 1, reasoningEffort }), { mode: 0o600 });
-    renameSync(temp, path);
-  } finally {
-    rmSync(temp, { force: true });
-  }
+  writePreferences(sessionId, { reasoningEffort }, env);
+}
+export function writeSessionMode(
+  sessionId: string,
+  modeId: NonNullable<Preferences["modeId"]>,
+  env: Record<string, string | undefined>,
+): void {
+  writePreferences(sessionId, { modeId }, env);
 }

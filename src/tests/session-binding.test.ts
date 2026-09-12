@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as store from "../session-store.js";
 import * as sdk from "../muse-sdk.js";
+import * as review from "../review-prompt.js";
 import * as history from "../session-export.js";
 import { connectTestClient, fakeMuseBinary, newTestSession } from "./helpers.js";
 
@@ -223,6 +224,44 @@ it("waits for an in-flight replay update and stops the rest on disposal", async 
     release.resolve();
     read.mockRestore();
     list.mockRestore();
+    update.mockRestore();
+    await client.agent.dispose();
+  }
+});
+
+it("cancelling while review-start delivery waits emits a cancelled terminal without starting a turn", async () => {
+  const client = connectTestClient({
+    backend: "sdk",
+    museBinary: fakeMuseBinary(),
+    skipSdkHostCheck: true,
+  });
+  const { sessionId } = await newTestSession(client, { _meta: { "muse/review": 1 } });
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const build = vi.spyOn(review, "buildReviewPrompt").mockResolvedValue("Review fixture");
+  const statuses: string[] = [];
+  const update = vi.spyOn(client.agent.client, "sessionUpdate").mockImplementation(async (n) => {
+    const status =
+      n.update.sessionUpdate === "session_info_update"
+        ? (n.update._meta?.["muse/review"] as { status?: string })?.status
+        : undefined;
+    if (status) statuses.push(status);
+    if (status === "started") {
+      entered.resolve();
+      await release.promise;
+    }
+  });
+  try {
+    const prompt = client.agent.prompt({ sessionId, prompt: [{ type: "text", text: "/review" }] });
+    await entered.promise;
+    await client.agent.cancel({ sessionId });
+    release.resolve();
+    expect(await prompt).toEqual({ stopReason: "cancelled" });
+    expect(statuses).toEqual(["started", "cancelled"]);
+    expect(client.agent.sessions.get(sessionId)?.activeTurn).toBe(null);
+  } finally {
+    release.resolve();
+    build.mockRestore();
     update.mockRestore();
     await client.agent.dispose();
   }

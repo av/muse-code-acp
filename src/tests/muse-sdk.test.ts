@@ -54,7 +54,7 @@ describe("SDK backend over ACP", () => {
     const client = sdkClient();
     const { ctx, sessionId, modes } = await newTestSession(client);
     expect(sessionId.split("-")[2][0]).toBe("7");
-    expect(modes?.availableModes.map((mode) => mode.id)).toEqual(["default", "readOnly"]);
+    expect(modes?.availableModes.map((mode) => mode.id)).toEqual(["default", "readOnly", "plan"]);
     await expect(
       ctx.request(methods.agent.session.setMode, { sessionId, modeId: "bypassApprovals" }),
     ).rejects.toMatchObject({ code: -32602 });
@@ -249,11 +249,11 @@ describe("MSP tool translation", () => {
     await expect(
       ctx.request(methods.agent.session.prompt, {
         sessionId,
-        prompt: [{ type: "text", text: "/plan do the thing" }],
+        prompt: [{ type: "text", text: "/custom-skill do the thing" }],
       }),
     ).resolves.toEqual({ stopReason: "end_turn" });
     expect(client.requests().find((r) => r.method === "turn/start").params.input).toEqual([
-      { type: "text", text: "/plan do the thing" },
+      { type: "text", text: "/custom-skill do the thing" },
     ]);
   });
 

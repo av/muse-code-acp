@@ -59,7 +59,7 @@ describe("SDK live approval gating (real Muse host)", () => {
       );
       client.setPermissionResponder(() => gate);
 
-      const ctx = await initialized(client);
+      const ctx = await initialized(client, { _meta: { "muse/approval": 1 } });
       const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
       const prompt = ctx.request(methods.agent.session.prompt, {
         sessionId,
@@ -67,6 +67,10 @@ describe("SDK live approval gating (real Muse host)", () => {
       });
       await expect.poll(() => client.permissionRequests.length, { timeout: 30_000 }).toBe(1);
       expect(existsSync(marker)).toBe(false);
+      expect(client.permissionRequests[0]._meta?.["muse/approval"]).toMatchObject({
+        judgeEscalated: expect.any(Boolean),
+        protectedWrite: expect.any(Boolean),
+      });
 
       const allow = client.permissionRequests[0].options?.find((o) => o.optionId.includes("allow"));
       expect(
@@ -82,6 +86,13 @@ describe("SDK live approval gating (real Muse host)", () => {
         )}`,
       ).toBe(true);
       expect(readFileSync(marker, "utf8").trim()).toBe("yes");
+      expect(
+        client.updates.some(
+          (n) =>
+            n.update.sessionUpdate === "session_info_update" &&
+            (n.update._meta?.["muse/approval"] as { decision?: string })?.decision === "approved",
+        ),
+      ).toBe(true);
       expect(provider.scriptedToolCalls()).toBe(1);
     } finally {
       await client.agent.dispose();

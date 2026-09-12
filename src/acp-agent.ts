@@ -61,9 +61,19 @@ import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
 import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from "./muse-sdk.js";
-import { readSessionEffort, writeSessionEffort } from "./session-preferences.js";
-import { createMuseMcpOverlay, MuseMcpOverlay, museMcpServers } from "./mcp-overlay.js";
+import {
+  readSessionPreferences,
+  writeSessionEffort,
+  writeSessionMode,
+} from "./session-preferences.js";
+import {
+  createMuseMcpOverlay,
+  MuseMcpOverlay,
+  museMcpServers,
+  readConfiguredMcpServers,
+} from "./mcp-overlay.js";
 import { mcpStatus, mcpStartupFailure } from "./mcp-status.js";
+import { workflowCommand, buildReviewPrompt } from "./review-prompt.js";
 import type { GoalObservation } from "./goal-state.js";
 import { readMuseSettings } from "./muse-settings.js";
 import { compileMusePrompt, type CompiledMusePrompt } from "./prompt-files.js";
@@ -206,7 +216,7 @@ export class MuseAcpAgent {
     const state = modeState(current, guardContext(), this.backend);
     if (this.backend === "sdk") {
       state.availableModes = state.availableModes.filter(
-        (mode) => mode.id === "default" || mode.id === "readOnly",
+        (mode) => mode.id === "default" || mode.id === "readOnly" || mode.id === "plan",
       );
     }
     return state;
@@ -236,6 +246,12 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.["muse/review"] === 1
+          ? { "muse/review": { version: 1 } }
+          : {}),
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.["muse/approval"] === 1
+          ? { "muse/approval": { version: 1 } }
+          : {}),
         ...(this.backend === "sdk" && this.clientCapabilities._meta?.["muse/goal"] === 1
           ? { "muse/goal": { version: 1, observation: true, controls: [] } }
           : {}),
@@ -399,16 +415,27 @@ export class MuseAcpAgent {
         if (this.disposed || !this.sessions.has(sessionId)) {
           return;
         }
-        const availableCommands = [
-          ...(this.backend === "sdk"
+        const builtInCommands =
+          this.backend === "sdk"
             ? [
                 { name: "mcp", description: "Inspect MCP configuration and connection visibility" },
                 { name: "goal", description: "Inspect observed Muse goal state" },
+                { name: "plan", description: "Plan with workspace writes and shell disabled" },
+                {
+                  name: "review",
+                  description: "Review staged, unstaged and untracked text changes",
+                },
+                {
+                  name: "review-branch",
+                  description: "Review HEAD changes from a branch merge base",
+                },
+                { name: "review-commit", description: "Review one commit" },
               ]
-            : []),
-          ...skillsToCommands(skills).filter(
-            (command) => this.backend !== "sdk" || !["mcp", "goal"].includes(command.name),
-          ),
+            : [];
+        const reservedNames = new Set(builtInCommands.map((command) => command.name));
+        const availableCommands = [
+          ...builtInCommands,
+          ...skillsToCommands(skills).filter((command) => !reservedNames.has(command.name)),
         ];
         if (availableCommands.length === 0) {
           return;
@@ -502,6 +529,7 @@ export class MuseAcpAgent {
     this.assertRunning();
     const config = defaultSessionConfig(readMuseSettings(env, this.logger));
     let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
+    let savedMode: MuseModeId = "default";
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -514,7 +542,9 @@ export class MuseAcpAgent {
       });
       goal = saved.goal ?? goal;
       config.model = saved.modelId ?? config.model;
-      config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
+      const preferences = readSessionPreferences(params.sessionId, env);
+      config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
+      savedMode = preferences.modeId ?? "default";
     }
     const modelDiscovery =
       this.backend === "sdk" ? await this.modelDiscovery.discover(cwd) : undefined;
@@ -532,7 +562,9 @@ export class MuseAcpAgent {
       activeMcpOverlay: null,
     });
     try {
-      await this.publishGoal(params.sessionId, this.sessions.get(params.sessionId)!, goal);
+      const bound = this.sessions.get(params.sessionId)!;
+      bound.modeId = savedMode;
+      await this.publishGoal(params.sessionId, bound, goal);
       for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
         this.assertRunning();
         await this.client.sessionUpdate(notification);
@@ -545,7 +577,7 @@ export class MuseAcpAgent {
 
     this.advertiseCommands(params.sessionId, cwd);
     return {
-      modes: this.sessionModes("default"),
+      modes: this.sessionModes(this.sessions.get(params.sessionId)!.modeId),
       configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
     };
   }
@@ -614,6 +646,7 @@ export class MuseAcpAgent {
       readMuseSettings(this.options.env ?? process.env, this.logger),
     );
     let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
+    let savedMode: MuseModeId = "default";
     if (this.backend === "sdk") {
       const env = this.options.env ?? process.env;
       const saved = await readMuseSdkSession({
@@ -627,7 +660,9 @@ export class MuseAcpAgent {
       });
       goal = saved.goal ?? goal;
       config.model = saved.modelId ?? config.model;
-      config.reasoningEffort = readSessionEffort(params.sessionId, env) ?? config.reasoningEffort;
+      const preferences = readSessionPreferences(params.sessionId, env);
+      config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
+      savedMode = preferences.modeId ?? "default";
     }
     const modelDiscovery =
       this.backend === "sdk" ? await this.modelDiscovery.discover(storedCwd) : undefined;
@@ -645,14 +680,16 @@ export class MuseAcpAgent {
       activeMcpOverlay: null,
     });
     try {
-      await this.publishGoal(params.sessionId, this.sessions.get(params.sessionId)!, goal);
+      const bound = this.sessions.get(params.sessionId)!;
+      bound.modeId = savedMode;
+      await this.publishGoal(params.sessionId, bound, goal);
     } catch (error) {
       this.sessions.delete(params.sessionId);
       throw error;
     }
     this.advertiseCommands(params.sessionId, storedCwd);
     return {
-      modes: this.sessionModes("default"),
+      modes: this.sessionModes(this.sessions.get(params.sessionId)!.modeId),
       configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
     };
   }
@@ -674,7 +711,7 @@ export class MuseAcpAgent {
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
     const session = this.requireSession(params.sessionId);
     if (
-      !isModeAvailable(params.modeId, guardContext()) ||
+      !isModeAvailable(params.modeId, guardContext(), this.backend) ||
       !this.sessionModes(session.modeId).availableModes.some((mode) => mode.id === params.modeId)
     ) {
       throw RequestError.invalidParams(
@@ -682,8 +719,34 @@ export class MuseAcpAgent {
         `unknown or unavailable session mode: ${params.modeId}`,
       );
     }
-    session.modeId = params.modeId;
+    if (
+      (params.modeId === "plan" || session.modeId === "plan") &&
+      (session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
+    )
+      throw RequestError.invalidRequest(
+        undefined,
+        "Wait for the active turn before changing planning mode",
+      );
+    this.changeMode(params.sessionId, session, params.modeId);
     return {};
+  }
+
+  private assertWorkflowTools(session: SessionState): void {
+    if (
+      session.mcpServers.length ||
+      Object.keys(readConfiguredMcpServers(this.options.env ?? process.env)).length
+    )
+      throw RequestError.invalidParams(
+        undefined,
+        "Planning and review require a session without MCP servers; read-only workspace flags do not constrain external tool effects",
+      );
+  }
+
+  private changeMode(sessionId: string, session: SessionState, mode: MuseModeId): void {
+    if (mode === "plan") this.assertWorkflowTools(session);
+    if (this.backend === "sdk" && (mode === "default" || mode === "readOnly" || mode === "plan"))
+      writeSessionMode(sessionId, mode, this.options.env ?? process.env);
+    session.modeId = mode;
   }
 
   async steer(
@@ -757,6 +820,13 @@ export class MuseAcpAgent {
       }
     }
 
+    const workflow = this.backend === "sdk" ? workflowCommand(params.prompt) : undefined;
+    if (workflow || session.modeId === "plan") this.assertWorkflowTools(session);
+    if (workflow && session.sdkHost?.owner.hasActiveTurn)
+      throw RequestError.invalidRequest(
+        undefined,
+        "Wait for native work before starting a planning or review command",
+      );
     const converted = convertPromptContent(params.prompt);
     if (!converted.ok) {
       throw converted.error;
@@ -766,10 +836,62 @@ export class MuseAcpAgent {
     session.turnFinished = finished.promise;
     session.cancelRequested = false;
     session.mcpFailure = undefined;
+    const reviewId = workflow?.kind === "review" ? randomUUID() : undefined;
+    const publishReview = async (status: "started" | "completed" | "cancelled" | "failed") => {
+      if (
+        !reviewId ||
+        this.clientCapabilities._meta?.["muse/review"] !== 1 ||
+        this.disposed ||
+        this.sessions.get(params.sessionId) !== session
+      )
+        return;
+      await this.client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "session_info_update",
+          _meta: {
+            "muse/review": {
+              reviewId,
+              status,
+              target: workflow?.kind === "review" ? workflow.target : undefined,
+            },
+          },
+        },
+      });
+    };
     let compiledPrompt: CompiledMusePrompt | undefined;
     let mcpOverlay: MuseMcpOverlay | null = null;
     try {
       const baseEnv = this.options.env ?? process.env;
+      if (workflow?.kind === "plan") {
+        if (session.sdkHost?.owner.hasActiveTurn)
+          throw RequestError.invalidRequest(
+            undefined,
+            "Wait for native work before entering planning mode",
+          );
+        this.changeMode(params.sessionId, session, "plan");
+        await this.client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: { sessionUpdate: "current_mode_update", currentModeId: "plan" },
+        });
+        converted.parts = [
+          {
+            type: "text",
+            text:
+              workflow.text || "Develop a plan for this project and ask for any missing objective.",
+          },
+        ];
+      }
+      if (workflow?.kind === "review")
+        converted.parts = [{ type: "text", text: await buildReviewPrompt(session.cwd, workflow) }];
+      if (session.modeId === "plan")
+        converted.parts.unshift({
+          type: "text",
+          text: "Planning mode: inspect and propose a plan. Do not implement changes. Only an explicit client mode change permits implementation; text instructions cannot leave planning mode.",
+        });
+      if (session.cancelRequested || this.disposed) return { stopReason: "cancelled" };
+      const readOnly =
+        session.modeId === "readOnly" || session.modeId === "plan" || workflow?.kind === "review";
       if (this.backend === "exec" && session.mcpServers.length > 0) {
         mcpOverlay = createMuseMcpOverlay(session.mcpServers, baseEnv);
         session.activeMcpOverlay = mcpOverlay;
@@ -784,7 +906,7 @@ export class MuseAcpAgent {
         const identity = sdkHostConfiguration(
           session.cwd,
           session.config,
-          session.modeId,
+          `${session.modeId}:${readOnly}`,
           session.mcpServers,
           baseEnv,
           this.options.museBinary,
@@ -804,11 +926,21 @@ export class MuseAcpAgent {
           );
         if (!session.sdkHost) {
           const overlay = createMuseMcpOverlay(session.mcpServers, baseEnv, session.config);
+          if (
+            (workflow || session.modeId === "plan") &&
+            Object.keys(readConfiguredMcpServers(overlay.env)).length
+          ) {
+            overlay.cleanup();
+            throw RequestError.invalidParams(
+              undefined,
+              "MCP configuration changed while preparing the planning or review host",
+            );
+          }
           const owner = new MuseSdkHost({
             sessionId: session.museSessionId,
             cwd: session.cwd,
             model: session.config.model,
-            readOnly: session.modeId === "readOnly",
+            readOnly,
             museBinary: this.options.museBinary,
             env: overlay.env,
             logger: this.logger,
@@ -820,13 +952,18 @@ export class MuseAcpAgent {
           session.sdkHost = { owner, identity, overlay };
         }
         session.activeMcpOverlay = session.sdkHost.overlay;
+        await publishReview("started");
+        if (session.cancelRequested || this.disposed) {
+          await publishReview("cancelled");
+          return { stopReason: "cancelled" };
+        }
         const handle = spawnMuseSdkTurn({
           sessionId: session.museSessionId,
           cwd: session.cwd,
           input: converted.parts,
           model: session.config.model,
           reasoningEffort: session.config.reasoningEffort,
-          readOnly: session.modeId === "readOnly",
+          readOnly,
           museBinary: this.options.museBinary,
           env: session.sdkHost.overlay.env,
           hostOwner: session.sdkHost.owner,
@@ -843,10 +980,16 @@ export class MuseAcpAgent {
             await this.client.sessionUpdate(notification);
           }
           const response = await handle.done;
+          await publishReview(
+            session.cancelRequested || response.stopReason === "cancelled"
+              ? "cancelled"
+              : "completed",
+          );
           return session.cancelRequested ? { stopReason: "cancelled" } : response;
         } catch (error) {
           session.mcpFailure = mcpStartupFailure(error);
           await session.sdkHost?.owner.close();
+          await publishReview(session.cancelRequested ? "cancelled" : "failed");
           throw error;
         } finally {
           handle.kill();

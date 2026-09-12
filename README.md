@@ -84,6 +84,7 @@ Requires Muse ≥ 0.2.1 for `exec`; the default SDK path requires ≥ 1.1.1 with
 | Thinking/reasoning stream                           | ❌ (public summaries not yet forwarded)                             |
 | Client-provided stdio and SDK HTTP MCP servers      | ✅ (see `docs/mcp-passthrough.md`)                                  |
 | Persistent goal observation and local `/goal`       | ✅ SDK; [observation contract](docs/goal-extension.md), no controls |
+| Planning and Git review workflows                   | ✅ SDK; [constraints and commands](docs/workflows.md)               |
 | Additional workspace directories                    | ❌ (muse supports one workspace root)                               |
 | Delegated workers                                   | ❌ (advertised in namespaced ACP metadata)                          |
 | Token usage                                         | ❌ (not forwarded by the adapter)                                   |

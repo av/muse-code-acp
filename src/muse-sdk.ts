@@ -19,6 +19,7 @@ import { isReasoningEffort, type MuseReasoningEffort } from "./config-options.js
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import {
+  approvalStageMetadata,
   approvalToPermissionRequest,
   MuseApprovalRequest,
   PermissionLifecycle,
@@ -252,7 +253,11 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         try {
           const response = await Promise.race([
             options.acpClient.requestPermission(
-              approvalToPermissionRequest(options.sessionId, approval),
+              approvalToPermissionRequest(
+                options.sessionId,
+                approval,
+                options.clientCapabilities?._meta?.["muse/approval"] === 1,
+              ),
             ),
             interactionsStopped,
           ]);
@@ -356,6 +361,35 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         }
       };
 
+      const publishedApprovals = new Set<string>();
+      const publishApprovalResults = () => {
+        if (
+          options.clientCapabilities?._meta?.["muse/approval"] !== 1 ||
+          !session.fold.current ||
+          cancelled ||
+          options.isCancelled?.()
+        )
+          return;
+        for (const approval of session.fold.resolvedApprovals()) {
+          if (approval.turnId !== turnId || publishedApprovals.has(approval.approvalId)) continue;
+          publishedApprovals.add(approval.approvalId);
+          updates.push({
+            sessionId: options.sessionId,
+            update: {
+              sessionUpdate: "session_info_update",
+              _meta: {
+                "muse/approval": {
+                  approvalId: approval.approvalId,
+                  turnId: approval.turnId,
+                  decision: approval.decision,
+                  resolvedBy: approval.resolvedBy,
+                  stages: approval.stageEvidence?.map(approvalStageMetadata),
+                },
+              },
+            },
+          });
+        }
+      };
       const handlePendingUserInputs = async () => {
         for (const pendingInput of session.fold.pendingUserInputs()) {
           const request = pendingInput as unknown as MuseUserInputRequest & {
@@ -462,6 +496,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       const pumpUserInput = (async () => {
         while (!finished && !settled && !cancelled) {
           await handlePendingUserInputs();
+          publishApprovalResults();
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
       })();
@@ -480,6 +515,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       ]);
       // Flush any items that arrived only through gap fill after the last yield.
       flushFold();
+      publishApprovalResults();
       const response = terminalResponse(outcome);
       successful = response.stopReason === "end_turn";
       return response;

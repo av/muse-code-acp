@@ -17,6 +17,22 @@ export interface MuseApprovalChoice {
   acceptsFeedback?: boolean;
 }
 
+interface ApprovalStage {
+  position: number;
+  totalStages: number;
+  requirementId: { approvalId: string; sourceIndex: number };
+  resolution: { kind: string };
+}
+
+export function approvalStageMetadata(stage: ApprovalStage) {
+  return {
+    position: stage.position,
+    totalStages: stage.totalStages,
+    requirementId: stage.requirementId,
+    resolutionKind: stage.resolution.kind,
+  };
+}
+
 export interface MuseApprovalRequest {
   approvalId: string;
   availableChoices: MuseApprovalChoice[];
@@ -27,6 +43,12 @@ export interface MuseApprovalRequest {
   toolName: string;
   turnId: string;
   taskId?: string;
+  judgeEscalated?: boolean;
+  protectedWrite?: boolean;
+  subject?: {
+    kind: string;
+    stages?: ApprovalStage[];
+  };
 }
 
 /**
@@ -63,6 +85,7 @@ function permissionKindFor(choice: MuseApprovalChoice): PermissionOptionKind {
 export function approvalToPermissionRequest(
   sessionId: string,
   request: MuseApprovalRequest,
+  extended = false,
 ): RequestPermissionRequest {
   let rawInput: Record<string, unknown> | undefined;
   try {
@@ -94,6 +117,24 @@ export function approvalToPermissionRequest(
       museItemId: request.itemId,
       museRequirementId: request.currentRequirementId,
       museTaskId: request.taskId,
+      ...(extended
+        ? {
+            "muse/approval": {
+              ...(typeof request.judgeEscalated === "boolean"
+                ? { judgeEscalated: request.judgeEscalated }
+                : {}),
+              ...(typeof request.protectedWrite === "boolean"
+                ? { protectedWrite: request.protectedWrite }
+                : {}),
+              ...(request.subject
+                ? {
+                    subjectKind: request.subject.kind,
+                    stages: request.subject.stages?.map(approvalStageMetadata),
+                  }
+                : {}),
+            },
+          }
+        : {}),
     },
   };
 }

@@ -6,10 +6,10 @@ import { SessionModeState } from "@agentclientprotocol/sdk";
  * Exec backend: modes choose spawn-time `muse exec` flags. Approvals resolve
  * inside Muse (policy + judge) unless the SDK path is selected.
  *
- * SDK backend: only `default` and `readOnly` are advertised. Approvals route
+ * SDK backend: `default`, `readOnly` and adapter-defined `plan` are advertised. Approvals route
  * through ACP `session/request_permission`; `serve` has no bypass/yolo flags.
  */
-export type MuseModeId = "default" | "readOnly" | "bypassApprovals" | "yolo";
+export type MuseModeId = "default" | "readOnly" | "plan" | "bypassApprovals" | "yolo";
 export type MuseBackendId = "exec" | "sdk";
 
 export interface ModeDef {
@@ -42,6 +42,13 @@ export const MODES: Record<MuseModeId, ModeDef> = {
     name: "Read-only",
     description:
       "Disable workspace file writes and shell execution for the run. Applies from the next prompt.",
+    flags: ["--disable-write", "--disable-shell"],
+  },
+  plan: {
+    id: "plan",
+    name: "Plan",
+    description:
+      "Plan with workspace writes and shell execution disabled. Select another mode explicitly to implement. Applies from the next prompt.",
     flags: ["--disable-write", "--disable-shell"],
   },
   bypassApprovals: {
@@ -77,8 +84,12 @@ export function guardContext(): ModeGuardContext {
 }
 
 /** Modes offered to the client under the given guard context. */
-export function availableModes(guard: ModeGuardContext): ModeDef[] {
+export function availableModes(
+  guard: ModeGuardContext,
+  backend: MuseBackendId = "exec",
+): ModeDef[] {
   return Object.values(MODES).filter((mode) => {
+    if (mode.id === "plan" && backend !== "sdk") return false;
     if (!mode.dangerous) {
       return true;
     }
@@ -92,8 +103,12 @@ export function availableModes(guard: ModeGuardContext): ModeDef[] {
   });
 }
 
-export function isModeAvailable(id: string, guard: ModeGuardContext): id is MuseModeId {
-  return availableModes(guard).some((mode) => mode.id === id);
+export function isModeAvailable(
+  id: string,
+  guard: ModeGuardContext,
+  backend: MuseBackendId = "exec",
+): id is MuseModeId {
+  return availableModes(guard, backend).some((mode) => mode.id === id);
 }
 
 export function modeState(
@@ -103,7 +118,7 @@ export function modeState(
 ): SessionModeState {
   return {
     currentModeId: current,
-    availableModes: availableModes(guard).map((mode) => ({
+    availableModes: availableModes(guard, backend).map((mode) => ({
       id: mode.id,
       name: mode.name,
       description:
