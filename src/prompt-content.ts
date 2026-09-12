@@ -1,7 +1,10 @@
+import { decodeImage, IMAGE_EXTENSIONS } from "./prompt-images.js";
 import { ContentBlock, PromptRequest, RequestError } from "@agentclientprotocol/sdk";
 
-/** Muse turn input text part (MSP declares only text | image; we use text). */
+/** Muse turn input text part. */
 export type MuseTextInputPart = { type: "text"; text: string };
+export type MuseInputPart =
+  MuseTextInputPart | { type: "image"; base64Data: string; mediaType: string };
 
 /**
  * Lossless text encoding for ACP `resource_link` blocks. Muse's turn input
@@ -25,12 +28,11 @@ export function formatResourceLink(
 }
 
 export type PromptConversion =
-  { ok: true; parts: MuseTextInputPart[]; text: string } | { ok: false; error: RequestError };
+  { ok: true; parts: MuseInputPart[]; text: string } | { ok: false; error: RequestError };
 
 /**
  * Convert ACP prompt content into Muse turn input and a legacy exec string.
- * Baseline ACP requires text + resource_link; optional image/audio/resource
- * are rejected when present because this adapter does not advertise them.
+ * Baseline ACP requires text + resource_link; images use inline MSP parts; audio and embedded resources are rejected.
  */
 export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptConversion {
   if (blocks.length === 0) {
@@ -40,7 +42,7 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
     };
   }
 
-  const parts: MuseTextInputPart[] = [];
+  const parts: MuseInputPart[] = [];
   for (const block of blocks) {
     switch (block.type) {
       case "text":
@@ -49,14 +51,34 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
       case "resource_link":
         parts.push({ type: "text", text: formatResourceLink(block) });
         break;
-      case "image":
+      case "image": {
+        const mediaType = block.mimeType.trim().toLowerCase();
+        if (!IMAGE_EXTENSIONS.has(mediaType))
+          return {
+            ok: false,
+            error: RequestError.invalidParams(
+              undefined,
+              "supported MIME types: image/png, image/jpeg, image/gif, image/webp",
+            ),
+          };
+        try {
+          parts.push({
+            type: "image",
+            mediaType,
+            base64Data: decodeImage(block.data).toString("base64"),
+          });
+        } catch (error) {
+          return { ok: false, error: error as RequestError };
+        }
+        break;
+      }
       case "audio":
       case "resource":
         return {
           ok: false,
           error: RequestError.invalidParams(
             undefined,
-            `unsupported prompt content type: ${block.type}; this agent advertises only text and resource_link`,
+            `unsupported prompt content type: ${block.type}; this agent advertises text, resource_link and image; send embedded resources as resource_link blocks instead`,
           ),
         };
       default:
@@ -71,10 +93,10 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
   }
 
   const text = parts
-    .map((part) => part.text)
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n\n")
     .trim();
-  if (text.length === 0) {
+  if (text.length === 0 && !parts.some((part) => part.type === "image")) {
     return {
       ok: false,
       error: RequestError.invalidParams(

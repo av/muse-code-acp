@@ -26,19 +26,19 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 
 ## ACP surface (advertised)
 
-| Capability                                | Advertised?                                    | Contract owner                                               |
-| ----------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| Protocol major 1                          | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts` |
-| Prompt: text + resource_link              | baseline (empty `promptCapabilities`)          | `src/prompt-content.ts`                                      |
-| Prompt: image / audio / embedded resource | **no**                                         | rejected with invalid params                                 |
-| MCP stdio                                 | yes (baseline; http/sse not advertised)        | `docs/mcp-passthrough.md`                                    |
-| `session/load`, `session/list`            | yes                                            | session store + export helpers                               |
-| Auth logout                               | yes                                            | `src/auth.ts`                                                |
-| Terminal auth method                      | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                |
-| Interactive permissions (SDK backend)     | yes                                            | `src/muse-permissions.ts` + live approval suite              |
-| Form elicitation (SDK user input)         | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                     |
-| fs / terminal RPC                         | **no**                                         | omitted client caps never invoked                            |
-| Session fork/delete/close                 | **no**                                         | unadvertised                                                 |
+| Capability                            | Advertised?                                    | Contract owner                                               |
+| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| Protocol major 1                      | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts` |
+| Prompt: text + resource_link          | baseline (empty `promptCapabilities`)          | `src/prompt-content.ts`                                      |
+| Prompt: audio / embedded resource     | **no**                                         | rejected with invalid params                                 |
+| MCP stdio                             | yes (baseline; http/sse not advertised)        | `docs/mcp-passthrough.md`                                    |
+| `session/load`, `session/list`        | yes                                            | session store + export helpers                               |
+| Auth logout                           | yes                                            | `src/auth.ts`                                                |
+| Terminal auth method                  | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                |
+| Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite              |
+| Form elicitation (SDK user input)     | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                     |
+| fs / terminal RPC                     | **no**                                         | omitted client caps never invoked                            |
+| Session fork/delete/close             | **no**                                         | unadvertised                                                 |
 
 ## Public SDK API map
 
@@ -137,3 +137,8 @@ conversation and that the saved model/effort survive the ACP process restart.
 Publishing resolves the release ref to an immutable commit, runs this same CI
 workflow on that commit, and only publishes after all checks succeed. Manual
 publishing follows the same checks.
+
+Prompt images are advertised and sent as ordered MSP `image` parts with
+`mediaType` and `base64Data`. PNG, JPEG, GIF, and WebP are accepted; malformed
+base64 is rejected before a turn starts. Legacy exec stages private temporary
+files and requires text or a resource link alongside images.

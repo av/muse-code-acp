@@ -32,6 +32,24 @@ function sdkClient(mode = "complete") {
 }
 
 describe("SDK backend over ACP", () => {
+  it("preserves image order and bytes through MSP", async () => {
+    const client = sdkClient();
+    const { ctx, sessionId } = await newTestSession(client);
+    await ctx.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: [
+        { type: "text", text: "before" },
+        { type: "image", mimeType: "image/png", data: "YQ==" },
+        { type: "text", text: "after" },
+      ],
+    });
+    expect(client.requests().find((r) => r.method === "turn/start").params.input).toEqual([
+      { type: "text", text: "before" },
+      { type: "image", mediaType: "image/png", base64Data: "YQ==" },
+      { type: "text", text: "after" },
+    ]);
+  });
+
   it("uses UUIDv7 sessions and streams each text segment once, including completion before ack", async () => {
     const client = sdkClient();
     const { ctx, sessionId, modes } = await newTestSession(client);

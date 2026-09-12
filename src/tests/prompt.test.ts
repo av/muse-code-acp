@@ -113,7 +113,7 @@ describe("session/prompt (fake muse)", () => {
     ).rejects.toMatchObject({ code: -32602 });
   });
 
-  it("accepts resource_link-only prompts and rejects unsupported image content", async () => {
+  it("accepts resource_link-only prompts and requires text alongside exec images", async () => {
     const testClient = connectTestClient({ backend: "exec", museBinary: fakeMuseBinary() });
     const { ctx, sessionId } = await newTestSession(testClient);
 
@@ -143,7 +143,7 @@ describe("session/prompt (fake muse)", () => {
         ],
       }),
     ).rejects.toMatchObject({
-      message: expect.stringMatching(/unsupported prompt content type: image/),
+      message: expect.stringMatching(/requires text or a resource link alongside image content/),
     });
   });
 });

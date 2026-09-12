@@ -133,3 +133,8 @@ The work board lives in `.pm/` (workstream w1).
 Apache-2.0. Portions derived from
 [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp)
 (Zed Industries) — see `NOTICE`.
+
+Prompt images (PNG, JPEG, GIF, WebP) are supported: the SDK receives inline image
+parts; legacy exec uses private per-turn files removed during cleanup. Exec
+requires accompanying text or a resource link. Audio and embedded resources
+remain unsupported.

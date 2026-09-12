@@ -28,7 +28,7 @@ import {
   resolvePermissionChoice,
 } from "./muse-permissions.js";
 import { MuseSdkTranslator } from "./muse-sdk-events.js";
-import type { MuseTextInputPart } from "./prompt-content.js";
+import type { MuseInputPart } from "./prompt-content.js";
 import {
   MuseUserInputRequest,
   settleUserInput,
@@ -41,7 +41,7 @@ export interface MuseSdkOptions {
   sessionId: string;
   cwd: string;
   /** Ordered Muse turn input parts (text encodings of ACP content). */
-  input: MuseTextInputPart[];
+  input: MuseInputPart[];
   model: string;
   reasoningEffort: string;
   readOnly: boolean;

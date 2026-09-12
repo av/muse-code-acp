@@ -36,8 +36,8 @@ describe("prompt content conversion", () => {
       return;
     }
     expect(converted.parts).toHaveLength(2);
-    expect(converted.parts[1].text).toContain("URI: file:///tmp/日本語.md");
-    expect(converted.parts[1].text).toContain("café");
+    expect((converted.parts[1] as { text: string }).text).toContain("URI: file:///tmp/日本語.md");
+    expect((converted.parts[1] as { text: string }).text).toContain("café");
     expect(
       formatResourceLink({
         type: "resource_link",

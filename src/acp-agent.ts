@@ -59,6 +59,7 @@ import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession } from "./muse-sdk.
 import { readSessionEffort, writeSessionEffort } from "./session-preferences.js";
 import { createMuseMcpOverlay, MuseMcpOverlay } from "./mcp-overlay.js";
 import { readMuseSettings } from "./muse-settings.js";
+import { compileMusePrompt, type CompiledMusePrompt } from "./prompt-files.js";
 import { convertPromptContent } from "./prompt-content.js";
 import { exportToUpdates, runMuseExport } from "./session-export.js";
 import { listStoredSessions } from "./session-store.js";
@@ -110,6 +111,7 @@ export interface SessionState {
   activeTurn: MuseExecHandle | MuseSdkHandle | null;
   /** Set by `session/cancel`; forces the turn to settle with `cancelled`. */
   cancelRequested: boolean;
+  turnFinished: Promise<void> | null;
   /** Active ACP session mode; decides the safety flags of the next spawn. */
   modeId: MuseModeId;
   /** Model + reasoning effort applied to every spawn for this session. */
@@ -173,10 +175,9 @@ export class MuseAcpAgent {
     return {
       protocolVersion: PROTOCOL_VERSION,
       // Only advertise what is actually implemented; capabilities grow with
-      // the milestones that ship them. Empty promptCapabilities = baseline
-      // text + resource_link only (no image/audio/embedded).
+      // the milestones that ship them. Images work on both backends.
       agentCapabilities: {
-        promptCapabilities: {},
+        promptCapabilities: { image: true },
         mcpCapabilities: {},
         loadSession: true,
         sessionCapabilities: { list: {} },
@@ -240,6 +241,7 @@ export class MuseAcpAgent {
       cwd: params.cwd,
       museSessionId: sessionId,
       activeTurn: null,
+      turnFinished: null,
       cancelRequested: false,
       modeId: "default",
       config,
@@ -358,6 +360,7 @@ export class MuseAcpAgent {
       cwd: params.cwd,
       museSessionId: params.sessionId,
       activeTurn: null,
+      turnFinished: null,
       cancelRequested: false,
       modeId: "default",
       config,
@@ -415,7 +418,7 @@ export class MuseAcpAgent {
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const session = this.requireSession(params.sessionId);
-    if (session.activeTurn) {
+    if (session.turnFinished) {
       throw RequestError.invalidRequest(
         undefined,
         `session ${params.sessionId} already has a prompt turn in flight`,
@@ -427,18 +430,22 @@ export class MuseAcpAgent {
       throw converted.error;
     }
 
+    const finished = Promise.withResolvers<void>();
+    session.turnFinished = finished.promise;
     session.cancelRequested = false;
-    const baseEnv = this.options.env ?? process.env;
-    const mcpOverlay =
-      this.backend === "sdk" || session.mcpServers.length > 0
-        ? createMuseMcpOverlay(
-            session.mcpServers,
-            baseEnv,
-            this.backend === "sdk" ? session.config : undefined,
-          )
-        : null;
-    session.activeMcpOverlay = mcpOverlay;
+    let compiledPrompt: CompiledMusePrompt | undefined;
+    let mcpOverlay: MuseMcpOverlay | null = null;
     try {
+      const baseEnv = this.options.env ?? process.env;
+      mcpOverlay =
+        this.backend === "sdk" || session.mcpServers.length > 0
+          ? createMuseMcpOverlay(
+              session.mcpServers,
+              baseEnv,
+              this.backend === "sdk" ? session.config : undefined,
+            )
+          : null;
+      session.activeMcpOverlay = mcpOverlay;
       if (this.backend === "sdk") {
         if (this.options.provider === "echo") {
           throw RequestError.invalidParams(
@@ -473,9 +480,12 @@ export class MuseAcpAgent {
           await handle.done.catch(() => {});
         }
       }
+      compiledPrompt = await compileMusePrompt(params.prompt);
+      if (session.cancelRequested) return { stopReason: "cancelled" };
       const translator = new TurnTranslator(params.sessionId, this.logger);
       const handle = spawnMuseExec({
-        prompt: converted.text,
+        prompt: compiledPrompt.prompt,
+        imagePaths: compiledPrompt.imagePaths,
         sessionId: session.museSessionId,
         cwd: session.cwd,
         museBinary: this.options.museBinary,
@@ -533,10 +543,19 @@ export class MuseAcpAgent {
           return (unreachable(outcome, this.logger), { stopReason: "end_turn" });
       }
     } finally {
-      session.activeTurn = null;
-      mcpOverlay?.cleanup();
-      if (session.activeMcpOverlay === mcpOverlay) {
-        session.activeMcpOverlay = null;
+      try {
+        session.activeTurn?.kill();
+        await session.activeTurn?.done.catch(() => {});
+        mcpOverlay?.cleanup();
+      } finally {
+        try {
+          await compiledPrompt?.cleanup();
+        } finally {
+          session.activeTurn = null;
+          session.activeMcpOverlay = null;
+          session.turnFinished = null;
+          finished.resolve();
+        }
       }
     }
   }
