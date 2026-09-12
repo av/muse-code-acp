@@ -1,5 +1,6 @@
 import { SessionNotification, ToolCall } from "@agentclientprotocol/sdk";
 import type { FoldedItem } from "@muse-code/sdk";
+import type { FileChangeEvidence } from "./file-change-evidence.js";
 import { Logger } from "./logger.js";
 import { presentResult, TOOL_KINDS } from "./tool-calls.js";
 
@@ -18,6 +19,7 @@ export class MuseSdkTranslator {
   constructor(
     private readonly sessionId: string,
     private readonly logger: Logger,
+    private readonly fileChanges?: FileChangeEvidence,
   ) {}
 
   fromDelta(params: ItemDeltaParams): SessionNotification[] {
@@ -65,13 +67,15 @@ export class MuseSdkTranslator {
         : item.status === "completed"
           ? "completed"
           : "failed";
+    const observedFileContent = this.fileChanges?.present(item);
     const call: ToolCall = {
       toolCallId: item.callId ?? item.itemId,
       name: tool,
       title: typeof title === "string" ? title : tool,
       kind: TOOL_KINDS[tool] ?? "other",
       status,
-      ...presentResult(tool, output, this.logger),
+      ...presentResult(tool, output),
+      ...(observedFileContent ? { content: observedFileContent } : {}),
       ...(args ? { rawInput: args } : {}),
     };
     return [

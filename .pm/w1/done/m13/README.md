@@ -1,20 +1,20 @@
 # w1 · m13 — Accurate file diffs and per-turn change reports
 
-**Worker:** worker1 **Goal:** Make edits reviewable with real before/after evidence and an honest account of files changed during a turn. **Status:** todo
+**Worker:** worker1 **Goal:** Make edits reviewable with real before/after evidence and an honest account of files changed during a turn. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                   | est | depends_on               |
-| ---- | ------------------------------------------------------- | --- | ------------------------ |
-| t001 | Establish trustworthy file-change evidence              | 45m | w1/m12/t006              |
-| t002 | Emit real before-and-after file diffs                   | 45m | w1/m13/t001              |
-| t003 | Produce negotiated per-turn file-change reports         | 45m | w1/m13/t002              |
-| t004 | Validate review reports against mixed workspace changes | 45m | w1/m13/t003              |
-| t005 | Simplify milestone changes                              | 30m | w1/m13/t004              |
-| t006 | CI and behavior coverage                                | 45m | w1/m13/t004, w1/m13/t005 |
-| t007 | Close out the milestone                                 | 15m | w1/m13/t006              |
+| id   | title                                                              | est | depends_on               |
+| ---- | ------------------------------------------------------------------ | --- | ------------------------ |
+| t001 | Establish trustworthy file-change evidence — **DONE**              | 45m | w1/m10/t008              |
+| t002 | Emit real before-and-after file diffs — **DONE**                   | 45m | w1/m13/t001              |
+| t003 | Produce negotiated per-turn file-change reports — **DONE**         | 45m | w1/m13/t002              |
+| t004 | Validate review reports against mixed workspace changes — **DONE** | 45m | w1/m13/t003              |
+| t005 | Simplify milestone changes — **DONE**                              | 30m | w1/m13/t004              |
+| t006 | CI and behavior coverage — **DONE**                                | 45m | w1/m13/t004, w1/m13/t005 |
+| t007 | Close out the milestone — **DONE**                                 | 15m | w1/m13/t006              |
 
-Estimated total: 4h 30m across 7 tasks. Priority: P2. Scheduled after w1/m12/t006; cross-milestone dependencies refer to logical task IDs even after archival.
+Estimated total: 4h 30m across 7 tasks. Priority: P2. Scheduled after w1/m10/t008; cross-milestone dependencies refer to logical task IDs even after archival.
 
 ## Definition of done
 
@@ -42,4 +42,14 @@ Estimated total: 4h 30m across 7 tasks. Priority: P2. Scheduled after w1/m12/t00
 
 ## Validation evidence
 
-Pending implementation. The source comparison inspected code and installed SDK declarations; it did not establish real-host acceptance of the proposed features.
+- SDK 0.1.1 and real Muse 1.1.1-R2514.1: native file tools report the output path and submitted content, but no preimage; ordinary writes may auto-approve. Bounded working-tree observations supply supported before/after evidence. Approval callbacks refresh evidence only when the host offers them.
+- `src/file-change-evidence.ts` limits inventory, actual bytes read, retained content and report paths. Unknown preimages, deletion/move, failed tools, binary/large files and concurrent mismatches retain text fallbacks. Reports explicitly disclaim complete attribution and do not include unrelated dirty files.
+- `src/tests/file-change-live.test.ts` verifies real overwrite/creation, an excluded shell-generated file, preserved unrelated edits, negotiated reporting and baseline diffs. The scripted request count proves no audit turn is started.
+- Wire and evidence suites cover cancellation/close, failed turns, invalid negotiation, report ordering, growth during read, timeout, aggregate limits and stale/unknown evidence. Legacy exec no longer fabricates creation preimages from post-write readback.
+- Simplify: independent reuse, quality and efficiency reviews completed. Shared result-path parsing and text construction replace duplicates; unused logger plumbing removed. No unresolved resource-bound findings.
+- Passed `npm run check`, `npm run build`, `npm run test:unit` (310 tests, 51 files), `MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback` (22 tests, 8 files), and `npm run test:pack-smoke`.
+- Scope limits are documented in `docs/file-change-report.md`: observed states can include concurrent edits; reports contain successful native file-tool declarations, never guaranteed shell/generated/child coverage. No paid provider calls or publication.
+
+## Dependency review (2026-09-12)
+
+The user-authorized follow-up research replaced the ordering-only prerequisite with delivered m10 host ownership. This milestone does not require m11 child execution or m12 fork support; child changes remain explicitly unknown in partial reports.

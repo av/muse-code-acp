@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MuseEnvelope } from "../muse-events.js";
 import { TurnTranslator } from "../translate.js";
-import { silentLogger } from "./helpers.js";
 
 export function envelope(payloadType: string, payload: Record<string, unknown>): MuseEnvelope {
   return {
@@ -20,7 +19,7 @@ export function envelope(payloadType: string, payload: Record<string, unknown>):
 }
 
 function translator(): TurnTranslator {
-  return new TurnTranslator("acp-session", silentLogger());
+  return new TurnTranslator("acp-session");
 }
 
 describe("TurnTranslator text deltas", () => {

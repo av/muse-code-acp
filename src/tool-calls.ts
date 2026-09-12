@@ -1,6 +1,4 @@
 import { SessionNotification, ToolCallContent, ToolKind } from "@agentclientprotocol/sdk";
-import { readFileSync, statSync } from "node:fs";
-import { Logger } from "./logger.js";
 import {
   MuseEnvelope,
   sideEffectIntentPayloadSchema,
@@ -16,9 +14,6 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   web_search: "fetch",
   web_fetch: "fetch",
 };
-
-/** Cap for reading a written file back to present as diff content. */
-const MAX_DIFF_BYTES = 64 * 1024;
 
 interface TrackedCall {
   callId: string;
@@ -38,10 +33,7 @@ export class ToolCallTracker {
   private readonly byTask = new Map<string, TrackedCall>();
   private readonly byCall = new Map<string, TrackedCall>();
 
-  constructor(
-    private readonly sessionId: string,
-    private readonly logger: Logger,
-  ) {}
+  constructor(private readonly sessionId: string) {}
 
   /** `task.lifecycle.side_effect_intent` → pending tool_call (tool ops only). */
   intentToUpdates(envelope: MuseEnvelope): SessionNotification[] {
@@ -92,7 +84,7 @@ export class ToolCallTracker {
 
     const failed = facts ? facts.outcome !== "success" : true;
     const status = failed ? ("failed" as const) : ("completed" as const);
-    const presentation = presentResult(toolName, text, this.logger);
+    const presentation = presentResult(toolName, text);
 
     if (known) {
       return [
@@ -136,7 +128,6 @@ interface ResultPresentation {
 export function presentResult(
   toolName: string | undefined | null,
   text: string,
-  logger: Logger,
 ): ResultPresentation {
   if (toolName === "bash") {
     const parsed = parseBashResult(text);
@@ -165,11 +156,11 @@ export function presentResult(
     }
   }
   if (toolName === "write_file" || toolName === "edit_file") {
-    const path = text.match(/^wrote \d+ bytes to (.+)$/s)?.[1]?.trim();
+    const path = writtenFilePath(text);
     if (path) {
       return {
         title: `${toolName}: ${path}`,
-        content: [fileChangeContent(path, text, logger)],
+        content: [textContent(text)],
         locations: [{ path }],
       };
     }
@@ -199,23 +190,10 @@ function parseBashResult(text: string): {
   }
 }
 
-/**
- * Muse writes files inside its own sandbox and reports only "wrote N bytes to
- * <path>" — no old/new text. Best effort: read the resulting file back and
- * present it as diff content without an old text (muse 0.2.1 gives no
- * pre-image, so a real before/after diff is impossible for overwrites).
- */
-function fileChangeContent(path: string, fallbackText: string, logger: Logger): ToolCallContent {
-  try {
-    if (statSync(path).size <= MAX_DIFF_BYTES) {
-      return { type: "diff", path, oldText: null, newText: readFileSync(path, "utf8") };
-    }
-  } catch (err) {
-    logger.log(`could not read back ${path} for diff content: ${err}`);
-  }
-  return textContent(fallbackText);
+export function textContent(text: string): ToolCallContent {
+  return { type: "content", content: { type: "text", text } };
 }
 
-function textContent(text: string): ToolCallContent {
-  return { type: "content", content: { type: "text", text } };
+export function writtenFilePath(text: string): string | undefined {
+  return text.match(/^wrote \d+ bytes to (.+)$/s)?.[1]?.trim();
 }

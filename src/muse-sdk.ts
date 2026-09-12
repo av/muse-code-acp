@@ -15,6 +15,7 @@ import {
 import packageJson from "../package.json" with { type: "json" };
 import { realpathSync } from "node:fs";
 import type { AcpClient } from "./acp-agent.js";
+import { FileChangeEvidence } from "./file-change-evidence.js";
 import { Logger } from "./logger.js";
 import { isReasoningEffort, type MuseReasoningEffort } from "./config-options.js";
 import { museCliPath } from "./muse-cli.js";
@@ -54,6 +55,7 @@ export interface MuseSdkOptions {
   checkHost?: boolean;
   acpClient: AcpClient;
   clientCapabilities?: ClientCapabilities;
+  fileReportRequestId?: string;
   /** Read cancelRequested from the ACP session while the turn runs. */
   isCancelled?: () => boolean;
   hostOwner?: MuseSdkHost;
@@ -151,7 +153,8 @@ export function sdkReasoningEffort(effort: string | undefined): MuseReasoningEff
  */
 export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   const updates = new Pushable<SessionNotification>();
-  const translator = new MuseSdkTranslator(options.sessionId, options.logger);
+  const fileChanges = new FileChangeEvidence(options.cwd);
+  const translator = new MuseSdkTranslator(options.sessionId, options.logger, fileChanges);
   const permissions = new PermissionLifecycle();
   const approvalIds = new Set<string>();
   const userInputs = new UserInputLifecycle();
@@ -271,7 +274,11 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           if (cancelled || options.isCancelled?.()) {
             throw new Error("permission request cancelled");
           }
-          return { choiceId: resolvePermissionChoice(approval, response) };
+          const choiceId = resolvePermissionChoice(approval, response);
+          const choice = approval.availableChoices.find((c) => c.choiceId === choiceId);
+          if (choice && ["approved", "approvedForSession"].includes(choice.decision))
+            fileChanges.beforeApproval(approval.toolName, approval.rawArgs);
+          return { choiceId };
         } finally {
           permissions.resolve(approval.approvalId);
         }
@@ -558,6 +565,21 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         updates.push({
           sessionId: options.sessionId,
           update: { sessionUpdate: "session_info_update", _meta: { "muse/activeTurnId": null } },
+        });
+      if (options.fileReportRequestId)
+        updates.push({
+          sessionId: options.sessionId,
+          update: {
+            sessionUpdate: "session_info_update",
+            _meta: fileChanges.report(
+              options.fileReportRequestId,
+              cancelled || options.isCancelled?.()
+                ? "cancelled"
+                : successful
+                  ? "completed"
+                  : "failed",
+            ),
+          },
         });
       updates.end();
     }

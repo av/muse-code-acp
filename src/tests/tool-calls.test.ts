@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MuseLineParser, MuseEnvelope } from "../muse-events.js";
 import { TurnTranslator } from "../translate.js";
-import { fixturesDir, silentLogger } from "./helpers.js";
+import { fixturesDir } from "./helpers.js";
 import { envelope } from "./translate.test.js";
 
 /**
@@ -18,7 +18,7 @@ function replayFixture(): SessionUpdate[] {
   parser.push(readFileSync(join(fixturesDir, "real-tools.jsonl"), "utf8"));
   parser.end();
 
-  const translator = new TurnTranslator("acp-session", silentLogger());
+  const translator = new TurnTranslator("acp-session");
   return envelopes.flatMap((e) => translator.toUpdates(e).map((n) => n.update));
 }
 
@@ -92,7 +92,7 @@ describe("tool-call translation (real fixture)", () => {
 
 describe("tool-call translation (synthetic edges)", () => {
   it("records an unsupported headless approval wait", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     expect(
       translator.toUpdates(
         envelope("approval_wait.effect.started", {
@@ -114,7 +114,7 @@ describe("tool-call translation (synthetic edges)", () => {
     });
   });
   it("handles a tool.result for an unknown call id without an intent", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     const updates = translator.toUpdates(
       envelope("tool.result", {
         kind: "tool_result",
@@ -131,7 +131,7 @@ describe("tool-call translation (synthetic edges)", () => {
   });
 
   it("treats a result with success outcome but no intent as completed", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     const updates = translator.toUpdates(
       envelope("tool.result", {
         kind: "tool_result",
@@ -148,7 +148,7 @@ describe("tool-call translation (synthetic edges)", () => {
   });
 
   it("normalizes a completed read_file result with its path", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     const path = "/workspace/src/server.ts";
     translator.toUpdates(
       envelope("task.lifecycle.side_effect_intent", {
@@ -184,12 +184,12 @@ describe("tool-call translation (synthetic edges)", () => {
     });
   });
 
-  it("presents a write_file result as diff content read back from disk", () => {
+  it("does not invent a creation preimage from post-write readback", () => {
     const dir = mkdtempSync(join(tmpdir(), "muse-diff-test-"));
     const path = join(dir, "created.txt");
     writeFileSync(path, "fresh content\n");
 
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     translator.toUpdates(
       envelope("task.lifecycle.side_effect_intent", {
         kind: "task_lifecycle",
@@ -215,13 +215,13 @@ describe("tool-call translation (synthetic edges)", () => {
     expect(updates[0].update).toMatchObject({
       sessionUpdate: "tool_call_update",
       status: "completed",
-      content: [{ type: "diff", path, oldText: null, newText: "fresh content\n" }],
+      content: [{ type: "content", content: { type: "text", text: `wrote 14 bytes to ${path}` } }],
       locations: [{ path }],
     });
   });
 
   it("falls back to text content when the written file cannot be read", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     const updates = translator.toUpdates(
       envelope("tool.result", {
         kind: "tool_result",
@@ -235,7 +235,7 @@ describe("tool-call translation (synthetic edges)", () => {
   });
 
   it("correlates interleaved parallel tool calls by call id", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     const intent = (task: string, call: string, tool: string) =>
       envelope("task.lifecycle.side_effect_intent", {
         kind: "task_lifecycle",
@@ -277,7 +277,7 @@ describe("tool-call translation (synthetic edges)", () => {
   });
 
   it("ignores non-tool side-effect intents", () => {
-    const translator = new TurnTranslator("acp-session", silentLogger());
+    const translator = new TurnTranslator("acp-session");
     const updates = translator.toUpdates(
       envelope("task.lifecycle.side_effect_intent", {
         kind: "task_lifecycle",

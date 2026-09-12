@@ -16,7 +16,7 @@
 - [x] **m10** — Reusable SDK hosts and mid-turn steering (8 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [ ] **m11** — Delegated worker lifecycle and native child sessions (8 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [x] **m12** — Session branching through public Muse fork support (6 tasks) ← from codex-acp capability comparison (2026-09-12)
-- [ ] **m13** — Accurate file diffs and per-turn change reports (7 tasks) ← from codex-acp capability comparison (2026-09-12)
+- [x] **m13** — Accurate file diffs and per-turn change reports (7 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [ ] **m14** — Structured failures, retry progress and truthful authentication state (8 tasks) ← from second codex-acp comparison (2026-09-12)
 - [ ] **m15** — Background command lifecycle and targeted controls (7 tasks) ← from second codex-acp comparison (2026-09-12)
 - [x] **m16** — Remote MCP transport and connection diagnostics (6 tasks) ← from second codex-acp comparison (2026-09-12)

@@ -1,5 +1,4 @@
 import { SessionNotification } from "@agentclientprotocol/sdk";
-import { Logger } from "./logger.js";
 import {
   approvalWaitStartedPayloadSchema,
   MuseEnvelope,
@@ -26,11 +25,8 @@ export class TurnTranslator {
    * child and fail the turn instead of leaving a headless prompt blocked. */
   approvalWait: { toolName: string; toolCallId: string } | null = null;
 
-  constructor(
-    private readonly sessionId: string,
-    logger: Logger = console,
-  ) {
-    this.tools = new ToolCallTracker(sessionId, logger);
+  constructor(private readonly sessionId: string) {
+    this.tools = new ToolCallTracker(sessionId);
   }
 
   toUpdates(envelope: MuseEnvelope): SessionNotification[] {

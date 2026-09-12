@@ -302,3 +302,13 @@ The SDK backend maps ACP `session/fork` onto public Muse fork. Default history a
 negotiated completed-turn boundaries preserve the source workspace, saved model
 and effort, with separate MCP inventory and reset default safety mode. Real-host
 acceptance verifies history isolation after ACP restart. See [semantics and limits](session-fork.md).
+
+## File-change evidence (m13)
+
+SDK turns can render bounded observed before/after text for recognized writes.
+Working-tree snapshots preserve pre-existing user content; unknown preimages,
+concurrent mismatches, binary/large files and failed tools retain text fallbacks.
+Exec has no verified preimages and no longer labels post-write readback as creation.
+The negotiated AIR v1 `agentFileChangeReport` contract reports recognized native
+file-tool declarations with `declaredComplete: false`; it does not infer complete
+shell/generated/child attribution or launch an audit model turn. See [bounds and wire examples](file-change-report.md).

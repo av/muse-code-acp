@@ -58,6 +58,11 @@ import {
   defaultSessionConfig,
   SessionConfig,
 } from "./config-options.js";
+import {
+  supportsFileReport,
+  fileReportRequest,
+  FILE_REPORT_CAPABILITIES,
+} from "./file-change-evidence.js";
 import { forkMuseSession, FORK_METADATA } from "./session-fork.js";
 import { probeSdkHost } from "./muse-host.js";
 import { Logger } from "./logger.js";
@@ -274,6 +279,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && supportsFileReport(this.clientCapabilities)
+          ? FILE_REPORT_CAPABILITIES
+          : {}),
         ...(forkSupported && this.clientCapabilities._meta?.[FORK_METADATA] === 1
           ? { [FORK_METADATA]: { version: 1, completedTurnBoundary: true } }
           : {}),
@@ -1121,6 +1129,9 @@ export class MuseAcpAgent {
           checkHost: this.options.skipSdkHostCheck ? false : undefined,
           acpClient: this.client,
           clientCapabilities: this.clientCapabilities,
+          fileReportRequestId: supportsFileReport(this.clientCapabilities)
+            ? fileReportRequest(params._meta)
+            : undefined,
           isCancelled: () => session.cancelRequested,
         });
         session.activeTurn = handle;
@@ -1147,7 +1158,7 @@ export class MuseAcpAgent {
       }
       compiledPrompt = await compileMusePrompt(params.prompt);
       if (session.cancelRequested) return { stopReason: "cancelled" };
-      const translator = new TurnTranslator(params.sessionId, this.logger);
+      const translator = new TurnTranslator(params.sessionId);
       const handle = spawnMuseExec({
         prompt: compiledPrompt.prompt,
         imagePaths: compiledPrompt.imagePaths,
