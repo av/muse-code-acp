@@ -40,6 +40,9 @@ describe("session/resume", () => {
     });
 
     expect(resumed.modes?.currentModeId).toBe("readOnly");
+    expect(resumed.configOptions?.find((option) => option.id === "mode")?.currentValue).toBe(
+      "readOnly",
+    );
     expect(
       resumed.configOptions?.find((option) => option.id === "reasoningEffort")?.currentValue,
     ).toBe("low");

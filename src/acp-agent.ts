@@ -227,13 +227,28 @@ export class MuseAcpAgent {
   }
 
   private sessionModes(current: MuseModeId) {
-    const state = modeState(current, guardContext(), this.backend);
-    if (this.backend === "sdk") {
-      state.availableModes = state.availableModes.filter(
-        (mode) => mode.id === "default" || mode.id === "readOnly" || mode.id === "plan",
-      );
-    }
-    return state;
+    return modeState(current, guardContext(), this.backend);
+  }
+
+  private sessionConfigOptions(
+    session: Pick<SessionState, "config" | "modeId" | "modelDiscovery">,
+  ) {
+    const modes = this.sessionModes(session.modeId);
+    return [
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode" as const,
+        type: "select" as const,
+        currentValue: modes.currentModeId,
+        options: modes.availableModes.map(({ id, name, description }) => ({
+          value: id,
+          name,
+          description,
+        })),
+      },
+      ...buildConfigOptions(session.config, this.backend, session.modelDiscovery),
+    ];
   }
 
   private supportsFork(): boolean {
@@ -434,7 +449,7 @@ export class MuseAcpAgent {
       return {
         sessionId,
         modes: this.sessionModes("default"),
-        configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
+        configOptions: this.sessionConfigOptions(this.sessions.get(sessionId)!),
       };
     });
   }
@@ -620,7 +635,7 @@ export class MuseAcpAgent {
     this.advertiseCommands(params.sessionId, cwd);
     return {
       modes: this.sessionModes(this.sessions.get(params.sessionId)!.modeId),
-      configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
+      configOptions: this.sessionConfigOptions(this.sessions.get(params.sessionId)!),
     };
   }
 
@@ -726,7 +741,7 @@ export class MuseAcpAgent {
       return {
         sessionId,
         modes: this.sessionModes("default"),
-        configOptions: buildConfigOptions(config, this.backend, source?.modelDiscovery),
+        configOptions: this.sessionConfigOptions(this.sessions.get(sessionId)!),
         ...(this.clientCapabilities._meta?.[FORK_METADATA] === 1
           ? {
               _meta: {
@@ -798,7 +813,7 @@ export class MuseAcpAgent {
       existing.mcpFailure = undefined;
       return {
         modes: this.sessionModes(existing.modeId),
-        configOptions: buildConfigOptions(existing.config, this.backend, existing.modelDiscovery),
+        configOptions: this.sessionConfigOptions(existing),
       };
     }
 
@@ -854,7 +869,7 @@ export class MuseAcpAgent {
     this.advertiseCommands(params.sessionId, storedCwd);
     return {
       modes: this.sessionModes(this.sessions.get(params.sessionId)!.modeId),
-      configOptions: buildConfigOptions(config, this.backend, modelDiscovery),
+      configOptions: this.sessionConfigOptions(this.sessions.get(params.sessionId)!),
     };
   }
 
@@ -862,14 +877,23 @@ export class MuseAcpAgent {
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
     const session = this.requireSession(params.sessionId);
+    if (params.configId === "mode") {
+      if (typeof params.value !== "string")
+        throw RequestError.invalidParams(undefined, "mode expects a select value");
+      await this.setSessionMode({ sessionId: params.sessionId, modeId: params.value });
+      return { configOptions: this.sessionConfigOptions(session) };
+    }
     const config = applyConfigSelection(session.config, params.configId, params.value);
     if (this.backend === "sdk" && params.configId === "reasoningEffort") {
       writeSessionEffort(params.sessionId, config.reasoningEffort, this.options.env ?? process.env);
     }
     session.config = config;
-    return {
-      configOptions: buildConfigOptions(session.config, this.backend, session.modelDiscovery),
-    };
+    const configOptions = this.sessionConfigOptions(session);
+    await this.client.sessionUpdate({
+      sessionId: params.sessionId,
+      update: { sessionUpdate: "config_option_update", configOptions },
+    });
+    return { configOptions };
   }
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
@@ -891,7 +915,7 @@ export class MuseAcpAgent {
         undefined,
         "Wait for the active turn before changing planning mode",
       );
-    this.changeMode(params.sessionId, session, params.modeId);
+    await this.changeMode(params.sessionId, session, params.modeId);
     return {};
   }
 
@@ -906,11 +930,26 @@ export class MuseAcpAgent {
       );
   }
 
-  private changeMode(sessionId: string, session: SessionState, mode: MuseModeId): void {
+  private async changeMode(
+    sessionId: string,
+    session: SessionState,
+    mode: MuseModeId,
+  ): Promise<void> {
     if (mode === "plan") this.assertWorkflowTools(session);
     if (this.backend === "sdk" && (mode === "default" || mode === "readOnly" || mode === "plan"))
       writeSessionMode(sessionId, mode, this.options.env ?? process.env);
     session.modeId = mode;
+    await this.client.sessionUpdate({
+      sessionId,
+      update: { sessionUpdate: "current_mode_update", currentModeId: mode },
+    });
+    await this.client.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: this.sessionConfigOptions(session),
+      },
+    });
   }
 
   async steer(
@@ -1032,11 +1071,7 @@ export class MuseAcpAgent {
             undefined,
             "Wait for native work before entering planning mode",
           );
-        this.changeMode(params.sessionId, session, "plan");
-        await this.client.sessionUpdate({
-          sessionId: params.sessionId,
-          update: { sessionUpdate: "current_mode_update", currentModeId: "plan" },
-        });
+        await this.changeMode(params.sessionId, session, "plan");
         if (command?.barePlan) {
           await say(
             "Plan mode enabled. Send a task to begin planning; implementation requires an explicit mode change.",

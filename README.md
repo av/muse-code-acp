@@ -113,6 +113,14 @@ with `muse serve` over MSP. The adapter starts or resumes native sessions,
 translates message/tool items into ACP updates, routes permission requests to the
 client, and cancels using `turn/cancel`.
 
+Mode selection is available through both ACP config options and the legacy
+session-mode interface. Changing either keeps both representations synchronized;
+`/plan` also updates the mode selector. SDK sessions offer Default, Read-only and
+Plan. These are not Codex's “Approve for me” or “Full access” presets: native
+automatic approval has not been verified on the supported Muse host. In isolated
+tests, `allowAll` was accepted but a shell write still required a decision.
+Remaining approval requests are forwarded to the client, not automatically granted.
+
 Each SDK session can retain its host across compatible turns. Idle hosts expire
 after 60 seconds; session close also releases them. Close a session before moving
 its native conversation to another client.

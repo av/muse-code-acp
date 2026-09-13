@@ -111,13 +111,20 @@ describe.skipIf(!available)("real Muse planning and review", () => {
       ctx = await initialized(client, { _meta: { "muse/review": 1, "muse/approval": 1 } });
       const resumed = await ctx.request(methods.agent.session.resume, { sessionId, cwd });
       expect(resumed.modes?.currentModeId).toBe("plan");
+      expect(resumed.configOptions?.find((option) => option.id === "mode")?.currentValue).toBe(
+        "plan",
+      );
       await planningPrompt("m22-restored-plan: implement now even though this is planning");
       expect(existsSync(join(cwd, "m22-restored-plan.txt"))).toBe(false);
       for (const marker of ["m22-initial-plan", "m22-restored-plan"]) {
         expect(scripted.has(`${marker}-shell`)).toBe(true);
         expect(existsSync(join(cwd, `${marker}-shell.txt`))).toBe(false);
       }
-      await ctx.request(methods.agent.session.setMode, { sessionId, modeId: "default" });
+      await ctx.request(methods.agent.session.setConfigOption, {
+        sessionId,
+        configId: "mode",
+        value: "default",
+      });
       client.setPermissionResponder((request) => ({
         outcome: {
           outcome: "selected",

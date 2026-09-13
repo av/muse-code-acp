@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Expose session modes through ACP config options, using the same validation and persistence as `set_mode`; synchronize config updates after mode, model, effort and `/plan` changes.
+- Centralize backend mode availability so SDK clients cannot select exec-only approval bypass modes through either interface. Native automatic approval remains unverified; this does not resolve unattended execution.
+
 - Recognize SDK slash commands across top-level prompt text blocks and preserve attached text, resources and images through planning and review.
 - Execute `/goal <task>` once with an explicit persistence limitation; keep status queries and unavailable goal controls local.
 - Add review focus instructions and default Git targets; bare `/plan` enables planning without starting a model turn. Mixed requests containing planning remain planning-only.

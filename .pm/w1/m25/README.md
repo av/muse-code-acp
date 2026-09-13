@@ -53,3 +53,28 @@ The zero-turn selection result reproduced, but tool execution did not establish 
 A separate allowAll run verified the marker was absent before the decision and remained absent after the host-provided abort choice. Therefore allowAll did not bypass this approval gate, and denyUnmatched did not automatically deny the tested unmatched shell action. This is an observed limitation of these fixtures, not a claim that every tool path ignores every policy. It does mean accepted effectiveMode metadata alone is insufficient to label new client choices with those enforcement promises.
 
 Resume t001 with a documented public configuration/tool path that verifies the intended matched/unmatched distinctions and explain how it interacts with explicit SDK approval requests. Then implement only proven choices, and continue separate sandbox-posture enforcement/host-replacement checks in t003/t004. Do not synthesize approvals or add disable-sandbox/yolo defaults to force the tests through. All eight tasks remain open; no safety options were advertised or production policy changed. Local executable probes and public notifications are retained in `.tmp/m25-probe/`. No paid providers or external writes were used.
+
+## User-impact triage refresh (2026-09-13)
+
+[w2/003](../../w2/003.md) records a P1 unattended-execution gap. On supported
+Muse 1.1.1-R2514.1 / SDK 0.1.1, fresh isolated startup onRequest and allowAll
+probes each requested one approval for the shell marker action; both reported
+matching effective state and wrote the marker only after a fixture decision.
+No new policy enforcement capability was established. t001 remains the next
+investigation; w1/m10/t008 is complete. Prioritize verified automatic approvals
+with sandbox retained, and measure multiple distinct actions and resumed turns.
+Do not conflate that outcome with full sandbox-off YOLO. See the linked triage
+for commands, observed effects, scope limits and the existing session-grant mapping.
+
+## Codex parity follow-up — 2026-09-13
+
+The adapter now exposes its existing modes through ACP configOptions and keeps
+legacy mode and config updates synchronized, including `/plan` and restored state.
+This is interface parity, not completion of native automatic approval. No m25 task
+is closed. Repeated prompts alone do not establish a Bex or adapter defect.
+
+A fresh native comparison found `pwd` runs without approval in both onRequest and
+allowAll; the shell redirect marker still requested approval in allowAll, with an
+unresolved stage, protectedWrite=false and judgeEscalated=false. Rejecting the
+request prevented the write. Native Codex auto_review has no equivalent reviewer
+selector in the pinned public Muse schema. See w2/003 for the narrowed attribution.

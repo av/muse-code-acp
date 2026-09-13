@@ -7,7 +7,8 @@ import { SessionModeState } from "@agentclientprotocol/sdk";
  * inside Muse (policy + judge) unless the SDK path is selected.
  *
  * SDK backend: `default`, `readOnly` and adapter-defined `plan` are advertised. Approvals route
- * through ACP `session/request_permission`; `serve` has no bypass/yolo flags.
+ * through ACP `session/request_permission`; native automatic approval enforcement
+ * is not verified on the supported host, so bypass/yolo remain exec-only.
  */
 export type MuseModeId = "default" | "readOnly" | "plan" | "bypassApprovals" | "yolo";
 export type MuseBackendId = "exec" | "sdk";
@@ -90,6 +91,7 @@ export function availableModes(
 ): ModeDef[] {
   return Object.values(MODES).filter((mode) => {
     if (mode.id === "plan" && backend !== "sdk") return false;
+    if (backend === "sdk" && mode.dangerous) return false;
     if (!mode.dangerous) {
       return true;
     }
