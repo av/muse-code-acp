@@ -1,58 +1,118 @@
 # muse-code-acp
 
-An [ACP](https://agentclientprotocol.com)-compatible coding agent powered by
-[Muse Code](https://dev.meta.ai/docs/muse-code/), Meta's terminal coding agent.
-Use Muse Code from any ACP client: Zed, VS Code (via
-[`vscode-acp`](https://github.com/formulahendry/vscode-acp)), and others.
+Use [Muse Code](https://dev.meta.ai/docs/muse-code/) through an
+[Agent Client Protocol (ACP)](https://agentclientprotocol.com) client, such as
+Zed or VS Code with an ACP extension. Available features depend on the client.
 
 > **Unofficial adapter.** Muse Code and Muse Spark are products of Meta
-> Platforms, Inc. This project is a community adapter and is not affiliated
-> with, endorsed by, or supported by Meta.
+> Platforms, Inc. This community project is not affiliated with, endorsed by,
+> or supported by Meta.
+
+## Requirements and compatibility
+
+- **Node.js 22+** for the npm installation.
+- **Muse Code 1.1.1-R2514.1**, installed separately, with `muse serve`.
+  This is the verified host for adapter **0.4.x**; the latest Muse installer
+  may install a different version. Select the verified binary with
+  `MUSE_CODE_EXECUTABLE`.
+- Muse authentication through browser login or `META_API_KEY`.
+
+**Muse 1.2.1-R2847.1 is not supported by this release.** Release testing found
+six failures across 23 real-host tests: legacy exec session continuation failed
+because its saved `:auto-review` permission profile was unavailable in `serve`,
+and unauthorized, malformed or unreachable HTTP MCP endpoints no longer failed
+the prompt as required by the adapter's diagnostic contract. Pin the verified
+host; disabling approvals or sandboxing is not a workaround.
+
+The npm adapter and its pinned `@muse-code/sdk@0.1.1` dependency do not include
+the Muse executable. Native execution, model access, persistence and sandboxing
+remain owned by Muse.
 
 ## Quickstart
 
-1. Install [Muse Code](https://dev.meta.ai/docs/muse-code/) **1.1.1-R2514.1**
-   with `muse serve`, and set `MUSE_CODE_EXECUTABLE` to that binary.
-   This is the verified host for adapter 0.4.0; the latest Muse installer may
-   install a newer, incompatible host. See the compatibility note below.
-2. Authenticate: `muse login` (browser), or export `META_API_KEY`.
-3. Install the adapter: `npm install -g @bex-co/muse-code-acp`.
-4. Point your editor at it.
+Install Node.js and the verified Muse host above, then replace the example path:
+
+```sh
+export MUSE_CODE_EXECUTABLE="/absolute/path/to/muse-1.1.1"
+"$MUSE_CODE_EXECUTABLE" --version
+"$MUSE_CODE_EXECUTABLE" serve --help
+"$MUSE_CODE_EXECUTABLE" login
+npm install -g @bex-co/muse-code-acp
+muse-code-acp --version
+```
+
+For headless use, provide `META_API_KEY` to the adapter process instead of browser
+login. The adapter speaks ACP over stdio; launch it through your editor rather
+than expecting an interactive chat UI in the terminal.
 
 ### Zed
+
+Add a [custom external agent](https://zed.dev/docs/ai/external-agents#custom-agents)
+to Zed settings, replacing the Muse path:
 
 ```json
 {
   "agent_servers": {
     "Muse Code": {
-      "command": "muse-code-acp"
+      "type": "custom",
+      "command": "muse-code-acp",
+      "args": [],
+      "env": {
+        "MUSE_CODE_EXECUTABLE": "/absolute/path/to/muse-1.1.1"
+      }
     }
   }
 }
 ```
 
-(Check Zed's [external agents docs](https://zed.dev/docs/ai/external-agents)
-for the current settings shape.)
+Select Muse Code in the Agent Panel. If Zed cannot find `muse-code-acp`, use its
+absolute executable path as `command`. Node must also be available to the editor.
+Set the host path in the editor configuration even if you exported it in a shell;
+GUI applications may not inherit that shell's environment.
+
+Other ACP clients use the same command and environment. Browser login inside a
+client requires terminal-auth support; otherwise authenticate beforehand.
+
+## Capabilities
+
+The default SDK backend supports the following on the verified host:
+
+| Surface            | Behavior                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Prompt execution   | Streamed text, tool calls/results, cancellation and multi-turn continuity                                        |
+| Prompt context     | PNG/JPEG/GIF/WebP images, resource links and embedded text; audio and binary resources unsupported               |
+| Session navigation | Paginated list, full history load, resume without replay, close, and native fork                                 |
+| Permissions        | Interactive host-offered choices through ACP; cancellation and stale replies fail closed                         |
+| Modes              | Default, read-only and guarded plan mode; implementation requires an explicit mode change                        |
+| Model settings     | Public model discovery with current-model fallback; seven supported effort tiers                                 |
+| MCP                | Client-provided stdio and HTTP servers; local configuration/last-failure diagnostics, not live connection status |
+| File changes       | Bounded observed diffs; optional negotiated reports explicitly mark partial coverage                             |
+| Workflows          | Skills as slash commands, planning and Git reviews                                                               |
+| Goals              | Native goal observation and local `/goal`; no goal controls                                                      |
+| Mid-turn steering  | Available only when explicitly negotiated by the client                                                          |
+
+Delegated workers and token usage are explicitly reported as unavailable.
+Reasoning summaries, editor-side filesystem proxying, multiple authorized
+workspace roots and native session deletion are not implemented. Closing a
+session retains its native history. This adapter does not implement every ACP
+feature or every feature of Muse's terminal UI.
 
 ## How it works
 
-The **default backend** uses the official
-[`@muse-code/sdk`](https://github.com/meta-models/muse-code-sdk) (pinned to 0.1.1)
-and `muse serve` — one MSP host per prompt turn. The adapter starts or resumes
-the session, translates message/tool items into ACP updates, routes approvals
-through ACP permissions, and cancels with `turn/cancel`.
+The official [Muse SDK](https://github.com/meta-models/muse-code-sdk) communicates
+with `muse serve` over MSP. The adapter starts or resumes native sessions,
+translates message/tool items into ACP updates, routes permission requests to the
+client, and cancels using `turn/cancel`.
 
-| Muse / MSP                    | ACP                                                         |
-| ----------------------------- | ----------------------------------------------------------- |
-| agent message (+ deltas)      | `agent_message_chunk`                                       |
-| tool call items               | `tool_call` / `tool_call_update`                            |
-| `approval/requested`          | `session/request_permission` (SDK)                          |
-| turn terminal + cancel        | stop reason / error                                         |
-| session store + `muse export` | `session/list` + `session/load` history replay (CLI helper) |
-| `muse skills list`            | ACP slash commands (prompt passthrough)                     |
+Each SDK session can retain its host across compatible turns. Idle hosts expire
+after 60 seconds; session close also releases them. Close a session before moving
+its native conversation to another client.
 
-Session listing/history export, auth, and skills still use documented CLI helpers
-where the public SDK has no equivalent. See [`docs/sdk-migration.md`](docs/sdk-migration.md).
+Session listing uses public `session/list` with bounded pagination. Full history
+replay still uses validated `muse export`; read-only store helpers remain for
+compatibility lookups and title fallback. Auth and skills use CLI helpers.
+Session indexes are eventually consistent, so a new session may not appear
+immediately in a refreshed list.
 
 ### Legacy exec backend (rollback)
 
@@ -60,130 +120,72 @@ where the public SDK has no equivalent. See [`docs/sdk-migration.md`](docs/sdk-m
 MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 ```
 
-Unknown backend values fail at startup. SDK turn failures never silently fall
-back to `exec`. The echo provider is supported on `exec` only.
+The legacy backend runs `muse exec --json` per turn. It supports the echo provider,
+uses store-based session listing and accepts stdio MCP servers only. Approvals
+resolve inside Muse rather than through interactive ACP permissions. Default and
+read-only modes are available; bypass-approvals is exec-only, and advertising
+yolo requires `MUSE_CODE_ACP_ALLOW_YOLO=1`.
 
-The legacy exec backend requires Muse ≥ 0.2.1. The default SDK backend in this
-release is verified with **Muse 1.1.1-R2514.1** and SDK 0.1.1.
-
-**Muse 1.2.1-R2847.1 is not supported by this release.** Release testing found
-six failures across 23 real-host tests: legacy exec session continuation failed
-because its saved `:auto-review` permission profile was unavailable in `serve`,
-and unauthorized, malformed or unreachable HTTP MCP endpoints no longer failed
-the prompt as required by the adapter's diagnostic contract. Use the verified
-host via `MUSE_CODE_EXECUTABLE`; do not disable approvals or sandboxing as a
-workaround. All existing integration assertions remain enabled.
-
-## Capabilities
-
-| Surface                                             | Status                                                                       |
-| --------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Prompt turns with streamed text                     | ✅                                                                           |
-| Tool calls with results, diffs, locations           | ✅ (SDK observed diffs when bounded evidence is available; exec result text) |
-| Cancellation (`session/cancel`)                     | ✅                                                                           |
-| Multi-turn sessions, `session/list`, `session/load` | ✅                                                                           |
-| Session modes: default / read-only                  | ✅ (SDK default)                                                             |
-| Session modes: bypass-approvals / yolo              | ✅ (`exec` only; gated)                                                      |
-| Model + reasoning-effort config options             | ✅                                                                           |
-| Skills as slash commands                            | ✅                                                                           |
-| Auth: browser login, `META_API_KEY`, logout         | ✅                                                                           |
-| Interactive per-tool-call permission prompts        | ✅ (SDK backend)                                                             |
-| Thinking/reasoning stream                           | ❌ (public summaries not yet forwarded)                                      |
-| Client-provided stdio and SDK HTTP MCP servers      | ✅ (see `docs/mcp-passthrough.md`)                                           |
-| Persistent goal observation and local `/goal`       | ✅ SDK; [observation contract](docs/goal-extension.md), no controls          |
-| Planning and Git review workflows                   | ✅ SDK; [constraints and commands](docs/workflows.md)                        |
-| Additional workspace directories                    | ❌ (muse supports one workspace root)                                        |
-| Delegated workers                                   | ❌ (advertised in namespaced ACP metadata)                                   |
-| Token usage                                         | ❌ (not forwarded by the adapter)                                            |
-| Editor-side file edits (fs proxying)                | ❌ (muse edits in its own sandbox; diffs reported)                           |
-
-### Exec backend notes
-
-- Approvals resolve inside Muse (policy + judge) unless you use the SDK backend.
-- Modes map onto `muse exec` spawn-time safety flags (`readOnly`, `bypassApprovals`, `yolo`).
+SDK failures never silently switch to exec. The legacy backend was introduced
+for Muse 0.2.1; this release's integration baseline remains 1.1.1-R2514.1.
 
 ## Environment
 
-| Variable                   | Meaning                                               |
-| -------------------------- | ----------------------------------------------------- |
-| `MUSE_CODE_EXECUTABLE`     | Path to the `muse` binary                             |
-| `MUSE_CODE_ACP_BACKEND`    | `sdk` (default) or `exec`                             |
-| `META_API_KEY`             | Provider credential (takes priority over stored auth) |
-| `MUSE_CODE_ACP_ALLOW_YOLO` | Set to `1` to advertise yolo mode (`exec` only)       |
-| `MUSE_AGENT_LOGS`          | Directory for spawn/stderr logs                       |
+| Variable                   | Meaning                                                                |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `MUSE_CODE_EXECUTABLE`     | Path to the external Muse binary; takes precedence over PATH discovery |
+| `MUSE_CODE_ACP_BACKEND`    | `sdk` (default) or `exec`; unknown values fail at startup              |
+| `META_API_KEY`             | Provider credential; takes priority over stored auth                   |
+| `MUSE_CODE_ACP_ALLOW_YOLO` | Set to `1` to advertise yolo mode on exec only                         |
+| `MUSE_AGENT_LOGS`          | Directory for adapter spawn/stderr logs                                |
 
-## Tests
+`muse-code-acp --cli login` and `muse-code-acp --cli logout` delegate to the
+selected Muse executable. Logout does not unset an exported `META_API_KEY`.
+
+## Detailed documentation
+
+- [SDK support, model discovery, editor context and steering](https://github.com/bex-co/muse-code-acp/blob/main/docs/sdk-migration.md)
+- [Session discovery and metadata](https://github.com/bex-co/muse-code-acp/blob/main/docs/session-discovery.md)
+- [Native session branching](https://github.com/bex-co/muse-code-acp/blob/main/docs/session-fork.md)
+- [File-change evidence and negotiated reports](https://github.com/bex-co/muse-code-acp/blob/main/docs/file-change-report.md)
+- [MCP passthrough and diagnostics](https://github.com/bex-co/muse-code-acp/blob/main/docs/mcp-passthrough.md)
+- [Planning and Git reviews](https://github.com/bex-co/muse-code-acp/blob/main/docs/workflows.md)
+- [Goal observation](https://github.com/bex-co/muse-code-acp/blob/main/docs/goal-extension.md)
+- [Standalone Apple Silicon macOS builds](https://github.com/bex-co/muse-code-acp/blob/main/docs/standalone.md): source build and CI verification only; prebuilt binaries are not published. These builds include Node and still require external Muse.
+
+## Development and verification
+
+From a repository checkout:
 
 ```sh
-npm run test:unit              # deterministic contracts (no Muse host required)
-npm run test:muse-loopback     # real muse serve + loopback provider (required in CI)
-npm run test:pack-smoke        # clean tarball install → ACP prompt + streamed response
-npm run test:run               # full local vitest run after build
+npm ci
+npm run check                 # eslint + prettier
+npm run build                 # TypeScript compilation
+npm run test:unit             # deterministic contracts; no Muse host required
+npm run test:pack-smoke       # clean tarball install and ACP execution
 ```
 
-Optional paid-provider acceptance remains `RUN_INTEGRATION_TESTS=true npm run test:integration`.
-
-## Development
+For real-host tests, put the verified Muse binary on PATH as `muse` and also set
+`MUSE_CODE_EXECUTABLE` to it. Build first, then run:
 
 ```sh
-npm run build         # tsc
-npm run check         # eslint + prettier
+MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback
 ```
 
-The work board lives in `.pm/` (workstream w1).
+These tests use a local loopback provider and are required in CI. The required
+flag prevents a missing host from silently skipping acceptance. `npm run test:run`
+builds and runs the full local Vitest suite; paid-provider tests are opt-in via
+`npm run test:integration` and require credentials.
 
-Repository development skills live in `.agents/skills/`:
-
-- [`$release`](.agents/skills/release/SKILL.md) verifies, versions, and releases
-  this package directly from `main`, with npm publishing handled by CI.
-
-- [`$pm`](.agents/skills/pm/SKILL.md) inspects and maintains the board.
-- [`$loop-worker w1`](.agents/skills/loop-worker/SKILL.md) triages and works through
-  the queue, continuing to independent milestones when work is blocked.
-
-## Roadmap
-
-- Host pooling and further CLI-helper reductions after the SDK default cutover.
-- Map MSP worker and token-usage events into ACP.
+The work board lives in `.pm/`. Repository skills for
+[release](https://github.com/bex-co/muse-code-acp/blob/main/.agents/skills/release/SKILL.md),
+[PM](https://github.com/bex-co/muse-code-acp/blob/main/.agents/skills/pm/SKILL.md) and
+[workstream execution](https://github.com/bex-co/muse-code-acp/blob/main/.agents/skills/loop-worker/SKILL.md)
+live in `.agents/skills/`. npm publishing runs through GitHub Actions after CI
+validates the exact release commit.
 
 ## License
 
 Apache-2.0. Portions derived from
 [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp)
-(Zed Industries) — see `NOTICE`.
-
-Prompt images (PNG, JPEG, GIF, WebP) are supported: the SDK receives inline image
-parts; legacy exec uses private per-turn files removed during cleanup. Exec
-requires accompanying text, a resource link or embedded text. Embedded text
-resources carry unsaved editor context with URI/MIME attribution and a 64 KiB
-aggregate serialized UTF-8 limit per prompt; URIs are never fetched. Audio and
-binary resources remain unsupported. SDK input preserves block interleaving; exec
-keeps images as separate flags.
-
-SDK model choices come from public `model/list`, retaining the current configured
-or restored model. Discovery failures explicitly fall back to that model. All seven
-public effort tiers pass through unchanged; provider behavior may vary. See
-[SDK support and fallback details](docs/sdk-migration.md#runtime-discovery-and-editor-context).
-
-`session/close` cancels active work, waits for per-turn cleanup, and releases
-adapter session state. Native Muse history is retained for later loading.
-
-`session/resume` rebinds an existing or retained session without replaying its
-transcript. It refreshes MCP servers, preserves live settings, and restores saved
-SDK model/effort after close or restart. The original workspace is required.
-
-The SDK retains a session's host between compatible turns and expires it after
-60 seconds idle. Close the session before moving its native conversation to a
-second client. Clients may explicitly negotiate mid-turn steering; it targets
-an exact active turn and does not change ordinary busy-prompt behavior.
-See [host lifecycle and steering](docs/sdk-migration.md#session-owned-hosts-and-steering).
-
-Standalone Apple Silicon macOS builds include Node and keep Muse external. See
-[build, verification and distribution scope](docs/standalone.md). The published
-npm installation remains unchanged.
-
-The SDK backend supports native [session branching](docs/session-fork.md), including negotiated completed-turn boundaries and independent continuation after restart.
-
-See [file-change evidence and optional reports](docs/file-change-report.md) for observed preimages, partial coverage and the negotiated report contract.
-
-Session navigation uses [bounded public discovery](docs/session-discovery.md), with complete export-based history and observed metadata updates.
+(Zed Industries) — see [NOTICE](https://github.com/bex-co/muse-code-acp/blob/main/NOTICE).

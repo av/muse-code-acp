@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1](https://github.com/bex-co/muse-code-acp/compare/v0.4.0...v0.4.1) (2026-09-13)
+
+### Documentation
+
+- Correct the README's host lifecycle, public session discovery and unsupported-worker claims; describe current session, prompt, workflow and negotiated capabilities.
+- Add Node.js requirements, pinned-host login and Zed environment examples, explicit host compatibility limits, and accurate standalone distribution scope.
+- Group user documentation before development details and use absolute repository links that work from npm.
+
+Documentation-only patch; runtime behavior and dependencies are unchanged. Use Muse Code 1.1.1-R2514.1 with SDK 0.1.1; Muse 1.2.1-R2847.1 remains unsupported.
+
 ## [0.4.0](https://github.com/bex-co/muse-code-acp/compare/v0.3.0...v0.4.0) (2026-09-13)
 
 ### Features
