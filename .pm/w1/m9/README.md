@@ -4,17 +4,17 @@
 
 ## Tasks (in order)
 
-| id   | title                                                      | est | depends_on             |
-| ---- | ---------------------------------------------------------- | --- | ---------------------- |
-| t001 | Forward token usage and context pressure                   | 45m | w1/m8/t007             |
-| t002 | Expose explicit compaction and its lifecycle               | 45m | w1/m9/t001             |
-| t003 | Map todo snapshots to ACP plans                            | 30m | w1/m9/t002             |
-| t004 | Stream provider-exposed reasoning summaries                | 45m | w1/m9/t003             |
-| t005 | Forward live tool output and render unsupported item kinds | 45m | w1/m9/t004             |
-| t006 | Add status command and validate observability recovery     | 45m | w1/m9/t005             |
-| t007 | Simplify milestone changes                                 | 30m | w1/m9/t006             |
-| t008 | CI and behavior coverage                                   | 45m | w1/m9/t006, w1/m9/t007 |
-| t009 | Close out the milestone                                    | 15m | w1/m9/t008             |
+| id   | title                                                      | est | depends_on                         |
+| ---- | ---------------------------------------------------------- | --- | ---------------------------------- |
+| t001 | Forward token usage and context pressure                   | 45m | w1/m8/t007                         |
+| t002 | Expose explicit compaction and its lifecycle               | 45m | w1/m9/t001                         |
+| t003 | Map todo snapshots to ACP plans                            | 30m | w1/m9/t001                         |
+| t004 | Stream provider-exposed reasoning summaries                | 45m | w1/m9/t003                         |
+| t005 | Forward live tool output and render unsupported item kinds | 45m | w1/m9/t004                         |
+| t006 | Add status command and validate observability recovery     | 45m | w1/m9/t005                         |
+| t007 | Simplify milestone changes                                 | 30m | w1/m9/t006, w1/m9/t002             |
+| t008 | CI and behavior coverage                                   | 45m | w1/m9/t006, w1/m9/t007, w1/m9/t002 |
+| t009 | Close out the milestone                                    | 15m | w1/m9/t008                         |
 
 Estimated total: 5h 45m across 9 tasks. Priority: P1 usage/context; P2 plans and progress. Scheduled after w1/m8/t007; cross-milestone dependencies refer to logical task IDs even after archival.
 
@@ -58,3 +58,12 @@ Blocked investigation (2026-09-12), after shipping m8 at 5188179:
 - Positive observation: the successful raw SDK turn emitted `session/tokenUsage` with cumulative prompt1/output1/total2. Usage/context/plan delivery remains unimplemented and no task is marked done.
 - Resume requires a supported Muse build with working durable compaction (and updated compatibility evidence), or an explicit decision to revise m9 scope/dependencies. Do not switch to ephemeral sessions, synthesize local summaries or skip to m10 to declare completion.
 - Partial exploration is preserved locally under `.tmp/m9-blocked/`; it is unverified and excluded from production source and commits. The user subsequently authorized skipping m9; independent m10 shipped at `3b26891`. m9 remains open and none of its delivery is implied by m10.
+
+## Dependency review (2026-09-12)
+
+The user-authorized [follow-up research](../../../docs/ADR003-followup-research.md#4-remove-ordering-dependencies-that-do-not-express-required-behavior)
+replaced ordering-only prerequisites with delivered m10 host ownership where appropriate.
+The task table and frontmatter are authoritative. Required compaction remains a
+closing dependency in m9; child integration in m15/t002 still requires m11, and
+source/fork listing in m19/t002 still requires m12. Existing acceptance criteria,
+recorded host blockers and completion states are unchanged.

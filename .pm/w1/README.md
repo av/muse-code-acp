@@ -34,3 +34,6 @@
 ## Inbox
 
 - [001 — Reconcile ADR003 with the complete w1 parity handoff](001.md) — coverage map and 30m documentation follow-up.
+
+- [002 — Revisit public goal control support](002.md) — 30m reassessment on a published API/host change.
+- [003 — Revisit host-owned MCP status support](003.md) — 30m reassessment on a public status surface.

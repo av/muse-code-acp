@@ -6,14 +6,14 @@
 
 | id   | title                                              | est | depends_on               |
 | ---- | -------------------------------------------------- | --- | ------------------------ |
-| t001 | Verify rich-output references and retrieval        | 45m | w1/m9/t009               |
+| t001 | Verify rich-output references and retrieval        | 45m | w1/m10/t008              |
 | t002 | Translate supported structured tool content        | 45m | w1/m17/t001              |
 | t003 | Verify artifact lifecycle and client compatibility | 45m | w1/m17/t002              |
 | t004 | Simplify milestone changes                         | 30m | w1/m17/t003              |
 | t005 | CI and behavior coverage                           | 45m | w1/m17/t003, w1/m17/t004 |
 | t006 | Close out the milestone                            | 15m | w1/m17/t005              |
 
-Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m9/t009; logical dependency IDs remain valid after archival. Numbering records the queue, not an additional dependency on every earlier milestone.
+Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m10/t008; logical dependency IDs remain valid after archival. Numbering records the queue, not an additional dependency on every earlier milestone.
 
 ## Definition of done
 
@@ -40,6 +40,15 @@ Estimated total: 3h 45m across 6 tasks. Prerequisite: w1/m9/t009; logical depend
 ## Validation evidence
 
 Pending implementation. The originating comparison inspected source and installed SDK declarations; it did not establish host acceptance of the proposed additions.
+
+## Dependency review (2026-09-12)
+
+The user-authorized [follow-up research](../../../docs/ADR003-followup-research.md#4-remove-ordering-dependencies-that-do-not-express-required-behavior)
+replaced ordering-only prerequisites with delivered m10 host ownership where appropriate.
+The task table and frontmatter are authoritative. Required compaction remains a
+closing dependency in m9; child integration in m15/t002 still requires m11, and
+source/fork listing in m19/t002 still requires m12. Existing acceptance criteria,
+recorded host blockers and completion states are unchanged.
 
 ## Host verification blocker (2026-09-12)
 

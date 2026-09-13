@@ -6,15 +6,15 @@
 
 | id   | title                                                    | est | depends_on               |
 | ---- | -------------------------------------------------------- | --- | ------------------------ |
-| t001 | Verify background execution and control support          | 45m | w1/m11/t008              |
-| t002 | Track background tasks across prompt boundaries          | 45m | w1/m15/t001              |
+| t001 | Verify background execution and control support          | 45m | w1/m10/t008              |
+| t002 | Track background tasks across prompt boundaries          | 45m | w1/m15/t001, w1/m11/t008 |
 | t003 | Expose negotiated async tasks and supported stop actions | 45m | w1/m15/t002              |
 | t004 | Verify reload, host replacement and late events          | 45m | w1/m15/t003              |
 | t005 | Simplify milestone changes                               | 30m | w1/m15/t004              |
 | t006 | CI and behavior coverage                                 | 45m | w1/m15/t004, w1/m15/t005 |
 | t007 | Close out the milestone                                  | 15m | w1/m15/t006              |
 
-Estimated total: 4h 30m across 7 tasks. Prerequisite: w1/m11/t008; logical dependency IDs remain valid after archival. Numbering records the queue, not an additional dependency on every earlier milestone.
+Estimated total: 4h 30m across 7 tasks. Prerequisite: w1/m10/t008; logical dependency IDs remain valid after archival. Numbering records the queue, not an additional dependency on every earlier milestone.
 
 ## Definition of done
 
@@ -44,3 +44,12 @@ Estimated total: 4h 30m across 7 tasks. Prerequisite: w1/m11/t008; logical depen
 ## Validation evidence
 
 Pending implementation. The originating comparison inspected source and installed SDK declarations; it did not establish host acceptance of the proposed additions.
+
+## Dependency review (2026-09-12)
+
+The user-authorized [follow-up research](../../../docs/ADR003-followup-research.md#4-remove-ordering-dependencies-that-do-not-express-required-behavior)
+replaced ordering-only prerequisites with delivered m10 host ownership where appropriate.
+The task table and frontmatter are authoritative. Required compaction remains a
+closing dependency in m9; child integration in m15/t002 still requires m11, and
+source/fork listing in m19/t002 still requires m12. Existing acceptance criteria,
+recorded host blockers and completion states are unchanged.
