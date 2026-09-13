@@ -1,4 +1,13 @@
-import { closeSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import {
+  constants,
+  fstatSync,
+  closeSync,
+  openSync,
+  readdirSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Logger } from "./logger.js";
@@ -90,8 +99,9 @@ function sessionLogPaths(root: string): string[] {
 }
 
 function readHead(path: string): string {
-  const fd = openSync(path, "r");
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   try {
+    if (!fstatSync(fd).isFile()) throw new Error("Session log is not a regular file");
     const buffer = Buffer.alloc(HEAD_BYTES);
     const bytes = readSync(fd, buffer, 0, HEAD_BYTES, 0);
     return buffer.subarray(0, bytes).toString("utf8");
@@ -157,5 +167,16 @@ function tryRealpath(path: string): string {
     return realpathSync(path);
   } catch {
     return path;
+  }
+}
+
+/** Bounded compatibility title read from a public session path; no store enumeration. */
+export function storedSessionTitle(path: unknown, sessionId: string): string | undefined {
+  if (typeof path !== "string" || !path) return;
+  try {
+    const head = parseHead(readHead(path));
+    return head?.sessionId === sessionId ? (head.title ?? undefined) : undefined;
+  } catch {
+    return;
   }
 }

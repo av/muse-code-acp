@@ -34,6 +34,7 @@ import {
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
+  SessionInfo,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
   SetSessionModeRequest,
@@ -89,6 +90,7 @@ import { readMuseSettings } from "./muse-settings.js";
 import { compileMusePrompt, type CompiledMusePrompt } from "./prompt-files.js";
 import { convertPromptContent } from "./prompt-content.js";
 import { exportToUpdates, runMuseExport } from "./session-export.js";
+import { discoverSessions, sessionInfoNotification } from "./session-discovery.js";
 import { listStoredSessions } from "./session-store.js";
 import { listMuseSkills, skillsToCommands } from "./skills.js";
 import { sdkHostConfiguration } from "./host-configuration.js";
@@ -199,6 +201,7 @@ export class MuseAcpAgent {
   private readonly bindingSessions = new Map<string, Promise<void>>();
   private readonly backgroundTasks = new Set<Promise<void>>();
   private disposed = false;
+  private readonly discoveryAbort = new AbortController();
   private disposal: Promise<void> | null = null;
   readonly backend: "exec" | "sdk";
   private readonly modelDiscovery: MuseModelDiscovery;
@@ -490,19 +493,28 @@ export class MuseAcpAgent {
   }
 
   async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
-    const sessions = listStoredSessions(
-      params.cwd ?? null,
-      this.options.env ?? process.env,
-      this.logger,
+    this.assertRunning();
+    const operation = discoverSessions({
+      backend: this.backend,
+      cwd: params.cwd,
+      cursor: params.cursor,
+      signal: this.discoveryAbort.signal,
+      env: this.options.env ?? process.env,
+      museBinary: this.options.museBinary,
+      checkHost: !this.options.skipSdkHostCheck,
+      logger: this.logger,
+    });
+    const tracked = operation.then(
+      () => {},
+      () => {},
     );
-    return {
-      sessions: sessions.map((session) => ({
-        sessionId: session.sessionId,
-        cwd: session.cwd,
-        title: session.title,
-        updatedAt: session.updatedAt,
-      })),
-    };
+    this.backgroundTasks.add(tracked);
+    void tracked.finally(() => this.backgroundTasks.delete(tracked));
+    const page = await operation;
+    this.assertRunning();
+    if (this.clientCapabilities._meta?.[FORK_METADATA] !== 1)
+      for (const entry of page.sessions) delete entry._meta;
+    return page;
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -569,6 +581,7 @@ export class MuseAcpAgent {
     const config = defaultSessionConfig(readMuseSettings(env, this.logger));
     let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
     let savedMode: MuseModeId = "default";
+    let info: SessionInfo | undefined;
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -580,6 +593,7 @@ export class MuseAcpAgent {
         readGoal: true,
       });
       goal = saved.goal ?? goal;
+      info = saved.info;
       config.model = saved.modelId ?? config.model;
       const preferences = readSessionPreferences(params.sessionId, env);
       config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
@@ -604,6 +618,8 @@ export class MuseAcpAgent {
       const bound = this.sessions.get(params.sessionId)!;
       bound.modeId = savedMode;
       await this.publishGoal(params.sessionId, bound, goal);
+      if (info)
+        await this.client.sessionUpdate(sessionInfoNotification(info, this.clientCapabilities));
       for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
         this.assertRunning();
         await this.client.sessionUpdate(notification);
@@ -804,6 +820,7 @@ export class MuseAcpAgent {
     );
     let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
     let savedMode: MuseModeId = "default";
+    let info: SessionInfo | undefined;
     if (this.backend === "sdk") {
       const env = this.options.env ?? process.env;
       const saved = await readMuseSdkSession({
@@ -816,6 +833,7 @@ export class MuseAcpAgent {
         readGoal: true,
       });
       goal = saved.goal ?? goal;
+      info = saved.info;
       config.model = saved.modelId ?? config.model;
       const preferences = readSessionPreferences(params.sessionId, env);
       config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
@@ -840,6 +858,8 @@ export class MuseAcpAgent {
       const bound = this.sessions.get(params.sessionId)!;
       bound.modeId = savedMode;
       await this.publishGoal(params.sessionId, bound, goal);
+      if (info)
+        await this.client.sessionUpdate(sessionInfoNotification(info, this.clientCapabilities));
     } catch (error) {
       this.sessions.delete(params.sessionId);
       throw error;
@@ -1305,6 +1325,7 @@ export class MuseAcpAgent {
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
     this.disposed = true;
+    this.discoveryAbort.abort();
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
     for (const session of sessions) {

@@ -78,13 +78,13 @@ Evidence: [prompt conversion](../src/prompt-content.ts),
 | Feature                          | Codex ACP reference                                | Muse Code ACP                       | Parity limit / work                                                                                                                                   |
 | -------------------------------- | -------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | New session                      | Supported                                          | Supported                           | Muse validates and canonicalizes workspace ownership.                                                                                                 |
-| List sessions                    | Supported                                          | Partial                             | Muse scans retained store and returns matching sessions without ACP pagination; m19.                                                                  |
-| Load session with history replay | Supported                                          | Supported with different internals  | Muse uses retained store/export helpers; public-history migration and completeness checks belong to m19.                                              |
+| List sessions                    | Supported                                          | Partial                             | SDK uses public 50-session pages and scoped cursors; explicit exec retains store scanning. See [discovery](session-discovery.md).                     |
+| Load session with history replay | Supported                                          | Supported with different internals  | Complete export replay remains explicit; public anchored/snapshot history is not silently treated as a full transcript.                               |
 | Resume without replay            | Supported                                          | Supported                           | Muse refreshes MCP configuration and restores model/effort; live settings are preserved where applicable.                                             |
 | Close and release resources      | Supported                                          | Supported                           | Cancels work and releases host/state; does not delete native history.                                                                                 |
 | Delete session                   | Supported                                          | Missing                             | Close is not delete. No dedicated deletion task; public host support must be established.                                                             |
 | Fork session                     | Supported                                          | Supported (SDK)                     | m12 verifies native full/explicit history boundaries, model/effort preservation and independent restart continuity. See [semantics](session-fork.md). |
-| Live titles / rename / metadata  | Title updates, generated fallback and `/rename`    | Partial                             | First-prompt title fallback and active-turn metadata exist; authoritative metadata/pagination in m19. Rename control needs separate verification.     |
+| Live titles / rename / metadata  | Title updates, generated fallback and `/rename`    | Partial                             | List/load/cold-resume/turn updates use observed metadata and bounded first-prompt fallback. Native titles/rename remain unavailable.                  |
 | Cancellation                     | Supported                                          | Supported                           | Permission/elicitation cleanup and late-reply protection exist.                                                                                       |
 | Mid-turn steering                | Codex steering contract; handles active/idle cases | Supported with a different contract | m10 delivered Muse-specific negotiation and exact active-turn targeting. No idle fallback. Not wire-compatible with Codex steering.                   |
 | Reusable execution host          | Persistent app-server integration                  | Supported                           | m10 delivered session-owned reuse; no sharing between unrelated sessions.                                                                             |
@@ -196,21 +196,21 @@ Sources: [skills](../src/skills.ts), [package scripts](../package.json),
 The [w1 board](../.pm/w1/README.md) owns task status and dependencies. These labels
 are a dated summary; update links if open milestones are archived.
 
-| Milestone | Scope                                                                      | Snapshot status                                                |
-| --------- | -------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| m7        | Shutdown, workspace ownership, content metadata and lifecycle combinations | Done                                                           |
-| m8        | Embedded text, model discovery and verified support claims                 | Done                                                           |
-| m9        | Usage/context, compaction, plans, summaries, live output and status        | Open; durable compaction blocked                               |
-| m10       | Reusable hosts and negotiated exact-target steering                        | Done                                                           |
-| m11       | Worker visibility, child sessions, histories, approvals and controls       | Open; worker host support blocked                              |
-| m12       | Session branching                                                          | Implemented; native fork and restart acceptance                |
-| m13       | Accurate diffs and per-turn change reports                                 | Delivered: bounded observations and negotiated partial reports |
-| m14       | Failure categories, retry progress and truthful authentication state       | Planned                                                        |
-| m15       | Background command lifecycle and verified targeted controls                | Planned                                                        |
-| m16       | Remote MCP and diagnostics                                                 | Done                                                           |
-| m17       | Rich tool results and artifacts                                            | Planned                                                        |
-| m18       | Goal state and independently verified controls                             | Observation delivered; controls conditionally unavailable      |
-| m19       | Public/paginated session discovery, history and live metadata              | Planned                                                        |
+| Milestone | Scope                                                                      | Snapshot status                                                      |
+| --------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| m7        | Shutdown, workspace ownership, content metadata and lifecycle combinations | Done                                                                 |
+| m8        | Embedded text, model discovery and verified support claims                 | Done                                                                 |
+| m9        | Usage/context, compaction, plans, summaries, live output and status        | Open; durable compaction blocked                                     |
+| m10       | Reusable hosts and negotiated exact-target steering                        | Done                                                                 |
+| m11       | Worker visibility, child sessions, histories, approvals and controls       | Open; worker host support blocked                                    |
+| m12       | Session branching                                                          | Implemented; native fork and restart acceptance                      |
+| m13       | Accurate diffs and per-turn change reports                                 | Delivered: bounded observations and negotiated partial reports       |
+| m14       | Failure categories, retry progress and truthful authentication state       | Planned                                                              |
+| m15       | Background command lifecycle and verified targeted controls                | Planned                                                              |
+| m16       | Remote MCP and diagnostics                                                 | Done                                                                 |
+| m17       | Rich tool results and artifacts                                            | Planned                                                              |
+| m18       | Goal state and independently verified controls                             | Observation delivered; controls conditionally unavailable            |
+| m19       | Public/paginated session discovery, history and live metadata              | Delivered: public pages, observed metadata, complete export fallback |
 
 Rows explicitly marked without a dedicated task are documented gaps, not new
 commitments. This ADR does not silently expand milestones to include all Codex

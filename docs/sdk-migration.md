@@ -33,7 +33,7 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 | Prompt: embedded text resource        | yes (`embeddedContext`)                        | attributed text; binary resources rejected                                        |
 | Prompt: audio                         | **no**                                         | rejected with invalid params                                                      |
 | MCP stdio                             | stdio and HTTP (SDK); SSE not advertised       | `docs/mcp-passthrough.md`                                                         |
-| `session/load`, `session/list`        | yes                                            | session store + export helpers                                                    |
+| `session/load`, `session/list`        | yes                                            | public paginated list; complete export-based load                                 |
 | Auth logout                           | yes                                            | `src/auth.ts`                                                                     |
 | Terminal auth method                  | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                                     |
 | Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite                                   |
@@ -312,3 +312,7 @@ Exec has no verified preimages and no longer labels post-write readback as creat
 The negotiated AIR v1 `agentFileChangeReport` contract reports recognized native
 file-tool declarations with `declaredComplete: false`; it does not infer complete
 shell/generated/child attribution or launch an audit model turn. See [bounds and wire examples](file-change-report.md).
+
+## Session discovery (m19)
+
+SDK listing uses public, lease-free pages with workspace-bound cursors. Metadata updates preserve deterministic first-prompt title fallback and negotiated fork provenance; full export replay remains intact. Native indexing is eventually consistent. See [discovery and history limits](session-discovery.md).

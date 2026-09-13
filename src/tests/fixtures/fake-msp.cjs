@@ -90,7 +90,16 @@ rl.on("line", async (line) => {
         write({ id, error: { code: -32601, message: "model discovery unavailable" } });
       }
       break;
+    case "session/list": {
+      if (mode === "list-delay") { await sleep(60_000); break; }
+      const all = process.env.FAKE_MSP_SESSIONS ? JSON.parse(readFileSync(process.env.FAKE_MSP_SESSIONS,"utf8")) : [];
+      const filtered = params.workspaceRoot ? all.filter(s => s.workspaceRoot === params.workspaceRoot) : all;
+      const offset = Number(params.cursor ?? 0);
+      reply({sessions: filtered.slice(offset,offset+params.limit), nextCursor: offset+params.limit < filtered.length ? String(offset+params.limit) : null});
+      break;
+    }
     case "session/read":
+      if (mode === "metadata-timeout" && turnId) break;
       reply({session: {sessionId: params.sessionId, workspaceRoot: process.cwd(), modelId: "muse-spark-1.2", activeTurnId: null}, pendingRequests: []});
       break;
     case "session/resume":

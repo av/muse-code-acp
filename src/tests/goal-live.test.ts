@@ -88,7 +88,7 @@ describe.skipIf(!available)("real Muse goal observation", () => {
         client.updates.some(
           (n) =>
             n.update.sessionUpdate === "session_info_update" &&
-            JSON.stringify(n.update._meta).includes('"percentComplete":75'),
+            JSON.stringify(n.update._meta ?? {}).includes('"percentComplete":75'),
         ),
       ).toBe(true);
       await expect.poll(() => owner.hasActiveTurn, { timeout: 10_000 }).toBe(false);

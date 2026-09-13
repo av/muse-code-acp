@@ -178,3 +178,5 @@ npm installation remains unchanged.
 The SDK backend supports native [session branching](docs/session-fork.md), including negotiated completed-turn boundaries and independent continuation after restart.
 
 See [file-change evidence and optional reports](docs/file-change-report.md) for observed preimages, partial coverage and the negotiated report contract.
+
+Session navigation uses [bounded public discovery](docs/session-discovery.md), with complete export-based history and observed metadata updates.

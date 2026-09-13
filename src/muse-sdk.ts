@@ -15,6 +15,8 @@ import {
 import packageJson from "../package.json" with { type: "json" };
 import { realpathSync } from "node:fs";
 import type { AcpClient } from "./acp-agent.js";
+import { sessionInfo, sessionInfoNotification } from "./session-discovery.js";
+import type { SessionInfo } from "@agentclientprotocol/sdk";
 import { FileChangeEvidence } from "./file-change-evidence.js";
 import { Logger } from "./logger.js";
 import { isReasoningEffort, type MuseReasoningEffort } from "./config-options.js";
@@ -37,7 +39,11 @@ import {
 } from "./muse-user-input.js";
 import { MuseSdkHost } from "./muse-sdk-host.js";
 export { MuseSdkHost } from "./muse-sdk-host.js";
-import { readGoalFromConnection, type GoalObservation } from "./goal-state.js";
+import {
+  readGoalFromConnection,
+  parseGoalObservation,
+  type GoalObservation,
+} from "./goal-state.js";
 import { Pushable } from "./utils.js";
 
 export interface MuseSdkOptions {
@@ -80,7 +86,7 @@ export async function readMuseSdkSession(
     MuseSdkOptions,
     "sessionId" | "cwd" | "env" | "museBinary" | "logger" | "checkHost"
   > & { readGoal?: boolean; allowActive?: boolean },
-): Promise<{ modelId: string | null; goal?: GoalObservation }> {
+): Promise<{ modelId: string | null; goal?: GoalObservation; info?: SessionInfo }> {
   if (options.checkHost !== false) assertSdkHostSupport(options.env, options.museBinary);
   const handshake = spawnMspConnection({
     command: options.museBinary ?? museCliPath(options.env),
@@ -131,6 +137,7 @@ export async function readMuseSdkSession(
     }
     return {
       modelId: session.modelId,
+      info: optionalSessionInfo(result.session),
       ...(options.readGoal
         ? { goal: await readGoalFromConnection(host.connection, options.sessionId, result) }
         : {}),
@@ -165,6 +172,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       "Muse SDK host is closed or already serving a turn",
     );
   let successful = false;
+  let metadataTimedOut = false;
   let acquired = false;
   let acceptedTurn = false;
   let pendingSteers = 0;
@@ -532,6 +540,36 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       publishApprovalResults();
       const response = terminalResponse(outcome);
       successful = response.stopReason === "end_turn";
+      const goal = parseGoalObservation(session.fold.sessionState.get("session/goalChanged")?.goal);
+      if (
+        successful &&
+        !owner.hasActiveTurn &&
+        !(goal.status === "known" && goal.goal?.status === "active")
+      ) {
+        let metadataTimer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const saved = await Promise.race([
+            connection.request("session/read", {
+              sessionId: options.sessionId,
+              excludeItems: true,
+            }),
+            new Promise<undefined>((resolve) => {
+              metadataTimer = setTimeout(() => {
+                metadataTimedOut = true;
+                resolve(undefined);
+              }, 1000);
+            }),
+          ]);
+          const info = optionalSessionInfo(saved?.session);
+          if (info?.sessionId === options.sessionId && !cancelled && !options.isCancelled?.()) {
+            updates.push(sessionInfoNotification(info, options.clientCapabilities));
+          }
+        } catch {
+          /* Metadata enrichment must not change a completed turn. */
+        } finally {
+          clearTimeout(metadataTimer);
+        }
+      }
       return response;
     } catch (error) {
       if (cancelled || options.isCancelled?.()) {
@@ -559,7 +597,13 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       permissions.disposeAll();
       userInputs.disposeAll();
       if (acquired)
-        await owner.release(!!options.hostOwner && successful && !cancelled && pendingSteers === 0);
+        await owner.release(
+          !!options.hostOwner &&
+            successful &&
+            !cancelled &&
+            !metadataTimedOut &&
+            pendingSteers === 0,
+        );
       else await owner.close();
       if (options.steering)
         updates.push({
@@ -681,4 +725,12 @@ function terminalResponse(outcome: TurnOutcome): PromptResponse {
     throw RequestError.authRequired(undefined, `${detail}. Run muse login or set META_API_KEY.`);
   }
   throw RequestError.internalError(undefined, `Muse SDK turn ${params.terminal}: ${detail}`);
+}
+
+function optionalSessionInfo(value: unknown): SessionInfo | undefined {
+  try {
+    return sessionInfo(value);
+  } catch {
+    return;
+  }
 }
