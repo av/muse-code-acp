@@ -7,12 +7,12 @@ never silently fall back to exec.
 
 ## Pins
 
-| Component                  | Version              | Notes                                             |
-| -------------------------- | -------------------- | ------------------------------------------------- |
-| `@muse-code/sdk`           | **0.1.1** (exact)    | Public MuseClient / Session / Connection APIs     |
-| `@agentclientprotocol/sdk` | **1.3.0** (exact)    | ACP protocol major `PROTOCOL_VERSION` (= 1)       |
-| Muse host (`muse serve`)   | **≥ 1.1.1** required | Default backend; `muse serve --help` must succeed |
-| Muse host (`muse exec`)    | **≥ 0.2.1**          | Legacy `MUSE_CODE_ACP_BACKEND=exec` only          |
+| Component                  | Version                    | Notes                                             |
+| -------------------------- | -------------------------- | ------------------------------------------------- |
+| `@muse-code/sdk`           | **0.1.1** (exact)          | Public MuseClient / Session / Connection APIs     |
+| `@agentclientprotocol/sdk` | **1.3.0** (exact)          | ACP protocol major `PROTOCOL_VERSION` (= 1)       |
+| Muse host (`muse serve`)   | **1.1.1-R2514.1** verified | Default backend; `muse serve --help` must succeed |
+| Muse host (`muse exec`)    | **≥ 0.2.1**                | Legacy `MUSE_CODE_ACP_BACKEND=exec` only          |
 
 Verified locally with Muse Code **1.1.1**. Older hosts without `serve`, or hosts
 that exit with the experimental SDK tier disabled, fail **before** a model turn
@@ -39,7 +39,7 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 | Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite                                   |
 | Form elicitation (SDK user input)     | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                                          |
 | fs / terminal RPC                     | **no**                                         | omitted client caps never invoked                                                 |
-| Session fork                          | **yes** (SDK host 1.1.1+)                      | native history with verified restart continuity; see [branching](session-fork.md) |
+| Session fork                          | **yes** (SDK host 1.1.1-R2514.1)               | native history with verified restart continuity; see [branching](session-fork.md) |
 | Session delete                        | **no**                                         | unadvertised                                                                      |
 
 ## Public SDK API map
@@ -316,3 +316,8 @@ shell/generated/child attribution or launch an audit model turn. See [bounds and
 ## Session discovery (m19)
 
 SDK listing uses public, lease-free pages with workspace-bound cursors. Metadata updates preserve deterministic first-prompt title fallback and negotiated fork provenance; full export replay remains intact. Native indexing is eventually consistent. See [discovery and history limits](session-discovery.md).
+
+Adapter 0.4.0 does not support Muse 1.2.1-R2847.1. Set
+`MUSE_CODE_EXECUTABLE` to the verified 1.1.1-R2514.1 host; see the
+[release compatibility note](../README.md#legacy-exec-backend-rollback) for
+legacy-session permission and HTTP MCP failures found during release testing.

@@ -1,6 +1,6 @@
 # Session discovery and metadata
 
-The SDK backend uses public Muse `session/list` on Muse 1.1.1+ with SDK 0.1.1.
+The SDK backend uses public Muse `session/list` on verified Muse 1.1.1-R2514.1 with SDK 0.1.1.
 Each ACP response contains at most 50 sessions. Send its `nextCursor` with the
 same `cwd` to continue; omit it to refresh. The opaque adapter cursor binds the
 native cursor to the canonical workspace and backend. Malformed cursors and

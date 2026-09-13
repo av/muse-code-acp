@@ -11,11 +11,10 @@ Use Muse Code from any ACP client: Zed, VS Code (via
 
 ## Quickstart
 
-1. Install [Muse Code](https://dev.meta.ai/docs/muse-code/) (`muse`, ≥ **1.1.1**
-   with `muse serve`) and make sure it is on `PATH` (or set `MUSE_CODE_EXECUTABLE`).
-   ```sh
-   curl -fsSL https://dev.meta.ai/install.sh | sh
-   ```
+1. Install [Muse Code](https://dev.meta.ai/docs/muse-code/) **1.1.1-R2514.1**
+   with `muse serve`, and set `MUSE_CODE_EXECUTABLE` to that binary.
+   This is the verified host for adapter 0.4.0; the latest Muse installer may
+   install a newer, incompatible host. See the compatibility note below.
 2. Authenticate: `muse login` (browser), or export `META_API_KEY`.
 3. Install the adapter: `npm install -g @bex-co/muse-code-acp`.
 4. Point your editor at it.
@@ -64,8 +63,16 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 Unknown backend values fail at startup. SDK turn failures never silently fall
 back to `exec`. The echo provider is supported on `exec` only.
 
-Requires Muse ≥ 0.2.1 for `exec`; the default SDK path requires ≥ 1.1.1 with
-`muse serve`.
+The legacy exec backend requires Muse ≥ 0.2.1. The default SDK backend in this
+release is verified with **Muse 1.1.1-R2514.1** and SDK 0.1.1.
+
+**Muse 1.2.1-R2847.1 is not supported by this release.** Release testing found
+six failures across 23 real-host tests: legacy exec session continuation failed
+because its saved `:auto-review` permission profile was unavailable in `serve`,
+and unauthorized, malformed or unreachable HTTP MCP endpoints no longer failed
+the prompt as required by the adapter's diagnostic contract. Use the verified
+host via `MUSE_CODE_EXECUTABLE`; do not disable approvals or sandboxing as a
+workaround. All existing integration assertions remain enabled.
 
 ## Capabilities
 

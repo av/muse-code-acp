@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.4.0](https://github.com/bex-co/muse-code-acp/compare/v0.3.0...v0.4.0) (2026-09-13)
+
+### Features
+
+- Fork native Muse sessions with isolated branch history, preserved model selection and verified restart continuity. Negotiated clients can select a completed-turn boundary.
+- Show bounded, observed before/after file diffs and negotiated per-turn file-change reports. Reports explicitly mark partial coverage and concurrent-edit uncertainty; unknown preimages are no longer presented as file creation.
+- Discover sessions through public, lease-free pagination, with scoped cursors, title/recency updates and optional fork provenance. Complete chronological load still uses validated export replay.
+- Add guarded plan mode and Git review workflows. Planning disables workspace writes and shell execution; implementation requires an explicit mode change.
+- Observe native goal state and progress, including autonomous work after the foreground prompt ends. Goal controls remain unadvertised where no verified public API exists.
+- Add a reproducible standalone macOS ARM64 build and real-host smoke profile. The npm package remains the Node.js distribution; the standalone adapter still requires an external Muse host.
+
+### Fixes
+
+- Preserve fail-closed behavior when Muse encounters approval-settlement failures, with a safe numeric MSP error code for diagnosis.
+- Bound file evidence and session discovery resources, close discovery hosts during disposal, and retire timed-out metadata hosts without replaying completed prompts.
+- Publish through explicit GitHub Actions dispatch with OIDC authentication, after validating the exact release commit.
+
+### Upgrading from npm 0.1.x
+
+The previous GitHub 0.2.0/0.3.0 releases did not reach the public npm registry. This release also delivers their SDK-default execution backend, interactive ACP approvals, session close/resume, host reuse, negotiated mid-turn steering, embedded editor context, runtime model discovery, and HTTP MCP support with truthful local diagnostics.
+
+Requires Node.js 22+ and the verified Muse Code **1.1.1-R2514.1** host with `muse serve`, selected with `MUSE_CODE_EXECUTABLE`, and pinned `@muse-code/sdk@0.1.1`. Configure credentials through Muse login or `META_API_KEY`. Explicit legacy execution remains available with `MUSE_CODE_ACP_BACKEND=exec`, with its documented capability differences.
+
+### Known limits
+
+Muse **1.2.1-R2847.1 is not supported**: six of 23 real-host checks failed because legacy exec sessions retained an unavailable `:auto-review` permission profile, and failed HTTP MCP connections no longer failed the prompt. Use the verified 1.1.1 host; do not disable permissions or sandboxing to work around these differences.
+
+This is an unofficial adapter, not a claim of complete ACP/reference parity. Durable compaction, delegated child execution, scheduled retry observations, rich-output retrieval, multiple authorized roots, URL elicitation, account/service-tier APIs, native session deletion and broader approval-policy enforcement remain blocked or unverified on the tested host. File-change reports are partial; session indexes are eventually consistent. Default sandboxing and real host-provided permission gates remain enabled.
+
+
 ## [0.3.0](https://github.com/bex-co/muse-code-acp/compare/v0.2.0...v0.3.0) (2026-09-12)
 
 
