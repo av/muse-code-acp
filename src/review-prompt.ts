@@ -3,30 +3,13 @@ import { promisify } from "node:util";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
-import { RequestError, type PromptRequest } from "@agentclientprotocol/sdk";
+import { RequestError } from "@agentclientprotocol/sdk";
 
 const exec = promisify(execFile);
 export const MAX_REVIEW_BYTES = 256 * 1024;
 export type WorkflowCommand =
   | { kind: "plan"; text: string }
   | { kind: "review"; target: "workingTree" | "branch" | "commit"; ref?: string };
-
-export function workflowCommand(prompt: PromptRequest["prompt"]): WorkflowCommand | undefined {
-  const text = prompt[0]?.type === "text" ? prompt[0].text.trim() : "";
-  const match = /^\/(plan|review|review-branch|review-commit)(?:\s+([\s\S]*))?$/.exec(text);
-  if (!match) return;
-  if (prompt.length !== 1)
-    throw RequestError.invalidParams(undefined, "Workflow commands require one text block");
-  const args = match[2]?.trim() ?? "";
-  if (match[1] === "plan") return { kind: "plan", text: args };
-  if (match[1] === "review") {
-    if (args) throw RequestError.invalidParams(undefined, "Use /review without arguments");
-    return { kind: "review", target: "workingTree" };
-  }
-  if (!args || /\s|\0/.test(args) || args.startsWith("-"))
-    throw RequestError.invalidParams(undefined, "Provide one branch or commit reference");
-  return { kind: "review", target: match[1] === "review-branch" ? "branch" : "commit", ref: args };
-}
 
 /** Freeze exact Git inputs before asking Muse to review; refs are argv data. */
 export async function buildReviewPrompt(
@@ -121,7 +104,7 @@ export async function buildReviewPrompt(
   } catch {
     throw RequestError.invalidParams(
       undefined,
-      "Cannot prepare review: verify the Git target and keep the text snapshot below 256 KiB; untracked binary files and symlinks are unsupported",
+      `Cannot prepare review${command.ref === "@{upstream}" ? ": no usable upstream; send /review-branch <ref>" : ""}: verify the Git target and keep the text snapshot below 256 KiB; untracked binary files and symlinks are unsupported`,
     );
   }
 }

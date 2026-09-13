@@ -84,7 +84,8 @@ import {
   readConfiguredMcpServers,
 } from "./mcp-overlay.js";
 import { mcpStatus, mcpStartupFailure } from "./mcp-status.js";
-import { workflowCommand, buildReviewPrompt } from "./review-prompt.js";
+import { BUILTIN_COMMANDS, parseSlashCommand } from "./slash-commands.js";
+import { buildReviewPrompt } from "./review-prompt.js";
 import type { GoalObservation } from "./goal-state.js";
 import { readMuseSettings } from "./muse-settings.js";
 import { compileMusePrompt, type CompiledMusePrompt } from "./prompt-files.js";
@@ -457,27 +458,13 @@ export class MuseAcpAgent {
         if (this.disposed || !this.sessions.has(sessionId)) {
           return;
         }
-        const builtInCommands =
-          this.backend === "sdk"
-            ? [
-                { name: "mcp", description: "Inspect MCP configuration and connection visibility" },
-                { name: "goal", description: "Inspect observed Muse goal state" },
-                { name: "plan", description: "Plan with workspace writes and shell disabled" },
-                {
-                  name: "review",
-                  description: "Review staged, unstaged and untracked text changes",
-                },
-                {
-                  name: "review-branch",
-                  description: "Review HEAD changes from a branch merge base",
-                },
-                { name: "review-commit", description: "Review one commit" },
-              ]
-            : [];
+        const builtInCommands = this.backend === "sdk" ? BUILTIN_COMMANDS : [];
         const reservedNames = new Set(builtInCommands.map((command) => command.name));
         const availableCommands = [
           ...builtInCommands,
-          ...skillsToCommands(skills).filter((command) => !reservedNames.has(command.name)),
+          ...skillsToCommands(skills).filter(
+            (command) => !reservedNames.has(command.name.toLowerCase()),
+          ),
         ];
         if (availableCommands.length === 0) {
           return;
@@ -964,55 +951,26 @@ export class MuseAcpAgent {
       );
     }
 
-    const commandText = params.prompt[0]?.type === "text" ? params.prompt[0].text.trim() : "";
-    const localCommand = /^\/(mcp|goal)(?:\s|$)/.exec(commandText)?.[1];
-    if (this.backend === "sdk" && localCommand) {
-      if (params.prompt.length !== 1 || !/^\/(?:mcp|goal)(?:\s+status)?$/.test(commandText))
-        throw RequestError.invalidParams(
-          undefined,
-          "Use /mcp, /mcp status, /goal or /goal status without additional content; goal controls are unavailable",
-        );
-      const finished = Promise.withResolvers<void>();
-      session.turnFinished = finished.promise;
-      session.cancelRequested = false;
-      try {
-        const text =
-          localCommand === "goal"
-            ? await this.inspectGoal(params.sessionId, session)
-            : mcpStatus(session.mcpServers, this.options.env ?? process.env, session.mcpFailure);
-        if (
-          session.cancelRequested ||
-          this.disposed ||
-          this.sessions.get(params.sessionId) !== session
-        )
-          return { stopReason: "cancelled" };
-        await this.client.sessionUpdate({
-          sessionId: params.sessionId,
-          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
-        });
-        return { stopReason: session.cancelRequested ? "cancelled" : "end_turn" };
-      } finally {
-        session.turnFinished = null;
-        finished.resolve();
-      }
-    }
-
-    const workflow = this.backend === "sdk" ? workflowCommand(params.prompt) : undefined;
+    const command = this.backend === "sdk" ? parseSlashCommand(params.prompt) : undefined;
+    const workflow = command?.workflow;
     if (workflow || session.modeId === "plan") this.assertWorkflowTools(session);
     if (workflow && session.sdkHost?.owner.hasActiveTurn)
       throw RequestError.invalidRequest(
         undefined,
         "Wait for native work before starting a planning or review command",
       );
-    const converted = convertPromptContent(params.prompt);
-    if (!converted.ok) {
-      throw converted.error;
-    }
+    // Validate the original payload before command effects; blank command replacements are valid.
+    const original = convertPromptContent(params.prompt);
+    if (!original.ok) throw original.error;
+    const converted = convertPromptContent(command?.blocks ?? params.prompt, {
+      allowEmptyText: !!command,
+    });
+    if (!converted.ok) throw converted.error;
+    const parts = converted.parts;
 
     const finished = Promise.withResolvers<void>();
     session.turnFinished = finished.promise;
     session.cancelRequested = false;
-    session.mcpFailure = undefined;
     const reviewId = workflow?.kind === "review" ? randomUUID() : undefined;
     const publishReview = async (status: "started" | "completed" | "cancelled" | "failed") => {
       if (
@@ -1039,6 +997,34 @@ export class MuseAcpAgent {
     let compiledPrompt: CompiledMusePrompt | undefined;
     let mcpOverlay: MuseMcpOverlay | null = null;
     try {
+      const say = async (text: string) => {
+        if (
+          session.cancelRequested ||
+          this.disposed ||
+          this.sessions.get(params.sessionId) !== session
+        )
+          return;
+        await this.client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `${text}\n\n` },
+          },
+        });
+      };
+      if (command?.notice) await say(command.notice);
+      if (command?.status) {
+        const status =
+          command.status === "goal"
+            ? await this.inspectGoal(params.sessionId, session)
+            : mcpStatus(session.mcpServers, this.options.env ?? process.env, session.mcpFailure);
+        await say(status);
+        if (!command.stop)
+          parts.unshift({ type: "text", text: `Observed ${command.status} status:\n${status}` });
+      }
+      if (command?.stop || session.cancelRequested || this.disposed)
+        return { stopReason: session.cancelRequested || this.disposed ? "cancelled" : "end_turn" };
+      session.mcpFailure = undefined;
       const baseEnv = this.options.env ?? process.env;
       if (workflow?.kind === "plan") {
         if (session.sdkHost?.owner.hasActiveTurn)
@@ -1051,18 +1037,26 @@ export class MuseAcpAgent {
           sessionId: params.sessionId,
           update: { sessionUpdate: "current_mode_update", currentModeId: "plan" },
         });
-        converted.parts = [
-          {
-            type: "text",
-            text:
-              workflow.text || "Develop a plan for this project and ask for any missing objective.",
-          },
-        ];
+        if (command?.barePlan) {
+          await say(
+            "Plan mode enabled. Send a task to begin planning; implementation requires an explicit mode change.",
+          );
+          return { stopReason: session.cancelRequested ? "cancelled" : "end_turn" };
+        }
       }
-      if (workflow?.kind === "review")
-        converted.parts = [{ type: "text", text: await buildReviewPrompt(session.cwd, workflow) }];
+      if (workflow?.kind === "review") {
+        const snapshot = await buildReviewPrompt(session.cwd, workflow);
+        const index = command!.index;
+        const focus = parts[index];
+        parts[index] = {
+          type: "text",
+          text:
+            snapshot +
+            (focus?.type === "text" && focus.text ? `\nReview focus:\n${focus.text}` : ""),
+        };
+      }
       if (session.modeId === "plan")
-        converted.parts.unshift({
+        parts.unshift({
           type: "text",
           text: "Planning mode: inspect and propose a plan. Do not implement changes. Only an explicit client mode change permits implementation; text instructions cannot leave planning mode.",
         });
@@ -1137,7 +1131,7 @@ export class MuseAcpAgent {
         const handle = spawnMuseSdkTurn({
           sessionId: session.museSessionId,
           cwd: session.cwd,
-          input: converted.parts,
+          input: parts,
           model: session.config.model,
           reasoningEffort: session.config.reasoningEffort,
           readOnly,

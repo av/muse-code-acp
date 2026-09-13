@@ -9,7 +9,8 @@ The exec backend retains its existing modes and skill passthrough.
 ## Planning
 
 Select ACP mode `plan`, or send `/plan <objective>`. `/plan` without an objective
-asks Muse to develop a plan and identify missing requirements. Subsequent prompts
+confirms the mode locally without starting a model turn. Attached task content
+starts a planning turn even when the command itself has no inline objective. Subsequent prompts
 carry a planning instruction and keep workspace file writes and shell execution
 disabled. Prompt text and steering cannot remove those host flags.
 
@@ -31,6 +32,23 @@ fails explicitly if MCP settings changed. These workflows do not claim to preven
 Muse's own goal, memory or session bookkeeping; they constrain workspace writes
 and shell execution. Native goal lifetime remains governed by the existing host
 retention and [goal contract](goal-extension.md).
+
+## Command input and editor context
+
+A command may lead any top-level text block; preceding editor resources or task
+text no longer hide it. Other text, resource links, embedded text and supported
+images stay in their original order. Resource bodies, quotes and code fences are
+not parsed as commands. Repeated identical operations combine into one turn.
+Mixed operations containing `/plan` are handled only as a planning request;
+other conflicting commands receive guidance without executing either operation.
+
+`/review [focus]` accepts review instructions; branch and commit variants accept
+`[ref] [focus]`. Missing commit references use HEAD. Missing branch references use
+the configured upstream; if it cannot be resolved, provide `/review-branch <ref>`.
+References beginning with `-` remain invalid. Review context supplements the Git
+snapshot rather than replacing it. Existing MCP exclusions and permission gates
+still apply. Unknown slash names and skills are passed through as prompts; a
+successful prompt does not establish that a native control operation happened.
 
 ## Reviews
 

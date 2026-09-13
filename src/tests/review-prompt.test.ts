@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { buildReviewPrompt, workflowCommand, MAX_REVIEW_BYTES } from "../review-prompt.js";
+import { buildReviewPrompt, MAX_REVIEW_BYTES } from "../review-prompt.js";
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs/promises")>()),
 }));
@@ -49,13 +49,6 @@ it("branch and commit reviews use resolved commits and reject invalid option-lik
   await expect(
     buildReviewPrompt(cwd, { kind: "review", target: "commit", ref: "missing" }),
   ).rejects.toMatchObject({ code: -32602 });
-  for (const text of [
-    "/review extra",
-    "/review-branch --output=x",
-    "/review-commit",
-    "/review-commit HEAD extra",
-  ])
-    expect(() => workflowCommand([{ type: "text", text }])).toThrow();
 });
 it("rejects unsafe untracked types and oversized snapshots explicitly", async () => {
   const { cwd } = repo();

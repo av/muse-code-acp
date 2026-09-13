@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Recognize SDK slash commands across top-level prompt text blocks and preserve attached text, resources and images through planning and review.
+- Execute `/goal <task>` once with an explicit persistence limitation; keep status queries and unavailable goal controls local.
+- Add review focus instructions and default Git targets; bare `/plan` enables planning without starting a model turn. Mixed requests containing planning remain planning-only.
+- Add conversational command guidance, argument hints and regression coverage for context, mode enforcement, cancellation and real-host denied writes.
+
 ## [0.4.1](https://github.com/bex-co/muse-code-acp/compare/v0.4.0...v0.4.1) (2026-09-13)
 
 ### Documentation

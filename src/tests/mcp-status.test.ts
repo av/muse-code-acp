@@ -70,9 +70,13 @@ it("handles /mcp locally, reserves its name and rejects malformed inputs before 
     await expect(
       ctx.request(methods.agent.session.prompt, {
         sessionId,
-        prompt: [{ type: "text", text: "/mcp restart" }],
+        prompt: [
+          { type: "text", text: "/mcp status" },
+          { type: "resource", resource: { uri: "file:///context", text: "context" } },
+        ],
       }),
-    ).rejects.toMatchObject({ code: -32602 });
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(client.agent.sessions.get(sessionId)?.sdkHost).toBeUndefined();
     await expect(
       ctx.request(methods.agent.session.new, {
         cwd: root,

@@ -75,7 +75,21 @@ describe.skipIf(!available)("real Muse planning and review", () => {
       let ctx = await initialized(client, { _meta: { "muse/review": 1, "muse/approval": 1 } });
       const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
       const prompt = (text: string) =>
-        ctx.request(methods.agent.session.prompt, { sessionId, prompt: [{ type: "text", text }] });
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [
+            {
+              type: "resource",
+              resource: {
+                uri: "file:///editor-context",
+                mimeType: "text/plain",
+                text: "workflow-attachment-marker",
+              },
+            },
+            { type: "text", text },
+            { type: "text", text: "workflow-extra-instructions" },
+          ],
+        });
       const planningPrompt = async (text: string) => {
         try {
           expect(await prompt(text)).toEqual({ stopReason: "end_turn" });
@@ -120,6 +134,8 @@ describe.skipIf(!available)("real Muse planning and review", () => {
       expect(scripted.has("review-write")).toBe(true);
       expect(existsSync(join(cwd, "review-forbidden.txt"))).toBe(false);
       const requests = JSON.stringify(provider.requests());
+      expect(requests).toContain("workflow-attachment-marker");
+      expect(requests).toContain("workflow-extra-instructions");
       expect(requests).toContain("review-unstaged");
       expect(requests).toContain("review-committed");
       const reviews = client.updates.flatMap((n) =>

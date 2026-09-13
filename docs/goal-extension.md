@@ -51,8 +51,13 @@ goal establishes absence. Read-only recovery does not take a session writer leas
 
 `/goal` and `/goal status` display the last observed state without a model turn.
 They work for SDK clients with or without metadata negotiation. Unknown state
-triggers a bounded history read. Other arguments, including set, pause, resume
-and clear, fail explicitly. The public MSP exposes no verified goal-control API;
+triggers a bounded history read. `/goal <task>` explains that persistence is
+unavailable and executes the task once in the current mode, with its attached
+context. It does not create a goal, background loop or automatic retry. Explicit
+pause, resume, clear and edit requests receive local guidance without executing a
+model turn. `/goal status` with separate task text returns status then executes
+that task; attachments alone do not trigger a turn. The public MSP exposes no
+verified goal-control API;
 controls remain an upstream dependency and none are advertised. The legacy exec
 backend has no goal extension or local goal command.
 

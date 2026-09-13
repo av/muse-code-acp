@@ -70,7 +70,10 @@ export type PromptConversion =
  * Convert ACP prompt content into Muse turn input and a legacy exec string.
  * Baseline ACP requires text + resource_link; images use inline MSP parts; embedded text uses attributed JSON; audio and binary resources are rejected.
  */
-export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptConversion {
+export function convertPromptContent(
+  blocks: PromptRequest["prompt"],
+  { allowEmptyText = false }: { allowEmptyText?: boolean } = {},
+): PromptConversion {
   if (blocks.length === 0) {
     return {
       ok: false,
@@ -148,7 +151,7 @@ export function convertPromptContent(blocks: PromptRequest["prompt"]): PromptCon
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n\n")
     .trim();
-  if (text.length === 0 && !parts.some((part) => part.type === "image")) {
+  if (!allowEmptyText && text.length === 0 && !parts.some((part) => part.type === "image")) {
     return {
       ok: false,
       error: RequestError.invalidParams(

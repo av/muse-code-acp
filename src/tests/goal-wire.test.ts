@@ -31,7 +31,8 @@ it.each([true, false])(
       else await new Promise((resolve) => setTimeout(resolve, 120));
       await prompt("/goal");
       expect(JSON.stringify(wire.updates)).toContain("wire-goal");
-      await expect(prompt("/goal clear")).rejects.toMatchObject({ code: -32602 });
+      await expect(prompt("/goal clear")).resolves.toEqual({ stopReason: "end_turn" });
+      expect(JSON.stringify(wire.updates)).toContain("No goal was changed");
       await new Promise((resolve) => setTimeout(resolve, 650));
       await prompt("/goal status");
       expect(JSON.stringify(wire.updates.at(-1))).toContain("No recorded goal");

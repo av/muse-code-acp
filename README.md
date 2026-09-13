@@ -88,7 +88,7 @@ The default SDK backend supports the following on the verified host:
 | MCP                | Client-provided stdio and HTTP servers; local configuration/last-failure diagnostics, not live connection status |
 | File changes       | Bounded observed diffs; optional negotiated reports explicitly mark partial coverage                             |
 | Workflows          | Skills as slash commands, planning and Git reviews                                                               |
-| Goals              | Native goal observation and local `/goal`; no goal controls                                                      |
+| Goals              | Goal status; `/goal <task>` executes once with an explicit persistence limitation                                |
 | Mid-turn steering  | Available only when explicitly negotiated by the client                                                          |
 
 Delegated workers and token usage are explicitly reported as unavailable.
@@ -96,6 +96,15 @@ Reasoning summaries, editor-side filesystem proxying, multiple authorized
 workspace roots and native session deletion are not implemented. Closing a
 session retains its native history. This adapter does not implement every ACP
 feature or every feature of Muse's terminal UI.
+
+Slash commands can appear in any top-level text block alongside editor context.
+Planning and review preserve attachments. `/plan` alone enables plan mode without
+starting work; add a task to start planning. `/review` accepts focus instructions.
+`/goal <task>` runs the task once and explicitly reports that no persistent goal
+was created. Goal pause/resume/clear/edit controls remain unavailable. Local status
+queries do not send attachments to a model; an additional explicit task is handled
+after the status response. `/mcp <question>` combines local diagnostics with a
+normal task in the current mode, without claiming native MCP control.
 
 ## How it works
 
