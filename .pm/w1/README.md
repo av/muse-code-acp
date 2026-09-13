@@ -29,6 +29,8 @@
 - [ ] **m23** — Session commands and remaining editor presentation contracts (8 tasks) ← from ADR003 parity handoff (2026-09-12)
 - [x] **m24** — Portable packaging and reference distribution assessment (6 tasks) ← from ADR003 parity handoff (2026-09-12)
 
+- [ ] **m25** — Verified SDK approval policies and sandbox configuration (8 tasks) ← from ADR003 follow-up research (2026-09-12)
+
 ## Inbox
 
 - [001 — Reconcile ADR003 with the complete w1 parity handoff](001.md) — coverage map and 30m documentation follow-up.
