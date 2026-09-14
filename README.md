@@ -226,6 +226,9 @@ selected Muse executable. Logout does not unset an exported `META_API_KEY`.
 - [Goal observation](https://github.com/bex-co/muse-code-acp/blob/main/docs/goal-extension.md)
 - [Standalone Apple Silicon macOS builds](https://github.com/bex-co/muse-code-acp/blob/main/docs/standalone.md): source build and CI verification only; prebuilt binaries are not published. These builds include Node and still require external Muse.
 
+See [failure and authentication observations](docs/failures.md) for structured SDK
+errors, credential configuration and session-scoped recovery state.
+
 ## Development and verification
 
 From a repository checkout:

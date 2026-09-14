@@ -323,3 +323,24 @@ it("serializes safety host replacement against prompts and other safety changes"
     await client.agent.dispose();
   }
 });
+
+it("preserves future failure kinds over ACP and never replays the turn", async () => {
+  const client = sdkClient("futureFailure");
+  try {
+    const { ctx, sessionId } = await newTestSession(client);
+    const error = await ctx
+      .request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "test" }],
+      })
+      .catch((e) => e);
+    expect(error).toMatchObject({
+      code: -32603,
+      data: { failure: { kind: "futureFailure", retryable: true, source: "host" } },
+    });
+    expect(JSON.stringify(error)).not.toContain("fixture-secret");
+    expect(client.requests().filter((r) => r.method === "turn/start")).toHaveLength(1);
+  } finally {
+    await client.agent.dispose();
+  }
+});

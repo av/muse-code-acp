@@ -16,7 +16,7 @@
 
 - [x] [**m7** — Usage, plans and truthful output visibility](done/m7/README.md) (9 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 
-- [ ] [**m8** — Actionable failures and observed authentication](m8/README.md) (8 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
+- [x] [**m8** — Actionable failures and observed authentication](done/m8/README.md) (8 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 
 - [ ] [**m9** — Observed worker and background task lifecycle](m9/README.md) (9 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 

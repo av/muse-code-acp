@@ -31,14 +31,14 @@ User-authorized scheduling cleanup: w1 contains completed history and future pub
 | w1/m11/t006           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t006) |
 | w1/m11/t007           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t007) |
 | w1/m11/t008           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t008) |
-| w1/m14/t001           | [w2/m8/t001](w2/m8/t001.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t001) |
-| w1/m14/t002           | [w2/m8/t002](w2/m8/t002.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t002) |
+| w1/m14/t001           | [w2/m8/t001](w2/done/m8/done/t001.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t001) |
+| w1/m14/t002           | [w2/m8/t002](w2/done/m8/done/t002.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t002) |
 | w1/m14/t003           | [w1/006](w1/006.md)                                                                            | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t003) |
-| w1/m14/t004           | [w2/m8/t003](w2/m8/t003.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t004) |
-| w1/m14/t005           | [w2/m8/t004](w2/m8/t004.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t005) |
-| w1/m14/t006           | [w2/m8 closing tasks](w2/m8/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t006) |
-| w1/m14/t007           | [w2/m8 closing tasks](w2/m8/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t007) |
-| w1/m14/t008           | [w2/m8 closing tasks](w2/m8/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t008) |
+| w1/m14/t004           | [w2/m8/t003](w2/done/m8/done/t003.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t004) |
+| w1/m14/t005           | [w2/m8/t004](w2/done/m8/done/t004.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t005) |
+| w1/m14/t006           | [w2/m8 closing tasks](w2/done/m8/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t006) |
+| w1/m14/t007           | [w2/m8 closing tasks](w2/done/m8/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t007) |
+| w1/m14/t008           | [w2/m8 closing tasks](w2/done/m8/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t008) |
 | w1/m15/t001           | [w2/m9/t001](w2/m9/t001.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t001) |
 | w1/m15/t002           | [w2/m9/t003](w2/m9/t003.md); [w1/005](w1/005.md)                                               | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t002) |
 | w1/m15/t003           | [w2/m9/t004](w2/m9/t004.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t003) |

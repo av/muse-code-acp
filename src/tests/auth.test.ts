@@ -3,7 +3,7 @@ import { methods } from "@agentclientprotocol/sdk";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAuthenticated, museAuthMethods } from "../auth.js";
+import { credentialsConfigured, museAuthMethods } from "../auth.js";
 import { connectTestClient, fakeMuseBinary } from "./helpers.js";
 
 function isolatedEnv(withStoredAuth: boolean): Record<string, string | undefined> {
@@ -16,17 +16,17 @@ function isolatedEnv(withStoredAuth: boolean): Record<string, string | undefined
   return { PATH: process.env.PATH, XDG_CONFIG_HOME: configHome, HOME: configHome };
 }
 
-describe("isAuthenticated", () => {
+describe("credentialsConfigured", () => {
   it("is true with META_API_KEY regardless of stored state", () => {
-    expect(isAuthenticated({ ...isolatedEnv(false), META_API_KEY: "k" })).toBe(true);
+    expect(credentialsConfigured({ ...isolatedEnv(false), META_API_KEY: "k" })).toBe(true);
   });
 
   it("is true with a non-trivial auth.json", () => {
-    expect(isAuthenticated(isolatedEnv(true))).toBe(true);
+    expect(credentialsConfigured(isolatedEnv(true))).toBe(true);
   });
 
   it("is false with neither", () => {
-    expect(isAuthenticated(isolatedEnv(false))).toBe(false);
+    expect(credentialsConfigured(isolatedEnv(false))).toBe(false);
   });
 });
 
@@ -52,7 +52,7 @@ describe("auth over ACP", () => {
     expect(response.authMethods?.map((m) => m.id)).toEqual(["meta-api-key"]);
   });
 
-  it("authenticate verifies credentials and rejects when absent", async () => {
+  it("authenticate confirms configuration only and rejects when absent", async () => {
     const unauthenticated = connectTestClient({ env: isolatedEnv(false) });
     const ctx1 = await unauthenticated.connect();
     await ctx1.request(methods.agent.initialize, { protocolVersion: 1 });
@@ -107,4 +107,43 @@ describe("museAuthMethods", () => {
       "terminal-auth": { label: "Muse Login" },
     });
   });
+});
+
+it("reports stored credentials as unverified and retains environment configuration after logout", async () => {
+  for (const withKey of [false, true]) {
+    const client = connectTestClient({
+      backend: "exec",
+      museBinary: fakeMuseBinary(),
+      env: {
+        ...isolatedEnv(true),
+        FAKE_MUSE_MODE: "exit0",
+        ...(withKey ? { META_API_KEY: "expired-private-key" } : {}),
+      },
+    });
+    try {
+      const ctx = await client.connect();
+      const init = await ctx.request(methods.agent.initialize, {
+        protocolVersion: 1,
+        clientCapabilities: { _meta: { "muse/authStatus": 1 } },
+      });
+      expect(init._meta?.["muse/authStatus"]).toMatchObject({
+        configured: true,
+        verification: "unknown",
+        identity: "unknown",
+        source: withKey ? "environment" : "stored",
+      });
+      const auth = await ctx.request(methods.agent.authenticate, { methodId: "muse-login" });
+      expect(auth._meta?.["muse/authStatus"]).toMatchObject({ verification: "unknown" });
+      const logout = await ctx.request(methods.agent.logout, {});
+      if (withKey)
+        expect(logout._meta?.["muse/authStatus"]).toMatchObject({
+          configured: true,
+          source: "environment",
+          verification: "unknown",
+        });
+      expect(JSON.stringify([init, auth, logout])).not.toContain("expired-private-key");
+    } finally {
+      await client.agent.dispose();
+    }
+  }
 });

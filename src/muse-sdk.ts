@@ -1,3 +1,4 @@
+import { sdkTerminalResponse, sdkThrownError, failureError } from "./turn-failure.js";
 import { readProgress, type ProgressFacts } from "./session-progress.js";
 import {
   ClientCapabilities,
@@ -5,14 +6,7 @@ import {
   RequestError,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
-import {
-  Connection,
-  MspError,
-  spawnMspConnection,
-  isLaunchFailure,
-  type TurnOutcome,
-  type FoldedItem,
-} from "@muse-code/sdk";
+import { Connection, MspError, spawnMspConnection, type FoldedItem } from "@muse-code/sdk";
 import packageJson from "../package.json" with { type: "json" };
 import { realpathSync } from "node:fs";
 import type { AcpClient } from "./acp-agent.js";
@@ -694,7 +688,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       flushFold();
       publishApprovalResults();
       await owner.observeSessionState();
-      const response = terminalResponse(outcome);
+      const response = sdkTerminalResponse(outcome, options.env);
       successful = response.stopReason === "end_turn";
       const goal = parseGoalObservation(session.fold.sessionState.get("session/goalChanged")?.goal);
       if (
@@ -731,16 +725,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       if (cancelled || options.isCancelled?.()) {
         return { stopReason: "cancelled" };
       }
-      if (error instanceof RequestError) {
-        throw error;
-      }
-      const stderr = owner.stderr;
-      const mapped = sdkHostExitMessage(stderr);
-      throw RequestError.internalError(
-        undefined,
-        `Muse SDK turn failed: ${mapped ?? (error instanceof Error ? error.message : String(error))}` +
-          (stderr && !mapped ? `\n${stderr}` : ""),
-      );
+      const diagnostic = sdkHostExitMessage(owner.stderr);
+      throw diagnostic
+        ? failureError("environmentError", diagnostic, false, options.env)
+        : sdkThrownError(error, options.env);
     } finally {
       finished = true;
       stopInteractions();
@@ -851,36 +839,6 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       }
     },
   };
-}
-
-function terminalResponse(outcome: TurnOutcome): PromptResponse {
-  if (outcome.kind === "terminalUnknown") {
-    throw RequestError.internalError(
-      undefined,
-      "Muse SDK host died before the turn completed; reload the session",
-    );
-  }
-  if (outcome.kind === "unqueued") {
-    throw RequestError.internalError(undefined, "Muse SDK turn was unqueued before launch");
-  }
-  if (isLaunchFailure(outcome)) {
-    throw RequestError.internalError(undefined, "Muse SDK failed to launch the turn");
-  }
-  const params = outcome.params;
-  if (params.terminal === "completed") {
-    return { stopReason: "end_turn" };
-  }
-  if (params.terminal === "cancelled") {
-    return { stopReason: "cancelled" };
-  }
-  if (params.error?.kind === "stepLimit") {
-    return { stopReason: "max_turn_requests" };
-  }
-  const detail = params.error?.message ?? params.reason ?? params.terminal;
-  if (params.error?.kind === "authRequired") {
-    throw RequestError.authRequired(undefined, `${detail}. Run muse login or set META_API_KEY.`);
-  }
-  throw RequestError.internalError(undefined, `Muse SDK turn ${params.terminal}: ${detail}`);
 }
 
 function optionalSessionInfo(value: unknown): SessionInfo | undefined {

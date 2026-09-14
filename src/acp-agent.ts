@@ -1,3 +1,4 @@
+import { observedFailure, type FailureObservation } from "./turn-failure.js";
 import { SessionProgress, USAGE_EXTENSION, type ProgressFacts } from "./session-progress.js";
 import { requireAvailable, requireSingleWorkspace, unavailable } from "./availability.js";
 import {
@@ -56,7 +57,9 @@ import { isAbsolute } from "node:path";
 import { realpathSync, statSync } from "node:fs";
 import packageJson from "../package.json" with { type: "json" };
 import {
-  isAuthenticated,
+  credentialsConfigured,
+  credentialStatus,
+  AUTH_EXTENSION,
   META_API_KEY_METHOD_ID,
   MUSE_LOGIN_METHOD_ID,
   museAuthMethods,
@@ -160,6 +163,8 @@ class ClientConnection implements AcpClient {
 }
 
 export interface SessionState {
+  authObservation?: "unknown" | "acceptedForTurn" | "rejected";
+  latestFailure?: FailureObservation | null;
   /** Working directory every Muse turn for this session runs in. */
   cwd: string;
   /** The Muse session id; minted by us and identical to the ACP session id. */
@@ -294,13 +299,47 @@ export class MuseAcpAgent {
     try {
       writeSessionPreferences(sessionId, { providerBinding: providerBinding(provider) }, env);
       await state?.sdkHost?.owner.close();
-      if (state) state.sdkHost = undefined;
+      if (state) {
+        state.sdkHost = undefined;
+        state.authObservation = "unknown";
+        state.latestFailure = null;
+      }
       existing?.overlay.cleanup();
       this.providers.set(sessionId, { provider, overlay });
     } catch (error) {
       overlay.cleanup();
       throw error;
     }
+  }
+
+  private authStatus(sessionId?: string) {
+    const session = sessionId ? this.sessions.get(sessionId) : undefined;
+    return {
+      ...credentialStatus(
+        this.options.env ?? process.env,
+        !!sessionId && this.providers.has(sessionId),
+      ),
+      verification: session?.authObservation ?? "unknown",
+      ...(sessionId
+        ? { scope: "session", latestFailure: session?.latestFailure ?? null }
+        : { scope: "configuration" }),
+    };
+  }
+
+  private async publishAuth(sessionId: string, session: SessionState): Promise<void> {
+    if (
+      this.clientCapabilities._meta?.[AUTH_EXTENSION] === 1 &&
+      !this.disposed &&
+      this.sessions.get(sessionId) === session &&
+      !session.cancelRequested
+    )
+      await this.client.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "session_info_update",
+          _meta: { [AUTH_EXTENSION]: this.authStatus(sessionId) },
+        },
+      });
   }
 
   private progressFor(sessionId: string, session: SessionState): SessionProgress {
@@ -406,6 +445,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.clientCapabilities._meta?.[AUTH_EXTENSION] === 1
+          ? { [AUTH_EXTENSION]: { version: 1, ...this.authStatus() } }
+          : {}),
         ...(this.backend === "sdk" && this.clientCapabilities._meta?.[PROVIDER_EXTENSION] === 1
           ? {
               [PROVIDER_EXTENSION]: {
@@ -454,15 +496,15 @@ export class MuseAcpAgent {
   }
 
   /**
-   * For both methods `authenticate` VERIFIES the credential state: browser
+   * For both methods `authenticate` checks credential configuration only: browser
    * login runs client-side (terminal method / `--cli login`), and env keys
-   * are provided by the client's environment — the adapter only confirms.
+   * are provided by the client's environment — the adapter cannot verify an account without public host evidence.
    */
   async authenticate(params: AuthenticateRequest): Promise<AuthenticateResponse> {
     if (params.methodId !== MUSE_LOGIN_METHOD_ID && params.methodId !== META_API_KEY_METHOD_ID) {
       throw RequestError.invalidParams(undefined, `unknown auth method: ${params.methodId}`);
     }
-    if (!isAuthenticated(this.options.env ?? process.env)) {
+    if (!credentialsConfigured(this.options.env ?? process.env)) {
       throw RequestError.authRequired(
         undefined,
         params.methodId === META_API_KEY_METHOD_ID
@@ -470,14 +512,23 @@ export class MuseAcpAgent {
           : "no stored muse credentials found — run `muse-code-acp --cli login` in a terminal",
       );
     }
-    return {};
+    return this.clientCapabilities._meta?.[AUTH_EXTENSION] === 1
+      ? { _meta: { [AUTH_EXTENSION]: this.authStatus() } }
+      : {};
   }
 
   async logout(_params: LogoutRequest): Promise<LogoutResponse> {
     for (const sessionId of [...this.providers.keys()])
       if (this.sessions.has(sessionId)) await this.closeSession({ sessionId });
     await runMuseLogout(this.options.env ?? process.env, this.options.museBinary, this.logger);
-    return {};
+    for (const [sessionId, session] of this.sessions) {
+      session.authObservation = "unknown";
+      session.latestFailure = null;
+      await this.publishAuth(sessionId, session);
+    }
+    return this.clientCapabilities._meta?.[AUTH_EXTENSION] === 1
+      ? { _meta: { [AUTH_EXTENSION]: this.authStatus() } }
+      : {};
   }
 
   private validateMcp(servers: McpServer[]): void {
@@ -1321,7 +1372,7 @@ export class MuseAcpAgent {
       if (command?.status) {
         const status =
           command.status === "status"
-            ? `Requested model: ${session.config.model}; provider: ${session.config.providerId ?? "configured default"}; effort: ${session.config.reasoningEffort}; mode: ${session.modeId}.\n${this.progressFor(params.sessionId, session).status()}`
+            ? `Requested model: ${session.config.model}; provider: ${session.config.providerId ?? "configured default"}; effort: ${session.config.reasoningEffort}; mode: ${session.modeId}.\n${this.progressFor(params.sessionId, session).status()}\nCredentials: ${this.authStatus(params.sessionId).configured ? "configured" : "not configured"}; verification: ${this.authStatus(params.sessionId).verification}; identity: unknown.\nLatest failure: ${session.latestFailure?.kind ?? "none observed"}.`
             : command.status === "goal"
               ? await this.inspectGoal(params.sessionId, session)
               : mcpStatus(session.mcpServers, this.options.env ?? process.env, session.mcpFailure);
@@ -1463,6 +1514,7 @@ export class MuseAcpAgent {
           await publishReview("cancelled");
           return { stopReason: "cancelled" };
         }
+        await this.publishAuth(params.sessionId, session);
         const handle = spawnMuseSdkTurn({
           sessionId: session.museSessionId,
           cwd: session.cwd,
@@ -1499,6 +1551,11 @@ export class MuseAcpAgent {
             await this.client.sessionUpdate(notification);
           }
           const response = await handle.done;
+          if (response.stopReason === "end_turn" && !session.cancelRequested) {
+            session.latestFailure = null;
+            session.authObservation = "acceptedForTurn";
+            await this.publishAuth(params.sessionId, session);
+          }
           if (response.stopReason === "end_turn" && !session.cancelRequested)
             writeSessionPreferences(
               params.sessionId,
@@ -1512,6 +1569,12 @@ export class MuseAcpAgent {
           );
           return session.cancelRequested ? { stopReason: "cancelled" } : response;
         } catch (error) {
+          if (!session.cancelRequested) {
+            session.latestFailure = observedFailure(error) ?? null;
+            if (session.latestFailure?.kind === "authRequired")
+              session.authObservation = "rejected";
+            await this.publishAuth(params.sessionId, session);
+          }
           session.mcpFailure = mcpStartupFailure(error);
           await session.sdkHost?.owner.close();
           await publishReview(session.cancelRequested ? "cancelled" : "failed");

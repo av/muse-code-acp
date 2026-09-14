@@ -486,6 +486,8 @@ rl.on("line", async (line) => {
         notify("view/gap", { after: "v:bad-after", next: "v:bad-next" });
       } else if (mode === "gap") {
         notify("view/gap", { after: "v:1", next: "v:99" });
+      } else if (mode === "futureFailure") {
+        terminal("failed", { error: { kind: "futureFailure", message: "Future failure Bearer fixture-secret", retryable: true } });
       } else if (mode === "autherr") {
         terminal("failed", { error: { kind: "authRequired", message: "not logged in", retryable: false } });
       } else if (mode === "stepLimit") {

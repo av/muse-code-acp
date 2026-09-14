@@ -439,7 +439,7 @@ it("reports rejected approval MSP codes without exposing arbitrary host details"
         prompt: [{ type: "text", text: "approval rejected by host" }],
       }),
     ).rejects.toMatchObject({
-      message: "Internal error: Muse SDK turn failed: Muse approval decision rejected (MSP -32051)",
+      message: expect.stringContaining("Muse approval decision rejected (MSP -32051)"),
     });
     expect(client.requests().filter((r) => r.method === "approval/decide")).toHaveLength(1);
     expect(client.updates.some((n) => JSON.stringify(n).includes("sensitive host detail"))).toBe(

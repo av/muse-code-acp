@@ -572,3 +572,10 @@ root usage/context without a model request. Optional `muse/usage` metadata carri
 host cumulative replacements; standard ACP context updates require a known window
 size. No private reasoning, derived quota, fabricated denominator or output bytes
 are exposed. See [progress and recovery contract](progress.md).
+
+## Failure and authentication observations
+
+SDK errors preserve host categories and retryability with explicit recovery hints.
+The adapter never replays an ambiguous turn. Negotiated `muse/authStatus`
+distinguishes configuration from native rejection and successful-turn evidence;
+identity remains unknown. See [the contract](failures.md).

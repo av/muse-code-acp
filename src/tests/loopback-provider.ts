@@ -188,10 +188,16 @@ export async function startLoopbackProvider(
       const parsed = JSON.parse(body);
       requests.push(parsed);
       if (options.statusCode) {
-        response.writeHead(options.statusCode, { "content-type": "application/json" });
+        response.writeHead(options.statusCode, {
+          "content-type": "application/json",
+          "retry-after": "0",
+        });
         response.end(
           JSON.stringify({
-            error: { type: "authentication_error", message: "isolated gateway rejection" },
+            error: {
+              type: options.statusCode === 401 ? "authentication_error" : "server_error",
+              message: "isolated gateway rejection",
+            },
           }),
         );
         return;

@@ -17,7 +17,9 @@ export function museAuthJsonPath(env: Record<string, string | undefined> = proce
  * Existence/size check only — secret material is never read into adapter
  * memory. Precedence mirrors muse: env var > stored credentials.
  */
-export function isAuthenticated(env: Record<string, string | undefined> = process.env): boolean {
+export function credentialsConfigured(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
   if (env.META_API_KEY) {
     return true;
   }
@@ -67,7 +69,7 @@ export function museAuthMethods(options: { includeTerminal?: boolean } = {}): Au
 
 /**
  * Runs `muse logout` (non-interactive). Note muse cannot unset an exported
- * META_API_KEY — callers still authenticated via env stay authenticated.
+ * META_API_KEY — an environment key remains configured, with verification unknown.
  */
 export async function runMuseLogout(
   env: Record<string, string | undefined> = process.env,
@@ -78,4 +80,20 @@ export async function runMuseLogout(
   if (env.META_API_KEY) {
     logger.log("logout note: META_API_KEY is still exported in the environment");
   }
+}
+
+export const AUTH_EXTENSION = "muse/authStatus";
+export function credentialStatus(env: Record<string, string | undefined>, sessionKey = false) {
+  return {
+    configured: sessionKey || credentialsConfigured(env),
+    source: sessionKey
+      ? "clientProvider"
+      : env.META_API_KEY
+        ? "environment"
+        : credentialsConfigured(env)
+          ? "stored"
+          : "none",
+    verification: "unknown",
+    identity: "unknown",
+  };
 }
