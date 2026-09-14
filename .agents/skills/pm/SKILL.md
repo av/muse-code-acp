@@ -9,6 +9,8 @@ Usage: `$pm [status | new workstream <title> | add <wN> <idea> | promote <wN/NNN
 
 Treat `/pm` as the same invocation. Default to `status`. These are agent procedures, not shell commands; use file tools to perform them. This skill is the canonical board convention, including when loop-worker needs to update the board.
 
+`/pm-brainstorm` proposes work as text; `/pm` materializes it. All board writes, including those made by loop-worker, follow this skill. Canonical skills live in `.agents/skills/`; Claude discovers them through relative directory symlinks in `.claude/skills/`.
+
 ## Mission and existing conventions
 
 Sequence work toward a reliable, faithful ACP adapter for Muse Code: verified public SDK/MSP behavior, usable editor integration, session continuity, truthful capabilities and dependable installation. Read `.pm/DO_NOT_DO.md` before mutations and status validation. Preserve its constraints; do not import another project's adoption pillars or package structure.
@@ -23,6 +25,7 @@ Workstreams are general-purpose worker queues, not permanent feature lanes. Use 
 | Task       | `.pm/wN/mN/tNNN.md`   | `.pm/wN/mN/done/tNNN.md`, then `.pm/wN/done/mN/done/tNNN.md`            |
 
 - Inbox notes are terse Markdown without frontmatter, for ideas or work taking roughly an hour or less. Milestones require more than an hour across multiple substantive tasks; closing tasks alone do not justify a milestone.
+- Every board item explains why: inbox notes include a one-line `Why: ...` directly under the title. Milestones require direct project-goal linkage, an observable expected outcome, and a why-now rationale; reject or reshape proposals that fail this quality gate.
 - Allocate IDs above the highest existing number in the applicable scope, scanning open files, archives and dropped tombstones. Use `wN`, `mN`, three-digit inbox numbers and `tNNN`. Never reuse an ID.
 - Task IDs and `depends_on` are logical IDs such as `w1/m8/t007`. Archival does **not** insert `done/` into those IDs. Resolve dependencies in all three task locations above, including other workstreams. Missing dependencies are unresolved, not satisfied.
 - Keep task `status:`, milestone table `— **DONE**` markers, milestone `**Status:**`, and workstream checkboxes consistent. Completion requires physical archival, not just a status edit.
@@ -35,11 +38,11 @@ Workstreams are general-purpose worker queues, not permanent feature lanes. Use 
 
 Read workstream indexes, live milestones and tasks, inbox notes and anti-goals. Use archived tasks to resolve dependencies. Report each milestone's status and its first actionable task in table order: unfinished, with all prerequisites satisfied and no applicable documented blocker. Report blocked/deferred work and open notes separately.
 
-Flag mismatched IDs, missing/cyclic dependencies, status/archive drift, anti-goal conflicts, missing source/goal linkage and unobservable definitions of done. Do not repair anything during this read-only command.
+Flag mismatched IDs, missing/cyclic dependencies, status/archive drift, anti-goal conflicts, missing source/goal linkage, inbox notes missing `Why:`, and unobservable definitions of done. Do not repair anything during this read-only command.
 
 ### `new workstream <title>` / `add <wN> <idea>`
 
-Create the next workstream with a generic queue title and the workstream template, or add the next numbered plain-Markdown note to an existing workstream. Preserve the requested idea without inventing implementation commitments.
+Create the next workstream with a generic queue title and the workstream template, or add the next numbered plain-Markdown note to an existing workstream, with `Why: ...` directly under its title. Preserve the requested idea without inventing implementation commitments.
 
 ### `promote <wN/NNN>` / `new milestone <wN> <title>`
 
@@ -86,8 +89,9 @@ Read `package.json`, `.github/workflows/ci.yml` and task acceptance criteria for
 - Package, entrypoint or install changes: also `npm run test:pack-smoke`.
 - SDK/MSP, host lifecycle, permissions or real-host claims: also `MUSE_CODE_ACP_REQUIRE_MUSE=1 npm run test:muse-loopback`, after build, with the supported Muse host installed. The required flag prevents missing-host skips from appearing successful. New host features need their own observable acceptance evidence if existing suites do not exercise them.
 - Docs/skill-only work: check formatting and instruction/link consistency; do not add meaningless runtime tests.
+- Standalone packaging changes: also run `npm run build:standalone` and `npm run test:standalone -- <artifact-path>` on the supported platform, following the current standalone CI job.
 
-CI currently includes build, deterministic tests, packed-install smoke and real Muse loopback. Milestone scope can require the full set. Paid-provider tests (`RUN_INTEGRATION_TESTS=true npm run test:integration`) require existing authorization. Record unavailable required checks as blockers. Do not substitute unrelated monorepo commands or claim a skipped check passed.
+CI currently includes build, deterministic tests, packed-install smoke, real Muse loopback and standalone smoke. Milestone scope can require the full set. Paid-provider tests (`RUN_INTEGRATION_TESTS=true npm run test:integration`) require existing authorization. Record unavailable required checks as blockers. Do not substitute unrelated monorepo commands or claim a skipped check passed. Format only the Markdown files changed by the operation using the repository's installed Prettier; avoid rewriting unrelated board files.
 
 ## Templates
 

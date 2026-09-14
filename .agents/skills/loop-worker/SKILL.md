@@ -1,19 +1,19 @@
 ---
 name: loop-worker
-description: Autonomously drain a muse-code-acp .pm workstream by triaging milestones, implementing and verifying actionable work, closing or dropping stale items with evidence, and continuing past blocked work to independent milestones. Use for an explicit loop-worker invocation or a request to work through a whole workstream backlog, not a timed poll or a single task.
+description: Autonomously triage and drain a muse-code-acp .pm workstream, verify and archive completion, and ship each resolved milestone. Skip blockers and continue independent milestones. Use for an explicit loop-worker invocation or a request to work through a whole workstream backlog, not a timed poll or a single task.
 ---
 
 # Drain a workstream
 
 Usage: `$loop-worker <wN>` (also `/loop-worker <wN>`).
 
-Work sequentially through the named queue until no pending milestones remain or all remaining work is blocked or deferred. Read [the PM skill](../pm/SKILL.md) for board operations, templates, dependency resolution and validation. Apply those procedures directly with file tools; a slash-command runner is not required.
+Work sequentially through the named queue until no pending milestones remain or all remaining work is blocked or deferred. Read [the PM skill](../pm/SKILL.md) for board operations, templates, dependency resolution and validation, and [the ship skill](../ship/SKILL.md) for delivery. Canonical instructions live under `.agents/skills/`; apply the procedures directly when a slash-command runner is unavailable. Parse the workstream from the request or `$ARGUMENTS`.
 
 ## Start
 
 - Require a target workstream from the request; if absent, ask which queue to drain. Verify `.pm/<wN>/README.md` exists.
-- Read applicable repository instructions, `.pm/DO_NOT_DO.md`, the workstream index and current Git status/branch/upstream. Preserve pre-existing work; use an isolated worktree when needed rather than including unrelated edits. Do not require switching to main merely to implement work.
-- Determine delivery scope from the user's request and existing session authorization. A backlog request authorizes implementation and board maintenance; committing/pushing follows explicit delivery instructions. If shipping is authorized, use the delivery procedure below. Otherwise keep verified changes local and continue; report them as locally completed, not shipped. This skill does not authorize package publication, deployment or paid-provider runs.
+- Read applicable repository instructions, `.pm/DO_NOT_DO.md`, the workstream index and current Git status/branch/upstream. The default shipping workflow requires `main`; if on another branch without an explicitly requested alternative workflow, resolve that choice before starting. Preserve pre-existing work and isolate unrelated edits when necessary.
+- Invoking this workflow includes implementation, board maintenance, and one `/ship` per resolved milestone. Honor explicit local-only or PR delivery instructions instead when supplied. This skill does not authorize package publication, deployment or paid-provider runs.
 
 ## 1. Select actionable work
 
@@ -50,14 +50,14 @@ After verifying each task, use PM `done` and record evidence. Leave unfinished o
 
 Keep each implemented milestone, triage closure or drop as a separate reviewable unit, with its code and board changes together. Record validation results and limitations before continuing.
 
-When the user has authorized shipping:
+For the default per-milestone shipping workflow:
 
-1. Inspect the diff and stage only this milestone's files and board changes. Use an applicable ship skill if available and compatible with the authorized branch; otherwise follow this procedure.
+1. Invoke [the repository ship skill](../ship/SKILL.md) in session-aware mode, scoped to this milestone's files and board changes. Follow its integration, validation, commit, and push procedure. For an explicitly requested alternative delivery workflow, preserve the same milestone boundaries and follow that workflow.
 2. Fetch and integrate the latest target branch without discarding local work or rewriting unrelated commits. Resolve routine conflicts and rerun checks affected by integration. Respect the user's branch/PR workflow; do not infer permission to push main from a request to open a PR.
 3. Commit one milestone outcome with a descriptive message. Board-only examples: `chore(pm): close w1/mN already satisfied by <SHA>` or `chore(pm): drop w1/mN <reason>`.
-4. Push to the authorized remote/branch without force. Verify the push succeeded and the branch matches its upstream; record the shipped HEAD. Report remote CI separately from local checks, and monitor it when required by the request.
+4. Push to the authorized remote/branch without force. Verify the push succeeded and the branch matches its upstream; record the shipped HEAD before selecting another milestone. Shipping ends at successful push; monitor remote CI only when separately requested.
 
-A failed push is not a shipped milestone. Repair resolvable failures; otherwise preserve the work and treat the delivery failure as a blocker. Without shipping authorization, retain each milestone's verified local changes and evidence, then continue through the queue without pausing to request a push.
+A failed push is not a shipped milestone. Repair resolvable failures; otherwise preserve the work and treat the delivery failure as a blocker. Record verified local completion and the pending delivery explicitly so the archived board is not mistaken for a shipped result. For an explicit local-only request, retain each milestone's verified local changes and evidence, then continue through the queue without pausing to request a push. Never batch multiple milestone outcomes into one shipment or ship incomplete work to clear the tree.
 
 ## 5. Route around blockers
 
