@@ -215,6 +215,7 @@ selected Muse executable. Logout does not unset an exported `META_API_KEY`.
 
 ## Detailed documentation
 
+- [Observed usage, plans, summaries and tool output](docs/progress.md)
 - [Capability evidence and current ownership](docs/capability-audit.md)
 - [SDK support, model discovery, editor context and steering](https://github.com/bex-co/muse-code-acp/blob/main/docs/sdk-migration.md)
 - [Session discovery and metadata](https://github.com/bex-co/muse-code-acp/blob/main/docs/session-discovery.md)

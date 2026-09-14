@@ -14,7 +14,7 @@
 
 - [x] [**m6** — Capability audit and evidence-backed directive fixes](done/m6/README.md) (9 tasks) ← feasibility research and user handoff (2026-09-14)
 
-- [ ] [**m7** — Usage, plans and truthful output visibility](m7/README.md) (9 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
+- [x] [**m7** — Usage, plans and truthful output visibility](done/m7/README.md) (9 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 
 - [ ] [**m8** — Actionable failures and observed authentication](m8/README.md) (8 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 

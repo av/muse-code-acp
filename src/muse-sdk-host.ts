@@ -1,3 +1,4 @@
+import { foldedProgress, type ProgressFacts } from "./session-progress.js";
 import {
   MuseClient,
   MspError,
@@ -38,6 +39,7 @@ type HostOptions = Pick<
   onClose?: () => void | Promise<void>;
   onGoal?: (goal: GoalObservation) => void | Promise<void>;
   initialGoal?: GoalObservation;
+  onProgress?: (facts: ProgressFacts) => Promise<void>;
   onSessionState?: (state: SessionStateObservation) => Promise<void>;
 };
 type InitializedHost = Awaited<ReturnType<ReturnType<typeof spawnMspConnection>["initialize"]>>;
@@ -95,8 +97,10 @@ export class MuseSdkHost {
   }
 
   async observeSessionState(): Promise<void> {
-    if (this.lease)
+    if (this.lease) {
       await this.stateObserver?.poll(this.lease.session.fold, this.lease.host.connection);
+      await this.options.onProgress?.(foldedProgress(this.lease.session.fold));
+    }
   }
   get closed(): boolean {
     return this.stopped;
@@ -341,10 +345,12 @@ export class MuseSdkHost {
       throw new Error("Muse SDK host closed during startup");
     }
     this.lease = { host, client, session };
-    if (options.onGoal || this.stateObserver) {
+    if (options.onGoal || this.stateObserver || options.onProgress) {
       this.goalTimer = setInterval(() => {
         if (options.onGoal) this.observeGoal();
-        void this.observeSessionState();
+        void this.observeSessionState().catch(() =>
+          options.logger.log("Session observation delivery failed"),
+        );
       }, 100);
       this.goalTimer.unref();
       if (options.onGoal) this.observeGoal();

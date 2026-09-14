@@ -3,6 +3,10 @@ import type { WorkflowCommand } from "./review-prompt.js";
 
 export const BUILTIN_COMMANDS: AvailableCommand[] = [
   {
+    name: "status",
+    description: "Inspect requested settings and observed usage/context without a model request",
+  },
+  {
     name: "goal",
     description: "Inspect goal status, or execute a task once (persistent controls unavailable)",
     input: { hint: "[status | task]" },
@@ -39,7 +43,7 @@ export interface SlashCommand {
   blocks: Blocks;
   index: number;
   workflow?: WorkflowCommand;
-  status?: "goal" | "mcp";
+  status?: "goal" | "mcp" | "status";
   notice?: string;
   stop?: boolean;
   barePlan?: boolean;
@@ -80,6 +84,16 @@ export function parseSlashCommand(prompt: Blocks): SlashCommand | undefined {
   );
   const attachments = blocks.some((block) => block.type !== "text");
   const args = selected.args;
+  if (selected.name === "status")
+    return {
+      ...result,
+      status: "status",
+      stop: true,
+      notice:
+        args || extraText || attachments
+          ? "This local status query does not execute accompanying instructions or process attachments."
+          : undefined,
+    };
   if (selected.name === "plan") {
     result.workflow = { kind: "plan", text: args };
     result.barePlan = !args && !extraText && !attachments;

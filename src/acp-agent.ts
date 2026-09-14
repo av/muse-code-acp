@@ -1,3 +1,4 @@
+import { SessionProgress, USAGE_EXTENSION, type ProgressFacts } from "./session-progress.js";
 import { requireAvailable, requireSingleWorkspace, unavailable } from "./availability.js";
 import {
   agent as acpAgent,
@@ -178,6 +179,7 @@ export interface SessionState {
   mcpServers: McpServer[];
   mcpFailure?: string;
   goal?: GoalObservation;
+  progress?: SessionProgress;
   /** Live per-turn Muse configuration overlay, if this session uses MCP. */
   activeMcpOverlay: MuseMcpOverlay | null;
   sdkHost?: { owner: MuseSdkHost; identity: string; overlay: MuseMcpOverlay };
@@ -299,6 +301,17 @@ export class MuseAcpAgent {
       overlay.cleanup();
       throw error;
     }
+  }
+
+  private progressFor(sessionId: string, session: SessionState): SessionProgress {
+    return (session.progress ??= new SessionProgress(
+      sessionId,
+      this.clientCapabilities._meta?.[USAGE_EXTENSION] === 1,
+      async (notification) => {
+        if (!this.disposed && this.sessions.get(sessionId) === session && !session.cancelRequested)
+          await this.client.sessionUpdate(notification);
+      },
+    ));
   }
 
   private safetyGuard() {
@@ -428,9 +441,12 @@ export class MuseAcpAgent {
         ...(this.backend === "sdk" && supportsSteering(this.clientCapabilities)
           ? { [STEERING_CAPABILITY]: { version: 1, method: STEER_METHOD } }
           : {}),
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.[USAGE_EXTENSION] === 1
+          ? { [USAGE_EXTENSION]: { version: 1, scope: "rootSession", cumulative: true } }
+          : {}),
         "bex.security/capabilities": {
           delegatedWorkers: false,
-          usage: "unavailable",
+          usage: this.backend === "sdk" ? "observed" : "unavailable",
           interactivePermissions: this.backend === "sdk",
         },
       },
@@ -714,6 +730,7 @@ export class MuseAcpAgent {
     let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
     let savedMode: MuseModeId = "default";
     let info: SessionInfo | undefined;
+    let progress: ProgressFacts = {};
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -723,7 +740,9 @@ export class MuseAcpAgent {
         logger: this.logger,
         checkHost: !this.options.skipSdkHostCheck,
         readGoal: true,
+        readProgress: true,
       });
+      progress = saved.progress ?? {};
       goal = saved.goal ?? goal;
       info = saved.info;
       config.model = saved.modelId ?? config.model;
@@ -758,6 +777,8 @@ export class MuseAcpAgent {
       const bound = this.sessions.get(params.sessionId)!;
       bound.modeId = savedMode;
       await this.publishGoal(params.sessionId, bound, goal);
+      if (this.backend === "sdk")
+        await this.progressFor(params.sessionId, bound).observe(progress, true);
       if (info)
         await this.client.sessionUpdate(sessionInfoNotification(info, this.clientCapabilities));
       for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
@@ -970,6 +991,7 @@ export class MuseAcpAgent {
     let goal: GoalObservation = { status: "unknown", reason: "No goal state observed" };
     let savedMode: MuseModeId = "default";
     let info: SessionInfo | undefined;
+    let progress: ProgressFacts = {};
     if (this.backend === "sdk") {
       const env = this.providerEnv(params.sessionId);
       const saved = await readMuseSdkSession({
@@ -980,7 +1002,9 @@ export class MuseAcpAgent {
         logger: this.logger,
         checkHost: !this.options.skipSdkHostCheck,
         readGoal: true,
+        readProgress: true,
       });
+      progress = saved.progress ?? {};
       goal = saved.goal ?? goal;
       info = saved.info;
       config.model = saved.modelId ?? config.model;
@@ -1015,6 +1039,8 @@ export class MuseAcpAgent {
       const bound = this.sessions.get(params.sessionId)!;
       bound.modeId = savedMode;
       await this.publishGoal(params.sessionId, bound, goal);
+      if (this.backend === "sdk")
+        await this.progressFor(params.sessionId, bound).observe(progress, true);
       if (info)
         await this.client.sessionUpdate(sessionInfoNotification(info, this.clientCapabilities));
     } catch (error) {
@@ -1294,9 +1320,11 @@ export class MuseAcpAgent {
       if (command?.notice) await say(command.notice);
       if (command?.status) {
         const status =
-          command.status === "goal"
-            ? await this.inspectGoal(params.sessionId, session)
-            : mcpStatus(session.mcpServers, this.options.env ?? process.env, session.mcpFailure);
+          command.status === "status"
+            ? `Requested model: ${session.config.model}; provider: ${session.config.providerId ?? "configured default"}; effort: ${session.config.reasoningEffort}; mode: ${session.modeId}.\n${this.progressFor(params.sessionId, session).status()}`
+            : command.status === "goal"
+              ? await this.inspectGoal(params.sessionId, session)
+              : mcpStatus(session.mcpServers, this.options.env ?? process.env, session.mcpFailure);
         await say(status);
         if (!command.stop)
           parts.unshift({ type: "text", text: `Observed ${command.status} status:\n${status}` });
@@ -1407,6 +1435,10 @@ export class MuseAcpAgent {
             checkHost: !this.options.skipSdkHostCheck,
             onClose: () => overlay.cleanup(),
             onGoal: (goal) => this.publishGoal(params.sessionId, session, goal),
+            onProgress: async (facts) => {
+              if (session.sdkHost?.owner === owner)
+                await this.progressFor(params.sessionId, session).observe(facts);
+            },
             initialGoal: session.goal,
             ...(this.clientCapabilities._meta?.[SESSION_STATE_EXTENSION] === 1
               ? {

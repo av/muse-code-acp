@@ -29,6 +29,9 @@ export const HANDLED_VIEW_EVENTS: Readonly<Record<string, string>> = {
   "session/goalChanged": "muse-sdk-host.ts observeGoal → goal extension",
   "session/modelChanged": "session-state-observer.ts → negotiated observed model",
   "session/approvalModeChanged": "session-state-observer.ts → negotiated observed approval mode",
+  "session/todoListChanged": "session-progress.ts → latest ACP plan snapshot",
+  "session/tokenUsage": "session-progress.ts → authoritative root totals and /status",
+  "session/contextUsage": "session-progress.ts → known context counters or explicit unknown",
 };
 
 /** Methods the adapter deliberately drops, with the owner of that decision. */
@@ -36,9 +39,6 @@ export const IGNORED_VIEW_EVENTS: Readonly<Record<string, string>> = {
   "turn/retracted": "Non-terminal by contract; the turn still reaches its own terminal.",
   "turn/retryScheduled":
     "Native scheduling unobserved on 1.1.1/1.2.1; future w1/006. Error rendering: w2/m8.",
-  "session/todoListChanged": "Plan/todo updates are not forwarded; w2/m7.",
-  "session/tokenUsage": "Token usage is not forwarded; w2/m7.",
-  "session/contextUsage": "Context pressure is not forwarded; w2/m7.",
   "session/branchChanged": "No ACP field carries the workspace branch; not scheduled.",
 };
 
@@ -61,8 +61,10 @@ export const ITEM_KIND_CONSUMERS: Readonly<Record<string, string>> = {
   userMessage: "Client already owns the submitted prompt; load uses public history replay.",
   agentMessage: "muse-sdk-events.ts streams public assistant text.",
   toolCall: "muse-sdk-events.ts renders public tool state/output; richer visible content: w2/m7.",
-  reasoning: "Public summary translation: w2/m7; private reasoning is never requested.",
-  userShell: "Observed background/shell lifecycle: w2/m9.",
+  reasoning:
+    "muse-sdk-events.ts streams public summary parts; private reasoning is never requested.",
+  userShell:
+    "muse-sdk-events.ts renders generic shell output; background lifecycle/control: w2/m9.",
   subagent: "Observed worker lifecycle: w2/m9; separate native child controls: w1/005.",
   workflow: "Observed workflow lifecycle: w2/m9; 1.2.1 launch positive, 1.1.1 limited.",
   reminderChild: "Observed child attribution: w2/m9; child history remains w1/005.",

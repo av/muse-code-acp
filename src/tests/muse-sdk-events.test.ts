@@ -76,3 +76,111 @@ describe("MSP → ACP message and tool contracts", () => {
     expect(translator.fromItem(reasoning)).toEqual([]);
   });
 });
+
+it("streams only public summary parts once, including completion-only parts", () => {
+  const t = new MuseSdkTranslator("root", silentLogger());
+  const start = {
+    itemId: "r",
+    kind: "reasoning",
+    revision: 1,
+    status: "inProgress",
+    summary: [],
+    text: "never render private text",
+  } as unknown as FoldedItem;
+  const updates = [
+    ...t.fromItem(start),
+    ...t.fromDelta({ itemId: "r", field: "summary.0", delta: "Public " }),
+    ...t.fromItem({
+      ...start,
+      revision: 2,
+      status: "completed",
+      summary: ["Public summary", "Second part"],
+    }),
+  ];
+  const text = updates
+    .flatMap((n) =>
+      n.update.sessionUpdate === "agent_thought_chunk" && n.update.content.type === "text"
+        ? [n.update.content.text]
+        : [],
+    )
+    .join("");
+  expect(text).toBe("Public summary\nSecond part");
+  expect(
+    t.fromItem({
+      ...start,
+      revision: 2,
+      status: "completed",
+      summary: ["Public summary", "Second part"],
+    }),
+  ).toEqual([]);
+  expect(JSON.stringify(updates)).not.toContain("private");
+});
+it("keeps interleaved live tool output and inaccessible references correlated", () => {
+  const t = new MuseSdkTranslator("root", silentLogger());
+  const a = {
+    itemId: "a",
+    kind: "toolCall",
+    tool: "bash",
+    callId: "call-a",
+    revision: 1,
+    status: "inProgress",
+    visibleOutput: "a",
+  } as unknown as FoldedItem;
+  const b = { ...a, itemId: "b", callId: "call-b", visibleOutput: "b" };
+  t.fromItem(a);
+  t.fromItem(b);
+  expect(t.fromDelta({ itemId: "a", field: "output", delta: "1" })[0].update).toMatchObject({
+    sessionUpdate: "tool_call_update",
+    toolCallId: "call-a",
+  });
+  const final = t.fromItem({
+    ...b,
+    revision: 2,
+    status: "completed",
+    truncated: true,
+    outputRef: {
+      availability: "missing",
+      byteLen: 100,
+      id: "output",
+      kind: "tool_output",
+      uri: "muse://output/fixture",
+    },
+    modelVisibleContent: [
+      { type: "image", path: "/private/image", mediaType: "image/png", sourceToolName: "tool" },
+    ],
+  });
+  expect(JSON.stringify(final)).toContain("binary data unavailable");
+  expect(JSON.stringify(final)).toContain("retrieval is unavailable");
+  expect(JSON.stringify(final)).not.toContain("/private/image");
+  expect(
+    t.fromItem({
+      itemId: "future",
+      kind: "futureThing",
+      status: "pausedElsewhere",
+      revision: 1,
+      fallbackText: "Observed future detail",
+    } as unknown as FoldedItem)[0].update,
+  ).toMatchObject({ toolCallId: "future", title: "futureThing: pausedElsewhere" });
+});
+
+it("treats gap catch-up as absolute text for every streamed public surface", () => {
+  const t = new MuseSdkTranslator("root", silentLogger());
+  const base = { revision: 1, status: "inProgress" } as const;
+  t.fromItem({ ...base, itemId: "a", kind: "agentMessage", text: "" });
+  t.fromDelta({ itemId: "a", delta: "hello" });
+  const caught = t.fromAccumulated("a", "text", "hello world");
+  expect(JSON.stringify(caught)).toContain(" world");
+  expect(t.fromAccumulated("a", "text", "hello world")).toEqual([]);
+  t.fromItem({ ...base, itemId: "r", kind: "reasoning", summary: [] });
+  t.fromDelta({ itemId: "r", field: "summary.0", delta: "public" });
+  expect(JSON.stringify(t.fromAccumulated("r", "summary.0", "public summary"))).toContain(
+    " summary",
+  );
+  expect(t.fromAccumulated("r", "summary.0", "public summary")).toEqual([]);
+  t.fromItem({ ...base, itemId: "t", kind: "toolCall", callId: "call", visibleOutput: "" });
+  t.fromDelta({ itemId: "t", field: "output", delta: "first" });
+  expect(t.fromAccumulated("t", "output", "first second")[0].update).toMatchObject({
+    toolCallId: "call",
+  });
+  expect(t.fromAccumulated("t", "output", "first second")).toEqual([]);
+});

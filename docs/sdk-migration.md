@@ -563,3 +563,12 @@ and unmet root/opt-in guards; configuration busy errors identify temporary state
 All session new/load/resume/fork requests reject nonempty `additionalDirectories`
 before binding or changing an existing session. A separate session is an explicit
 alternative, not authorization for another root in the current session.
+
+## Observed progress
+
+SDK sessions now forward complete todo snapshots, public reasoning summaries and
+correlated tool output deltas. `/status` reports requested settings and observed
+root usage/context without a model request. Optional `muse/usage` metadata carries
+host cumulative replacements; standard ACP context updates require a known window
+size. No private reasoning, derived quota, fabricated denominator or output bytes
+are exposed. See [progress and recovery contract](progress.md).

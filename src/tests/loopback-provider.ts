@@ -13,6 +13,7 @@ const DUMMY_API_KEY = "test-dummy-key";
 
 export interface LoopbackProviderOptions {
   statusCode?: number;
+  publicSummary?: string;
   /** Substrings that must all appear in the request body to script a bash tool call. */
   scriptedToolCallWhen: readonly string[];
   scriptedToolCallCommand: string;
@@ -65,13 +66,47 @@ function responseFrame(id: string, status: string, extra: Record<string, unknown
   return { id, object: "response", model: FAKE_MODEL_ID, status, output: [], ...extra };
 }
 
-function textHead(text: string): string {
+function textHead(text: string, summary?: string): string {
   return (
     sse({
       type: "response.created",
       sequence_number: 1,
       response: responseFrame("resp_text", "in_progress"),
     }) +
+    (summary
+      ? sse({
+          type: "response.output_item.added",
+          sequence_number: 2,
+          output_index: 0,
+          item: { type: "reasoning", id: "rs_public", summary: [] },
+        }) +
+        sse({
+          type: "response.reasoning_summary_part.added",
+          sequence_number: 3,
+          output_index: 0,
+          item_id: "rs_public",
+          summary_index: 0,
+          part: { type: "summary_text", text: "" },
+        }) +
+        sse({
+          type: "response.reasoning_summary_text.delta",
+          sequence_number: 4,
+          output_index: 0,
+          item_id: "rs_public",
+          summary_index: 0,
+          delta: summary,
+        }) +
+        sse({
+          type: "response.output_item.done",
+          sequence_number: 5,
+          output_index: 0,
+          item: {
+            type: "reasoning",
+            id: "rs_public",
+            summary: [{ type: "summary_text", text: summary }],
+          },
+        })
+      : "") +
     sse({
       type: "response.output_text.delta",
       sequence_number: 2,
@@ -189,7 +224,7 @@ export async function startLoopbackProvider(
         head = toolCallHead(`call_${scriptedToolCalls}`, requestedTool);
       } else {
         responseId = "resp_text";
-        head = textHead(replyText);
+        head = textHead(replyText, options.publicSummary);
       }
 
       response.writeHead(200, { "content-type": "text/event-stream" });

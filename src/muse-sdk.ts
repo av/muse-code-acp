@@ -1,3 +1,4 @@
+import { readProgress, type ProgressFacts } from "./session-progress.js";
 import {
   ClientCapabilities,
   PromptResponse,
@@ -94,9 +95,10 @@ export async function readMuseSdkSession(
   options: Pick<
     MuseSdkOptions,
     "sessionId" | "cwd" | "env" | "museBinary" | "logger" | "checkHost"
-  > & { readGoal?: boolean; allowActive?: boolean },
+  > & { readGoal?: boolean; readProgress?: boolean; allowActive?: boolean },
 ): Promise<{
   modelId: string | null;
+  progress?: ProgressFacts;
   providerId?: string;
   goal?: GoalObservation;
   info?: SessionInfo;
@@ -154,6 +156,9 @@ export async function readMuseSdkSession(
       modelId: session.modelId,
       ...(typeof session.providerId === "string" ? { providerId: session.providerId } : {}),
       info: optionalSessionInfo(result.session),
+      ...(options.readProgress
+        ? { progress: await readProgress(host.connection, options.sessionId).catch(() => ({})) }
+        : {}),
       ...(options.readGoal
         ? { goal: await readGoalFromConnection(host.connection, options.sessionId, result) }
         : {}),
@@ -317,33 +322,23 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         }
       };
 
-      const emitCaughtUp = (item: FoldedItem, accumulated: string): void => {
-        emitItem(item);
-        const base = item.text ?? "";
-        if (!accumulated || accumulated === base) {
-          return;
-        }
-        const delta =
-          accumulated.startsWith(base) && accumulated.length > base.length
-            ? accumulated.slice(base.length)
-            : !base
-              ? accumulated
-              : "";
-        if (!delta) {
-          return;
-        }
-        for (const update of translator.fromDelta({ itemId: item.itemId, delta })) {
-          updates.push(update);
-        }
-      };
-
       const flushFold = () => {
         if (!session.fold.current) {
           return;
         }
         for (const held of session.fold.items.list()) {
           if (held.turnId === turn.turnId) {
-            emitCaughtUp(held, session.fold.items.accumulated(held.itemId) ?? "");
+            emitItem(held);
+            for (const field of session.fold.items
+              .accumulatedFields(held.itemId)
+              .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }))) {
+              for (const update of translator.fromAccumulated(
+                held.itemId,
+                field,
+                session.fold.items.accumulated(held.itemId, field) ?? "",
+              ))
+                updates.push(update);
+            }
           }
         }
       };
