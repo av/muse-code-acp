@@ -10,7 +10,7 @@
 
 ## Inbox
 
-- [009 — Release a new version after the existing w2 fixes](009.md) — after m3 and inbox items 006–008 are resolved.
+None. All tasks and notes are resolved and archived.
 
 ## Done
 
@@ -21,9 +21,10 @@
 
 - [x] [m1 — Multi-stage approval reconciliation and silent-stall guardrails](done/m1/README.md) — consumed inbox note 004; multi-stage shell approvals now complete on the SDK backend and stalled host requests fail with diagnostics. Verified on Muse 1.2.1-R2847.1.
 
-The 001 and 002 fixes shipped in `d9f509f`; m1 shipped in `a82cc2f` and m2 in
-`39fc8a5`. These fixes and m3 remain Unreleased on npm. Until publication, npm
-adopters still need the exec workaround for the multi-stage hang. Release item 009 follows the remaining inbox work, per the expanded loop request.
+The 001/002 fixes, m1–m3, and session-state reporting are published in
+[0.5.0](https://github.com/bex-co/muse-code-acp/releases/tag/v0.5.0), npm's verified
+latest version. The SDK multi-stage hang no longer requires the exec workaround.
+The documented 1.2.1 legacy-reviewer host limitation remains.
 
 - [x] [m2](done/m2/README.md) — HTTP MCP startup failures restored; legacy-profile host limitation reproduced and explained.
 
@@ -34,3 +35,5 @@ adopters still need the exec workaround for the multi-stage hang. Release item 0
 - [x] [007 — Notification observation recommendation](done/007.md) — retain SDK routing and narrow public reads; alternatives and engineering costs recorded.
 
 - [x] [008 — Report SDK approval routing defect](done/008.md) — filed [upstream #10](https://github.com/meta-models/muse-code-sdk/issues/10) with a fresh SDK-only reproduction.
+
+- [x] [009 — Publish the completed w2 fixes](done/009.md) — 0.5.0 released; full release CI, npm latest, published-package smoke and GitHub release verified.
