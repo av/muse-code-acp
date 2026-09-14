@@ -14,6 +14,6 @@ export function sdkHostConfiguration(
 ): string {
   const { identity } = museHostIdentity(cwd, env, museBinary);
   return createHash("sha256")
-    .update(JSON.stringify([identity, config, mode, mcpServers]))
+    .update(JSON.stringify([identity, { ...config, reasoningEffort: undefined }, mode, mcpServers]))
     .digest("hex");
 }

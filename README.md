@@ -96,7 +96,7 @@ The default SDK backend supports the following on the verified host:
 | Session navigation | Paginated list, full history load, resume without replay, close, and native fork                                 |
 | Permissions        | Interactive host-offered choices through ACP; cancellation and stale replies fail closed                         |
 | Modes              | Default, read-only and guarded plan mode; implementation requires an explicit mode change                        |
-| Model settings     | Public model discovery with current-model fallback; seven supported effort tiers                                 |
+| Model settings     | Provider-qualified discovery; verified idle model switching; requested effort with verified host limits          |
 | MCP                | Client-provided stdio and HTTP servers; local configuration/last-failure diagnostics, not live connection status |
 | File changes       | Bounded observed diffs; optional negotiated reports explicitly mark partial coverage                             |
 | Workflows          | Skills as slash commands, planning and Git reviews                                                               |

@@ -12,6 +12,7 @@ export const ALTERNATE_MODEL_ID = "fake-model-alternate";
 const DUMMY_API_KEY = "test-dummy-key";
 
 export interface LoopbackProviderOptions {
+  statusCode?: number;
   /** Substrings that must all appear in the request body to script a bash tool call. */
   scriptedToolCallWhen: readonly string[];
   scriptedToolCallCommand: string;
@@ -33,6 +34,7 @@ export interface LoopbackProvider {
   root: string;
   baseUrl: string;
   catalogGets(): number;
+  authorizations(): (string | undefined)[];
   scriptedToolCalls(): number;
   requests(): Record<string, unknown>[];
   close(): Promise<void>;
@@ -125,6 +127,7 @@ export async function startLoopbackProvider(
     },
   };
   const holdMs = options.holdMs ?? 2_000;
+  const authorizationHeaders: (string | undefined)[] = [];
   let catalogGets = 0;
   let scriptedToolCalls = 0;
   const requests: Record<string, unknown>[] = [];
@@ -146,8 +149,18 @@ export async function startLoopbackProvider(
         response.writeHead(404).end();
         return;
       }
+      authorizationHeaders.push(request.headers.authorization);
       const parsed = JSON.parse(body);
       requests.push(parsed);
+      if (options.statusCode) {
+        response.writeHead(options.statusCode, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            error: { type: "authentication_error", message: "isolated gateway rejection" },
+          }),
+        );
+        return;
+      }
       const requestedTool = options.scriptedToolCallForRequest
         ? await options.scriptedToolCallForRequest(parsed)
         : scriptedTool;
@@ -226,6 +239,7 @@ export async function startLoopbackProvider(
     root,
     baseUrl,
     catalogGets: () => catalogGets,
+    authorizations: () => authorizationHeaders,
     scriptedToolCalls: () => scriptedToolCalls,
     requests: () => requests,
     close: async () => {

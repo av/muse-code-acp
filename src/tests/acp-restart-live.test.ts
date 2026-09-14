@@ -1,3 +1,4 @@
+import { modelChoice } from "../config-options.js";
 /**
  * Real ACP process restart + session continuity against local muse serve.
  * Fail-closed when Muse is missing — required m6 integration evidence.
@@ -114,7 +115,7 @@ describe("ACP process restart continuity (real Muse host)", () => {
             mcpServers: [],
           });
           expect(loaded.configOptions?.find((o) => o.id === "model")?.currentValue).toBe(
-            ALTERNATE_MODEL_ID,
+            modelChoice({ id: ALTERNATE_MODEL_ID, name: ALTERNATE_MODEL_ID, providerId: "meta" }),
           );
           expect(loaded.configOptions?.find((o) => o.id === "reasoningEffort")?.currentValue).toBe(
             "medium",
@@ -178,6 +179,12 @@ describe("ACP process restart continuity (real Muse host)", () => {
               sessionId: old.sessionId,
               cwd,
               mcpServers: [],
+            });
+            // Legacy echo history requires an explicit provider migration.
+            await agent3.ctx.request(methods.agent.session.setConfigOption, {
+              sessionId: old.sessionId,
+              configId: "model",
+              value: modelChoice({ id: "fake-model", name: "fake-model", providerId: "meta" }),
             });
             await expectLegacyContinuation(
               agent3.ctx.request(methods.agent.session.prompt, {

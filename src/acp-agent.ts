@@ -42,6 +42,13 @@ import {
   Stream,
 } from "@agentclientprotocol/sdk";
 import { createUuidV7Mint } from "@muse-code/sdk";
+import {
+  PROVIDER_EXTENSION,
+  RECOMMENDATION_EXTENSION,
+  parseClientProvider,
+  providerBinding,
+  type ClientProvider,
+} from "./client-provider.js";
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { realpathSync, statSync } from "node:fs";
@@ -53,10 +60,12 @@ import {
   museAuthMethods,
   runMuseLogout,
 } from "./auth.js";
+import { configRecommendations } from "./config-recommendations.js";
 import {
   applyConfigSelection,
   buildConfigOptions,
   defaultSessionConfig,
+  resolvedModel,
   SessionConfig,
 } from "./config-options.js";
 import {
@@ -215,6 +224,10 @@ export class MuseAcpAgent {
   private disposal: Promise<void> | null = null;
   readonly backend: "exec" | "sdk";
   private readonly modelDiscovery: MuseModelDiscovery;
+  private readonly providers = new Map<
+    string,
+    { provider: ClientProvider; overlay: MuseMcpOverlay }
+  >();
   /** Client capabilities from initialize; omitted keys are unsupported. */
   clientCapabilities: ClientCapabilities = {};
 
@@ -233,6 +246,58 @@ export class MuseAcpAgent {
       museBinary: options.museBinary,
       logger,
     });
+  }
+
+  private providerEnv(sessionId: string): Record<string, string | undefined> {
+    return this.providers.get(sessionId)?.overlay.env ?? this.options.env ?? process.env;
+  }
+
+  private async prepareProvider(
+    sessionId: string,
+    meta?: Record<string, unknown> | null,
+  ): Promise<void> {
+    const value = meta?.[PROVIDER_EXTENSION];
+    const existing = this.providers.get(sessionId);
+    const env = this.options.env ?? process.env;
+    const saved = readSessionPreferences(sessionId, env).providerBinding;
+    if (value === undefined) {
+      if (saved && !existing)
+        throw RequestError.invalidParams(
+          undefined,
+          "This session requires its explicit muse/provider endpoint and credentials again; no default-provider fallback was attempted",
+        );
+      return;
+    }
+    if (this.backend !== "sdk" || this.clientCapabilities._meta?.[PROVIDER_EXTENSION] !== 1)
+      throw RequestError.invalidParams(
+        undefined,
+        "muse/provider must be negotiated for the SDK backend",
+      );
+    const provider = parseClientProvider(value);
+    if (saved && saved !== providerBinding(provider))
+      throw RequestError.invalidParams(
+        undefined,
+        "Saved session belongs to another provider endpoint; start a new session to change endpoints",
+      );
+    if (existing && JSON.stringify(existing.provider) === JSON.stringify(provider)) return;
+    const state = this.sessions.get(sessionId);
+    if (state?.turnFinished || state?.sdkHost?.owner.hasActiveTurn)
+      throw RequestError.invalidRequest(
+        undefined,
+        "Wait for the active turn before replacing provider credentials",
+      );
+    const config = defaultSessionConfig(readMuseSettings(env, this.logger));
+    const overlay = createMuseMcpOverlay([], env, config, provider);
+    try {
+      writeSessionPreferences(sessionId, { providerBinding: providerBinding(provider) }, env);
+      await state?.sdkHost?.owner.close();
+      if (state) state.sdkHost = undefined;
+      existing?.overlay.cleanup();
+      this.providers.set(sessionId, { provider, overlay });
+    } catch (error) {
+      overlay.cleanup();
+      throw error;
+    }
   }
 
   private safetyGuard() {
@@ -258,7 +323,10 @@ export class MuseAcpAgent {
     session: Pick<SessionState, "config" | "modeId" | "modelDiscovery">,
   ) {
     const modes = this.sessionModes(session.modeId);
-    return [
+    const hostVersion = this.options.skipSdkHostCheck
+      ? null
+      : probeSdkHost(this.options.env, this.options.museBinary).version;
+    const options = [
       {
         id: "mode",
         name: "Mode",
@@ -271,11 +339,14 @@ export class MuseAcpAgent {
           description,
         })),
       },
-      ...buildConfigOptions(session.config, this.backend, session.modelDiscovery),
+      ...buildConfigOptions(session.config, this.backend, session.modelDiscovery, hostVersion),
       ...(this.backend === "sdk"
         ? safetyConfigOptions(session.config.safety, this.safetyGuard())
         : []),
     ];
+    if (this.backend !== "sdk" || this.clientCapabilities._meta?.[RECOMMENDATION_EXTENSION] !== 1)
+      return options;
+    return configRecommendations(options, session.modelDiscovery, hostVersion);
   }
 
   private supportsFork(): boolean {
@@ -325,6 +396,20 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.[PROVIDER_EXTENSION] === 1
+          ? {
+              [PROVIDER_EXTENSION]: {
+                version: 1,
+                providerIds: ["meta"],
+                credentials: "session-only",
+                endpointChanges: "new-session",
+              },
+            }
+          : {}),
+        ...(this.backend === "sdk" &&
+        this.clientCapabilities._meta?.[RECOMMENDATION_EXTENSION] === 1
+          ? { [RECOMMENDATION_EXTENSION]: { version: 1 } }
+          : {}),
         ...(this.backend === "sdk" && this.clientCapabilities._meta?.[SESSION_STATE_EXTENSION] === 1
           ? { [SESSION_STATE_EXTENSION]: { version: 1, reportingOnly: true } }
           : {}),
@@ -376,6 +461,8 @@ export class MuseAcpAgent {
   }
 
   async logout(_params: LogoutRequest): Promise<LogoutResponse> {
+    for (const sessionId of [...this.providers.keys()])
+      if (this.sessions.has(sessionId)) await this.closeSession({ sessionId });
     await runMuseLogout(this.options.env ?? process.env, this.options.museBinary, this.logger);
     return {};
   }
@@ -448,11 +535,14 @@ export class MuseAcpAgent {
     // on-disk session log lazily on the first turn; discovery only queries the host.
     const sessionId = this.backend === "sdk" ? createUuidV7Mint()() : randomUUID();
     return this.withSessionBinding(sessionId, async () => {
+      await this.prepareProvider(sessionId, params._meta);
       const config = defaultSessionConfig(
-        readMuseSettings(this.options.env ?? process.env, this.logger),
+        readMuseSettings(this.providerEnv(sessionId), this.logger),
       );
       const modelDiscovery =
-        this.backend === "sdk" ? await this.modelDiscovery.discover(cwd) : undefined;
+        this.backend === "sdk"
+          ? await this.modelDiscovery.discover(cwd, this.providerEnv(sessionId))
+          : undefined;
       this.assertRunning();
       this.sessions.set(sessionId, {
         cwd,
@@ -555,7 +645,12 @@ export class MuseAcpAgent {
 
   private async withSessionBinding<T>(sessionId: string, bind: () => Promise<T>): Promise<T> {
     this.assertRunning();
-    if (this.bindingSessions.has(sessionId) || this.sessions.get(sessionId)?.turnFinished) {
+    if (
+      this.bindingSessions.has(sessionId) ||
+      this.sessions.get(sessionId)?.turnFinished ||
+      this.sessions.get(sessionId)?.safetyChanging ||
+      this.sessions.get(sessionId)?.sdkHost?.owner.hasActiveTurn
+    ) {
       throw RequestError.invalidRequest(
         undefined,
         "session has a prompt turn or binding operation in progress",
@@ -568,6 +663,10 @@ export class MuseAcpAgent {
       this.assertRunning();
       return result;
     } finally {
+      if (!this.sessions.has(sessionId)) {
+        this.providers.get(sessionId)?.overlay.cleanup();
+        this.providers.delete(sessionId);
+      }
       this.bindingSessions.delete(sessionId);
       finished.resolve();
     }
@@ -581,7 +680,7 @@ export class MuseAcpAgent {
         "Cannot load a session while a prompt is active",
       );
     }
-    const env = this.options.env ?? process.env;
+    let env = this.providerEnv(params.sessionId);
     const stored = listStoredSessions(null, env, this.logger).find(
       (session) => session.sessionId === params.sessionId,
     );
@@ -599,6 +698,8 @@ export class MuseAcpAgent {
         `session ${params.sessionId} belongs to a different workspace`,
       );
 
+    await this.prepareProvider(params.sessionId, params._meta);
+    env = this.providerEnv(params.sessionId);
     await this.sessions.get(params.sessionId)?.sdkHost?.owner.close();
     const previousSession = this.sessions.get(params.sessionId);
     previousSession?.steering?.close();
@@ -627,14 +728,20 @@ export class MuseAcpAgent {
       goal = saved.goal ?? goal;
       info = saved.info;
       config.model = saved.modelId ?? config.model;
+      config.providerId = saved.providerId ?? config.providerId;
       const preferences = readSessionPreferences(params.sessionId, env);
+      // Preserve the recorded execution selection; a native setter may have
+      // changed metadata without changing the provider used for this history.
+      if (preferences.modelSelection) Object.assign(config, preferences.modelSelection);
       config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
       savedMode = preferences.modeId ?? "default";
       config.safety = preferences.safety;
       this.validateSafety(config, savedMode);
     }
     const modelDiscovery =
-      this.backend === "sdk" ? await this.modelDiscovery.discover(cwd) : undefined;
+      this.backend === "sdk"
+        ? await this.modelDiscovery.discover(cwd, this.providerEnv(params.sessionId))
+        : undefined;
     this.assertRunning();
     this.sessions.set(params.sessionId, {
       cwd,
@@ -700,7 +807,7 @@ export class MuseAcpAgent {
     }
     return this.withSessionBinding(params.sessionId, async () => {
       const source = this.sessions.get(params.sessionId);
-      const env = this.options.env ?? process.env;
+      let env = this.providerEnv(params.sessionId);
       const stored =
         source ??
         listStoredSessions(null, env, this.logger).find((s) => s.sessionId === params.sessionId);
@@ -709,6 +816,8 @@ export class MuseAcpAgent {
           undefined,
           "Fork source not found in the requested workspace",
         );
+      await this.prepareProvider(params.sessionId, params._meta);
+      env = this.providerEnv(params.sessionId);
       if (source?.sdkHost?.owner.hasActiveTurn)
         throw RequestError.invalidRequest(undefined, "Cannot fork an active Muse session");
       await source?.sdkHost?.owner.close();
@@ -729,8 +838,10 @@ export class MuseAcpAgent {
       };
       config.safety = undefined;
       config.model = saved.modelId ?? config.model;
+      config.providerId = saved.providerId ?? config.providerId;
       config.reasoningEffort =
         source?.config.reasoningEffort ?? preferences.reasoningEffort ?? config.reasoningEffort;
+      if (preferences.modelSelection) Object.assign(config, preferences.modelSelection);
       // Muse 1.1.1 constructs fork metadata from host settings. Use the same
       // isolated execution configuration as ordinary SDK turns, then verify
       // the fork's authoritative model rather than trusting an accepted setter.
@@ -752,6 +863,10 @@ export class MuseAcpAgent {
       this.assertRunning();
       const sessionId = result.session.sessionId;
       if (this.sessions.has(sessionId)) throw new Error("Muse fork identity is already bound");
+      const sourceProvider = this.providers.get(params.sessionId)?.provider;
+      if (sourceProvider)
+        await this.prepareProvider(sessionId, { [PROVIDER_EXTENSION]: sourceProvider });
+      this.assertRunning();
       // A branch starts with default sandbox/approval policy, not inherited grants.
       writeSessionPreferences(
         sessionId,
@@ -839,8 +954,14 @@ export class MuseAcpAgent {
       );
     }
 
+    await this.prepareProvider(params.sessionId, params._meta);
     const mcpServers = params.mcpServers ?? [];
     if (existing) {
+      if (params._meta?.[PROVIDER_EXTENSION] !== undefined)
+        existing.modelDiscovery = await this.modelDiscovery.discover(
+          storedCwd,
+          this.providerEnv(params.sessionId),
+        );
       existing.cwd = storedCwd;
       existing.mcpServers = mcpServers;
       existing.mcpFailure = undefined;
@@ -857,7 +978,7 @@ export class MuseAcpAgent {
     let savedMode: MuseModeId = "default";
     let info: SessionInfo | undefined;
     if (this.backend === "sdk") {
-      const env = this.options.env ?? process.env;
+      const env = this.providerEnv(params.sessionId);
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
         cwd: storedCwd,
@@ -870,14 +991,20 @@ export class MuseAcpAgent {
       goal = saved.goal ?? goal;
       info = saved.info;
       config.model = saved.modelId ?? config.model;
+      config.providerId = saved.providerId ?? config.providerId;
       const preferences = readSessionPreferences(params.sessionId, env);
+      // Preserve the recorded execution selection; a native setter may have
+      // changed metadata without changing the provider used for this history.
+      if (preferences.modelSelection) Object.assign(config, preferences.modelSelection);
       config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
       savedMode = preferences.modeId ?? "default";
       config.safety = preferences.safety;
       this.validateSafety(config, savedMode);
     }
     const modelDiscovery =
-      this.backend === "sdk" ? await this.modelDiscovery.discover(storedCwd) : undefined;
+      this.backend === "sdk"
+        ? await this.modelDiscovery.discover(storedCwd, this.providerEnv(params.sessionId))
+        : undefined;
     this.assertRunning();
     this.sessions.set(params.sessionId, {
       cwd: storedCwd,
@@ -912,6 +1039,14 @@ export class MuseAcpAgent {
     params: SetSessionConfigOptionRequest,
   ): Promise<SetSessionConfigOptionResponse> {
     const session = this.requireSession(params.sessionId);
+    if (
+      this.backend === "sdk" &&
+      (session.safetyChanging || session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
+    )
+      throw RequestError.invalidRequest(
+        undefined,
+        "Wait for the active turn or configuration change before changing settings",
+      );
     if (params.configId === "mode") {
       if (typeof params.value !== "string")
         throw RequestError.invalidParams(undefined, "mode expects a select value");
@@ -951,17 +1086,51 @@ export class MuseAcpAgent {
         session.safetyChanging = false;
       }
     }
-    const config = applyConfigSelection(session.config, params.configId, params.value);
-    if (this.backend === "sdk" && params.configId === "reasoningEffort") {
-      writeSessionEffort(params.sessionId, config.reasoningEffort, this.options.env ?? process.env);
+    const config = applyConfigSelection(
+      session.config,
+      params.configId,
+      params.value,
+      this.backend === "sdk" ? session.modelDiscovery : undefined,
+    );
+    if (this.backend === "sdk" && params.configId === "model") {
+      const provider =
+        readMuseSettings(this.providerEnv(params.sessionId), this.logger).provider ?? "meta";
+      if (
+        JSON.stringify(resolvedModel(config, session.modelDiscovery, provider)) ===
+        JSON.stringify(resolvedModel(session.config, session.modelDiscovery, provider))
+      )
+        return { configOptions: this.sessionConfigOptions(session) };
     }
-    session.config = config;
-    const configOptions = this.sessionConfigOptions(session);
-    await this.client.sessionUpdate({
-      sessionId: params.sessionId,
-      update: { sessionUpdate: "config_option_update", configOptions },
-    });
-    return { configOptions };
+    const boundProvider = this.providers.get(params.sessionId)?.provider;
+    if (boundProvider && config.providerId && config.providerId !== boundProvider.providerId)
+      throw RequestError.invalidParams(
+        undefined,
+        "The selected model belongs to another provider; choose a model for this session's configured gateway",
+      );
+    if (JSON.stringify(config) === JSON.stringify(session.config))
+      return { configOptions: this.sessionConfigOptions(session) };
+    session.safetyChanging = true;
+    try {
+      if (this.backend === "sdk" && params.configId === "model" && session.sdkHost) {
+        await session.sdkHost.owner.close();
+        session.sdkHost = undefined;
+      }
+      if (this.backend === "sdk" && params.configId === "reasoningEffort")
+        writeSessionEffort(
+          params.sessionId,
+          config.reasoningEffort,
+          this.options.env ?? process.env,
+        );
+      session.config = config;
+      const configOptions = this.sessionConfigOptions(session);
+      await this.client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: "config_option_update", configOptions },
+      });
+      return { configOptions };
+    } finally {
+      session.safetyChanging = false;
+    }
   }
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
@@ -1152,7 +1321,7 @@ export class MuseAcpAgent {
       if (command?.stop || session.cancelRequested || this.disposed)
         return { stopReason: session.cancelRequested || this.disposed ? "cancelled" : "end_turn" };
       session.mcpFailure = undefined;
-      const baseEnv = this.options.env ?? process.env;
+      const baseEnv = this.providerEnv(params.sessionId);
       if (workflow?.kind === "plan") {
         if (session.sdkHost?.owner.hasActiveTurn)
           throw RequestError.invalidRequest(
@@ -1197,6 +1366,17 @@ export class MuseAcpAgent {
             "The SDK backend requires a configured Muse provider; use the exec backend for echo",
           );
         }
+        const { providerId, profileId } = resolvedModel(
+          session.config,
+          session.modelDiscovery,
+          readMuseSettings(baseEnv, this.logger).provider ?? "meta",
+        );
+        const boundProvider = this.providers.get(params.sessionId)?.provider;
+        if (boundProvider && providerId !== boundProvider.providerId)
+          throw RequestError.invalidParams(
+            undefined,
+            "Saved model provider does not match the explicitly configured gateway; no fallback was attempted",
+          );
         const identity = sdkHostConfiguration(
           session.cwd,
           session.config,
@@ -1234,6 +1414,8 @@ export class MuseAcpAgent {
             sessionId: session.museSessionId,
             cwd: session.cwd,
             model: session.config.model,
+            providerId,
+            profileId,
             readOnly,
             safety: session.config.safety,
             museBinary: this.options.museBinary,
@@ -1271,6 +1453,8 @@ export class MuseAcpAgent {
           cwd: session.cwd,
           input: parts,
           model: session.config.model,
+          providerId,
+          profileId,
           reasoningEffort: session.config.reasoningEffort,
           readOnly,
           safety: session.config.safety,
@@ -1300,6 +1484,12 @@ export class MuseAcpAgent {
             await this.client.sessionUpdate(notification);
           }
           const response = await handle.done;
+          if (response.stopReason === "end_turn" && !session.cancelRequested)
+            writeSessionPreferences(
+              params.sessionId,
+              { modelSelection: { model: session.config.model, providerId, profileId } },
+              this.options.env ?? process.env,
+            );
           await publishReview(
             session.cancelRequested || response.stopReason === "cancelled"
               ? "cancelled"
@@ -1441,6 +1631,8 @@ export class MuseAcpAgent {
     try {
       await Promise.all([session.turnFinished, session.sdkHost?.owner.close()]);
     } finally {
+      this.providers.get(params.sessionId)?.overlay.cleanup();
+      this.providers.delete(params.sessionId);
       this.bindingSessions.delete(params.sessionId);
       finished.resolve();
     }
@@ -1479,7 +1671,10 @@ export class MuseAcpAgent {
       ...this.bindingSessions.values(),
       ...this.backgroundTasks,
       this.modelDiscovery.dispose(),
-    ]).then(() => {});
+    ]).then(() => {
+      for (const binding of this.providers.values()) binding.overlay.cleanup();
+      this.providers.clear();
+    });
     return this.disposal;
   }
 }

@@ -26,6 +26,8 @@ if (mode === "disabled") {
 }
 if (process.env.FAKE_MSP_PID) writeFileSync(process.env.FAKE_MSP_PID, String(process.pid));
 let sessionId;
+let currentModelId = "muse-spark-1.2";
+let currentProviderId = "meta";
 let turnId;
 let cursor = 0;
 const observationPages = [];
@@ -348,7 +350,7 @@ rl.on("line", async (line) => {
     }
     case "session/read":
       if (mode === "metadata-timeout" && turnId) break;
-      reply({session: {sessionId: params.sessionId, workspaceRoot: process.cwd(), modelId: "muse-spark-1.2", activeTurnId: null}, pendingRequests: []});
+      reply({session: {sessionId: params.sessionId, workspaceRoot: process.cwd(), modelId: currentModelId, providerId: currentProviderId, activeTurnId: null}, pendingRequests: []});
       break;
     case "session/resume":
       if (mode === "autoReviewUnavailable") {
@@ -379,9 +381,11 @@ rl.on("line", async (line) => {
         await sleep(60_000);
       }
       sessionId = params.sessionId;
-      reply({ session: { sessionId, modelId: params.modelId }, viewCursor: "" });
+      currentModelId = params.modelId; currentProviderId = params.providerId ?? "meta";
+      reply({ session: { sessionId, modelId: currentModelId, providerId: currentProviderId }, viewCursor: "" });
       break;
     case "session/setModel":
+      currentModelId = params.model.modelId; currentProviderId = params.model.providerId ?? currentProviderId;
       reply({ status: "accepted", commandId: params.commandId });
       break;
     case "session/setApprovalMode":

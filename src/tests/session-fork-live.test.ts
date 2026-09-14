@@ -1,3 +1,4 @@
+import { modelChoice } from "../config-options.js";
 import { join } from "node:path";
 import { mkdirSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -70,7 +71,7 @@ describe.skipIf(!available)("native Muse fork continuity", () => {
       expect(fork.sessionId).not.toBe(sessionId);
       expect(fork.modes?.currentModeId).toBe("default");
       expect(fork.configOptions?.find((o) => o.id === "model")?.currentValue).toBe(
-        ALTERNATE_MODEL_ID,
+        modelChoice({ id: ALTERNATE_MODEL_ID, name: ALTERNATE_MODEL_ID, providerId: "meta" }),
       );
       expect(fork.configOptions?.find((o) => o.id === "reasoningEffort")?.currentValue).toBe(
         "medium",
@@ -100,7 +101,7 @@ describe.skipIf(!available)("native Muse fork continuity", () => {
           mcpServers: [],
         });
         expect(restored.configOptions?.find((o) => o.id === "model")?.currentValue).toBe(
-          ALTERNATE_MODEL_ID,
+          modelChoice({ id: ALTERNATE_MODEL_ID, name: ALTERNATE_MODEL_ID, providerId: "meta" }),
         );
         expect(restored.configOptions?.find((o) => o.id === "reasoningEffort")?.currentValue).toBe(
           "medium",

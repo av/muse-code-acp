@@ -10,7 +10,7 @@
 
 - [x] [**m4** — Verified approval policies and independent sandbox controls](done/m4/README.md) (11 tasks) ← feasibility research and user handoff (2026-09-14)
 
-- [ ] [**m5** — Faithful model, effort and restored session settings](m5/README.md) (10 tasks) ← feasibility research and user handoff (2026-09-14)
+- [x] [**m5** — Faithful model, effort and restored session settings](done/m5/README.md) (10 tasks) ← feasibility research and user handoff (2026-09-14)
 
 - [ ] [**m6** — Capability audit and evidence-backed directive fixes](m6/README.md) (9 tasks) ← feasibility research and user handoff (2026-09-14)
 

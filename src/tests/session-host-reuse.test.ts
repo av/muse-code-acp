@@ -148,8 +148,8 @@ it("reuses a session host across turns, isolates another session and cleans reta
   }
 });
 
-it.each(["model", "effort", "readOnly", "mcp", "settings", "auth"] as const)(
-  "replaces the idle host after %s changes and sends fresh configuration",
+it.each(["effort", "readOnly", "mcp", "settings", "auth"] as const)(
+  "applies %s changes with only necessary host replacement",
   async (change) => {
     const f = await fixture();
     try {
@@ -157,11 +157,11 @@ it.each(["model", "effort", "readOnly", "mcp", "settings", "auth"] as const)(
       await f.prompt(sessionId);
       const oldPid = f.pid();
       const oldHome = f.capture().configHome;
-      if (change === "model" || change === "effort") {
+      if (change === "effort") {
         await f.ctx.request(methods.agent.session.setConfigOption, {
           sessionId,
-          configId: change === "model" ? "model" : "reasoningEffort",
-          value: change === "model" ? "new-model" : "minimal",
+          configId: "reasoningEffort",
+          value: "minimal",
         });
       } else if (change === "readOnly") {
         await f.ctx.request(methods.agent.session.setMode, { sessionId, modeId: "readOnly" });
@@ -180,13 +180,17 @@ it.each(["model", "effort", "readOnly", "mcp", "settings", "auth"] as const)(
         writeFileSync(f.authPath, JSON.stringify({ credential: "fresh-auth" }));
       }
       await f.prompt(sessionId);
-      expect(f.spawnCount()).toBe(2);
-      expect(f.pid()).not.toBe(oldPid);
-      expect(() => process.kill(oldPid, 0)).toThrow();
-      expect(existsSync(oldHome)).toBe(false);
+      expect(f.spawnCount()).toBe(change === "effort" ? 1 : 2);
+      if (change === "effort") {
+        expect(f.pid()).toBe(oldPid);
+        expect(existsSync(oldHome)).toBe(true);
+      } else {
+        expect(f.pid()).not.toBe(oldPid);
+        expect(() => process.kill(oldPid, 0)).toThrow();
+        expect(existsSync(oldHome)).toBe(false);
+      }
       const capture = f.capture();
       expect(existsSync(capture.configHome)).toBe(true);
-      if (change === "model") expect(capture.settings.model).toBe("new-model");
       if (change === "effort")
         expect(
           f
@@ -202,7 +206,7 @@ it.each(["model", "effort", "readOnly", "mcp", "settings", "auth"] as const)(
         expect(capture.settings.mcpServers["session-mcp"].env.TOKEN).toBe("fresh-mcp-secret");
         expect(JSON.stringify(capture.settings)).not.toContain("old-mcp-secret");
       }
-      if (change === "settings") expect(capture.settings.provider).toBe("fresh-provider");
+      if (change === "settings") expect(capture.settings.provider).toBe("original-provider");
       if (change === "auth")
         expect(
           JSON.parse(readFileSync(join(capture.configHome, "muse", "auth.json"), "utf8"))
@@ -215,3 +219,36 @@ it.each(["model", "effort", "readOnly", "mcp", "settings", "auth"] as const)(
     }
   },
 );
+
+it("updates the execution model with a public setter even when resume metadata already agrees", async () => {
+  const f = await fixture();
+  try {
+    const { sessionId } = await f.create("token");
+    await f.prompt(sessionId);
+    const pid = f.pid();
+    await f.ctx.request(methods.agent.session.setConfigOption, {
+      sessionId,
+      configId: "model",
+      value: "original-model",
+    });
+    expect(f.pid()).toBe(pid);
+    expect(f.spawnCount()).toBe(1);
+    await f.ctx.request(methods.agent.session.setConfigOption, {
+      sessionId,
+      configId: "model",
+      value: "new-model",
+    });
+    await f.prompt(sessionId);
+    expect(f.client.agent.sessions.get(sessionId)!.config.model).toBe("new-model");
+    expect(f.pid()).not.toBe(pid);
+    expect(f.spawnCount()).toBe(2);
+    expect(
+      f
+        .requests()
+        .filter((r) => r.method === "session/setModel")
+        .at(-1).params.model,
+    ).toMatchObject({ modelId: "new-model", providerId: "original-provider" });
+  } finally {
+    await f.close();
+  }
+});

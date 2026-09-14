@@ -1,5 +1,5 @@
 import { RequestError, SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { ModelDiscoveryResult } from "./model-discovery.js";
+import type { DiscoveredModel, ModelDiscoveryResult } from "./model-discovery.js";
 import { MuseSettings } from "./muse-settings.js";
 
 export const MODEL_CONFIG_ID = "model";
@@ -30,6 +30,8 @@ const DEFAULT_EFFORT = "high";
 export interface SessionConfig {
   safety?: import("./safety-settings.js").SafetySettings;
   model: string;
+  providerId?: string;
+  profileId?: string | null;
   reasoningEffort: string;
 }
 
@@ -37,6 +39,7 @@ export interface SessionConfig {
 export function defaultSessionConfig(settings: MuseSettings): SessionConfig {
   return {
     model: settings.model ?? DEFAULT_MODEL,
+    ...(settings.provider ? { providerId: settings.provider } : {}),
     reasoningEffort: isReasoningEffort(settings.reasoningEffort)
       ? settings.reasoningEffort
       : DEFAULT_EFFORT,
@@ -47,30 +50,60 @@ export function buildConfigOptions(
   config: SessionConfig,
   backend: "sdk" | "exec" = "exec",
   discovery?: ModelDiscoveryResult,
+  hostVersion?: string | null,
 ): SessionConfigOption[] {
-  const discovered =
+  const discovered: readonly DiscoveredModel[] =
     backend === "sdk"
       ? discovery?.status === "available"
-        ? discovery.models
+        ? discovery.models.filter((model) => model.profileId == null)
         : []
       : KNOWN_MODELS.map((id) => ({ id, name: id }));
-  const models = discovered.some((model) => model.id === config.model)
-    ? discovered
-    : [{ id: config.model, name: config.model }, ...discovered];
+  const current = discovered.filter(
+    (model) =>
+      model.id === config.model &&
+      (!config.providerId || model.providerId === config.providerId) &&
+      (config.profileId === undefined || model.profileId === config.profileId),
+  );
+  const models =
+    current.length === 1
+      ? discovered
+      : [
+          {
+            id: config.model,
+            name: config.model,
+            providerId: config.providerId,
+            profileId: config.profileId,
+          },
+          ...discovered,
+        ];
   return [
     {
       id: MODEL_CONFIG_ID,
       name: "Model",
       category: "model",
       type: "select",
-      currentValue: config.model,
+      currentValue: modelChoice(
+        current.length === 1
+          ? current[0]
+          : {
+              id: config.model,
+              name: config.model,
+              providerId: config.providerId,
+              profileId: config.profileId,
+            },
+      ),
       description:
         backend === "sdk"
           ? discovery?.status === "available"
             ? `Muse model catalog (${discovery.source}); current selection is retained.`
             : "Model discovery unavailable; showing the current configured or restored model."
           : "Legacy exec model choices.",
-      options: models.map((model) => ({ value: model.id, name: model.name })),
+      options: models.map((model) => ({
+        value: modelChoice(model),
+        name: model.providerId
+          ? `${model.name} (${model.providerId}${model.profileId ? ` / ${model.profileId}` : ""})`
+          : model.name,
+      })),
     },
     {
       id: EFFORT_CONFIG_ID,
@@ -78,6 +111,7 @@ export function buildConfigOptions(
       category: "thought_level",
       type: "select",
       currentValue: config.reasoningEffort,
+      description: effortDescription(backend, hostVersion),
       options: EFFORT_LEVELS.map((effort) => ({
         value: effort,
         name: effort,
@@ -91,13 +125,14 @@ export function applyConfigSelection(
   config: SessionConfig,
   configId: string,
   value: unknown,
+  discovery?: ModelDiscoveryResult,
 ): SessionConfig {
   if (typeof value !== "string") {
     throw RequestError.invalidParams(undefined, `config ${configId} expects a select value`);
   }
   switch (configId) {
     case MODEL_CONFIG_ID:
-      return { ...config, model: value };
+      return selectModel(config, value, discovery);
     case EFFORT_CONFIG_ID:
       if (!isReasoningEffort(value)) {
         throw RequestError.invalidParams(undefined, `unknown reasoning effort: ${value}`);
@@ -106,4 +141,87 @@ export function applyConfigSelection(
     default:
       throw RequestError.invalidParams(undefined, `unknown config option: ${configId}`);
   }
+}
+
+/** Provider/profile-qualified values are opaque ACP choices, never model IDs on MSP. */
+export function modelChoice(model: DiscoveredModel): string {
+  return model.providerId
+    ? `muse-model:${encodeURIComponent(JSON.stringify([model.providerId, model.profileId ?? null, model.id]))}`
+    : model.id;
+}
+export function selectModel(
+  config: SessionConfig,
+  value: string,
+  discovery?: ModelDiscoveryResult,
+): SessionConfig {
+  const models = discovery?.status === "available" ? discovery.models : [];
+  const exact = models.filter((model) => modelChoice(model) === value);
+  const matches = exact.length ? exact : models.filter((model) => model.id === value);
+  if (matches.length > 1)
+    throw RequestError.invalidParams(
+      undefined,
+      "Ambiguous model ID; select a provider-qualified catalog choice",
+    );
+  if (matches.length === 1) {
+    const model = matches[0];
+    if (model.profileId != null)
+      throw RequestError.invalidParams(
+        undefined,
+        "Named model profile routing is unverified on supported Muse hosts; choose a provider model without a named profile",
+      );
+    return { ...config, model: model.id, providerId: model.providerId, profileId: model.profileId };
+  }
+  if (
+    value.startsWith("muse-model:") &&
+    value !==
+      modelChoice({
+        id: config.model,
+        name: config.model,
+        providerId: config.providerId,
+        profileId: config.profileId,
+      })
+  )
+    throw RequestError.invalidParams(
+      undefined,
+      "Model choice is no longer in the catalog; refresh the available choices",
+    );
+  if (!value.trim() || value.length > 512)
+    throw RequestError.invalidParams(undefined, "Invalid model ID");
+  // A manual ID is an explicit requested setting; the host validates it before a turn.
+  return { ...config, model: value.startsWith("muse-model:") ? config.model : value };
+}
+export function effortDescription(backend: "sdk" | "exec", hostVersion?: string | null): string {
+  if (backend === "exec")
+    return "Requested CLI effort; provider-specific effective behavior is not verified here.";
+  if (hostVersion === "1.1.1")
+    return "Requested effort only: Muse 1.1.1 omits effort from the main provider request. Saved preference does not imply effective control.";
+  if (hostVersion?.startsWith("1.2.1"))
+    return "Requested effort; verified Muse 1.2.1 maps none to minimal and ultra to max. Other listed values reach the main request unchanged. Per-model restrictions are unavailable.";
+  return "Requested effort only; effective mapping is unverified for this host. Per-model restrictions are unavailable.";
+}
+
+export function resolvedModel(
+  config: SessionConfig,
+  discovery: ModelDiscoveryResult | undefined,
+  defaultProvider = "meta",
+): { model: string; providerId: string; profileId?: string | null } {
+  const candidates =
+    discovery?.status === "available"
+      ? discovery.models.filter(
+          (model) =>
+            model.id === config.model &&
+            (!config.providerId || model.providerId === config.providerId) &&
+            (config.profileId === undefined || (model.profileId ?? null) === config.profileId),
+        )
+      : [];
+  if (candidates.length > 1)
+    throw RequestError.invalidParams(
+      undefined,
+      "Current model has ambiguous provider/profile identity; select a qualified catalog choice",
+    );
+  return {
+    model: config.model,
+    providerId: config.providerId ?? candidates[0]?.providerId ?? defaultProvider,
+    profileId: config.profileId !== undefined ? config.profileId : candidates[0]?.profileId,
+  };
 }

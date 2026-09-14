@@ -8,7 +8,7 @@ settings, and other capabilities currently rejected or described as unsupported.
 This is a research/planning handoff; it does not enable production controls or
 authorize a new release.
 
-Create [m4](../done/m4/README.md) (11 tasks), [m5](../m5/README.md) (8 tasks) and
+Create [m4](../done/m4/README.md) (11 tasks), [m5](../done/m5/README.md) (8 tasks) and
 [m6](../m6/README.md) (9 tasks). m4 consumes 010 and supersedes all eight still-open
 w1/m25 tasks, preserving their full content and explicit replacement mapping.
 No external task frontmatter depended on a w1/m25 task. Historical links are

@@ -1,3 +1,4 @@
+import { modelChoice } from "../config-options.js";
 import { startLoopbackProvider } from "./loopback-provider.js";
 import { expectLegacyContinuation } from "./acp-real-host-helpers.js";
 import { CAT_IMAGE_BASE64 } from "./fixtures/cat-image.js";
@@ -171,6 +172,12 @@ describe.skipIf(!available)("SDK live host (no external API)", () => {
         cwd,
         mcpServers: [],
       });
+      // Legacy echo history requires an explicit provider migration.
+      await loaded.request(methods.agent.session.setConfigOption, {
+        sessionId: old.sessionId,
+        configId: "model",
+        value: modelChoice({ id: "fake-model", name: "fake-model", providerId: "meta" }),
+      });
       await expectLegacyContinuation(
         loaded.request(methods.agent.session.prompt, { sessionId: old.sessionId, prompt }),
       );
@@ -267,7 +274,12 @@ describe.skipIf(!available)("SDK discovered capabilities and embedded context", 
       });
       expect(created.configOptions?.find((o) => o.id === "model")).toMatchObject({
         description: expect.stringContaining("catalog"),
-        options: expect.arrayContaining([{ value: "fake-model", name: "fake-model" }]),
+        options: expect.arrayContaining([
+          {
+            value: modelChoice({ id: "fake-model", name: "fake-model", providerId: "meta" }),
+            name: "fake-model (meta)",
+          },
+        ]),
       });
       await expect(
         ctx.request(methods.agent.session.prompt, {

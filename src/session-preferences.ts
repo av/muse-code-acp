@@ -21,6 +21,8 @@ type Preferences = {
   reasoningEffort?: string;
   modeId?: "default" | "readOnly" | "plan" | "bypassApprovals" | "rejectApprovals";
   safety?: SafetySettings;
+  providerBinding?: string;
+  modelSelection?: { model: string; providerId?: string; profileId?: string | null };
 };
 export function readSessionPreferences(
   sessionId: string,
@@ -36,6 +38,17 @@ export function readSessionPreferences(
   if (
     !doc ||
     doc.schemaVersion !== 1 ||
+    (doc.modelSelection !== undefined &&
+      (!doc.modelSelection ||
+        typeof doc.modelSelection !== "object" ||
+        typeof doc.modelSelection.model !== "string" ||
+        !doc.modelSelection.model.trim() ||
+        (doc.modelSelection.providerId !== undefined &&
+          typeof doc.modelSelection.providerId !== "string") ||
+        (doc.modelSelection.profileId != null &&
+          typeof doc.modelSelection.profileId !== "string"))) ||
+    (doc.providerBinding !== undefined &&
+      (typeof doc.providerBinding !== "string" || !/^[a-f0-9]{64}$/.test(doc.providerBinding))) ||
     (doc.safety !== undefined && !validSafety(doc.safety)) ||
     (doc.reasoningEffort !== undefined && !isReasoningEffort(doc.reasoningEffort)) ||
     (doc.modeId !== undefined &&
@@ -52,7 +65,10 @@ export function readSessionEffort(
 }
 export function writeSessionPreferences(
   sessionId: string,
-  change: Pick<Preferences, "reasoningEffort" | "modeId" | "safety">,
+  change: Pick<
+    Preferences,
+    "reasoningEffort" | "modeId" | "safety" | "providerBinding" | "modelSelection"
+  >,
   env: Record<string, string | undefined>,
 ): void {
   const doc = { ...readSessionPreferences(sessionId, env), ...change };

@@ -13,6 +13,7 @@ import {
 import { validateHeaderName, validateHeaderValue } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ClientProvider } from "./client-provider.js";
 import type { SessionConfig } from "./config-options.js";
 import { museSettingsPath } from "./muse-settings.js";
 
@@ -103,6 +104,7 @@ export function createMuseMcpOverlay(
   mcpServers: McpServer[],
   baseEnv: Record<string, string | undefined> = process.env,
   executionConfig?: SessionConfig,
+  provider?: ClientProvider,
 ): MuseMcpOverlay {
   const sourceConfigHome = baseEnv.XDG_CONFIG_HOME || join(baseEnv.HOME ?? homedir(), ".config");
   const configHome = mkdtempSync(join(tmpdir(), "muse-code-acp-"));
@@ -148,7 +150,17 @@ export function createMuseMcpOverlay(
       // Muse 1.1.1 initializes its execution provider from settings even when
       // MSP selects another session model. Keep both views in agreement.
       ...(executionConfig
-        ? { model: executionConfig.model, reasoning_effort: executionConfig.reasoningEffort }
+        ? {
+            model: executionConfig.model,
+            reasoning_effort: executionConfig.reasoningEffort,
+            ...(executionConfig.providerId ? { provider: executionConfig.providerId } : {}),
+          }
+        : {}),
+      ...(provider
+        ? {
+            provider: provider.providerId,
+            endpoint_transport: { base_url: provider.baseUrl, auth: "bearer" },
+          }
         : {}),
       [executionConfig ? "mcpServers" : "mcp_servers"]: {
         ...(existingMcp ?? {}),
@@ -160,7 +172,11 @@ export function createMuseMcpOverlay(
     chmodSync(overlaySettingsPath, 0o600);
 
     return {
-      env: { ...baseEnv, XDG_CONFIG_HOME: configHome },
+      env: {
+        ...baseEnv,
+        ...(provider ? { META_API_KEY: provider.apiKey } : {}),
+        XDG_CONFIG_HOME: configHome,
+      },
       configHome,
       cleanup: () => rmSync(configHome, { recursive: true, force: true }),
     };

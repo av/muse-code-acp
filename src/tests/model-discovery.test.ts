@@ -187,3 +187,24 @@ test("a replaced host binary invalidates the cached catalog", async () => {
   expect(await f.discovery.discover(f.root)).toMatchObject({ models: [{ id: "updated-host" }] });
   expect(f.calls()).toBe(2);
 });
+
+test("retains duplicate model names across distinct provider identities", async () => {
+  const f = setup();
+  writeFileSync(
+    f.catalog,
+    JSON.stringify({
+      source: "fakeCatalog",
+      models: [
+        { modelId: "same", displayLabel: "Same", providerId: "one" },
+        { modelId: "same", displayLabel: "Same", providerId: "two" },
+      ],
+    }),
+  );
+  expect(await f.discovery.discover(f.root)).toMatchObject({
+    status: "available",
+    models: [
+      { id: "same", providerId: "one" },
+      { id: "same", providerId: "two" },
+    ],
+  });
+});

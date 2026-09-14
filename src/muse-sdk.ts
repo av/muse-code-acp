@@ -57,6 +57,8 @@ export interface MuseSdkOptions {
   /** Ordered Muse turn input parts (text encodings of ACP content). */
   input: MuseInputPart[];
   model: string;
+  providerId?: string;
+  profileId?: string | null;
   reasoningEffort: string;
   readOnly: boolean;
   safety?: import("./safety-settings.js").SafetySettings;
@@ -93,7 +95,12 @@ export async function readMuseSdkSession(
     MuseSdkOptions,
     "sessionId" | "cwd" | "env" | "museBinary" | "logger" | "checkHost"
   > & { readGoal?: boolean; allowActive?: boolean },
-): Promise<{ modelId: string | null; goal?: GoalObservation; info?: SessionInfo }> {
+): Promise<{
+  modelId: string | null;
+  providerId?: string;
+  goal?: GoalObservation;
+  info?: SessionInfo;
+}> {
   if (options.checkHost !== false) assertSdkHostSupport(options.env, options.museBinary);
   const handshake = spawnMspConnection({
     command: options.museBinary ?? museCliPath(options.env),
@@ -119,6 +126,7 @@ export async function readMuseSdkSession(
           sessionId: string;
           workspaceRoot: string | null;
           modelId: string | null;
+          providerId?: string | null;
           activeTurnId: string | null;
         }
       | undefined;
@@ -144,6 +152,7 @@ export async function readMuseSdkSession(
     }
     return {
       modelId: session.modelId,
+      ...(typeof session.providerId === "string" ? { providerId: session.providerId } : {}),
       info: optionalSessionInfo(result.session),
       ...(options.readGoal
         ? { goal: await readGoalFromConnection(host.connection, options.sessionId, result) }

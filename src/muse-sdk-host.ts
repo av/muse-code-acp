@@ -30,6 +30,8 @@ type HostOptions = Pick<
   | "logger"
   | "checkHost"
   | "safety"
+  | "providerId"
+  | "profileId"
 > & {
   idleTimeoutMs?: number;
   maxTurns?: number;
@@ -112,6 +114,8 @@ export class MuseSdkHost {
       options.sessionId !== this.options.sessionId ||
       realpathSync(options.cwd) !== realpathSync(this.options.cwd) ||
       options.model !== this.options.model ||
+      options.providerId !== this.options.providerId ||
+      options.profileId !== this.options.profileId ||
       options.readOnly !== this.options.readOnly ||
       JSON.stringify(options.safety ?? DEFAULT_SAFETY) !==
         JSON.stringify(this.options.safety ?? DEFAULT_SAFETY)
@@ -204,6 +208,10 @@ export class MuseSdkHost {
 
   private async open(): Promise<HostLease> {
     const options = this.options;
+    if (options.profileId != null)
+      throw new Error(
+        "Named model profile routing is unverified on supported Muse hosts; choose a provider model without a named profile. No turn was started",
+      );
     // Only probed when the host check runs: spawning the real binary for a
     // version string is exactly what `checkHost: false` exists to avoid.
     const hostVersion =
@@ -272,6 +280,7 @@ export class MuseSdkHost {
         sessionId: options.sessionId,
         workspaceRoot: options.cwd,
         modelId: options.model,
+        ...(options.providerId ? { providerId: options.providerId } : {}),
         approvalMode: requestedPolicy,
       });
     }
@@ -293,11 +302,40 @@ export class MuseSdkHost {
         "The saved Muse session has an unfinished turn or pending input; resolve it in Muse before continuing",
       );
     await this.applyPolicy(host);
-    if (saved.modelId !== options.model)
-      await host.connection.command("session/setModel", {
+    // Resume metadata can reflect startup settings while execution still uses
+    // the previous model. An explicit public setter is required even if equal.
+    {
+      try {
+        await host.connection.command("session/setModel", {
+          sessionId: options.sessionId,
+          model: {
+            modelId: options.model,
+            providerId: options.providerId ?? saved.providerId,
+            ...(options.profileId ? { profileId: options.profileId } : {}),
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof MspError)) throw error;
+        throw new Error(
+          "Muse rejected the requested model/provider. Choose a supported provider-qualified catalog option before retrying; no turn was started",
+          { cause: error },
+        );
+      }
+      const observed = await host.connection.request("session/read", {
         sessionId: options.sessionId,
-        model: { modelId: options.model },
+        includeTurns: false,
       });
+      if (
+        !observed.session ||
+        typeof observed.session !== "object" ||
+        !("modelId" in observed.session) ||
+        observed.session.modelId !== options.model ||
+        (options.providerId &&
+          (!("providerId" in observed.session) ||
+            observed.session.providerId !== options.providerId))
+      )
+        throw new Error("Muse did not confirm the requested model/provider; no turn was started");
+    }
     if (this.stopped) {
       await client.close().catch(() => {});
       throw new Error("Muse SDK host closed during startup");

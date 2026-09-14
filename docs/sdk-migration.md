@@ -88,23 +88,36 @@ encoding. No URI is fetched; the same encoding is used for legacy exec.
 
 ## Modes
 
-SDK reasoning-effort choices are `none`, `minimal`, `low`, `medium`, `high`,
-`xhigh`, and `ultra`, the public MSP vocabulary accepted in completed Muse 1.1.1
-loopback turns. Values pass through unchanged; unknown selections are rejected.
-The catalog does not supply per-model effort restrictions. These controls request
-a host effort tier; individual providers determine its effect and may map tiers.
-An explicit ACP effort selection is saved in adapter-owned
-`$XDG_DATA_HOME/muse-code-acp/sessions/` (or `~/.local/share/muse-code-acp/sessions/`).
-Loading reads the authoritative model through MSP `session/read` and restores
-that effort selection; sessions without one use the current settings default.
-Load/resume restore validated mode and safety choices; fork resets them to
-defaults. Muse session logs and global settings are not modified by the adapter
-preference store.
+Legacy echo-provider history requires an explicit selection of a supported provider
+model before SDK continuation; the adapter no longer silently changes that provider.
 
-Muse 1.1.1 initializes its execution provider from settings even when MSP
-selects a different session model. SDK turns therefore put the selected model
-and effort into the same private settings overlay used for MCP, in addition to
-the MSP selection. The overlay remains until its retained host closes; user settings stay intact.
+SDK reasoning-effort choices are `none`, `minimal`, `low`, `medium`, `high`,
+`xhigh`, and `ultra`. Unknown selections are rejected. These are requested tiers:
+main-provider loopback captures show Muse 1.1.1 omits effort for all seven;
+Muse 1.2.1 maps `none` to `minimal`, `ultra` to `max`, and passes the other
+five unchanged. Reminder requests are separate and do not prove main-turn effort.
+Other versions and per-model restrictions remain unverified. The option description
+reports these limits; effort changes preserve the idle host and apply per turn.
+
+Explicit effort and the last successful model/provider selection are saved in
+adapter-owned `$XDG_DATA_HOME/muse-code-acp/sessions/` (or
+`~/.local/share/muse-code-acp/sessions/`). Restoring preserves this recorded intent;
+legacy sessions without a record use public `session/read` metadata, which is host
+reported, not a provider-wire observation. Restoring reapplies the recorded selection through the public setter before
+another turn. Load/resume restore validated mode and safety choices; fork resets
+those safety controls. Muse session logs and global settings are not modified.
+
+Idle model/provider selections replace the execution host with an isolated public
+settings overlay. Muse resume metadata may already report the new settings while
+execution retains the previous model: the adapter therefore always calls public
+`session/setModel` with provider identity and checks public `session/read` before
+starting a turn. Actual main-provider captures verify switching on both hosts,
+including a reused multi-turn session. Failed admission starts no turn and does
+not persist the selection as successfully applied. Config options represent requested
+settings; negotiated `muse/sessionState` reports native observations separately.
+The overlay remains until its retained host closes; user settings stay intact.
+Named profile identity is preserved in discovery, but effective routing is unverified;
+named-profile selections are unavailable with an actionable explanation.
 
 Form elicitation supports single selections, bounded multiple selections, and
 free text up to 500 characters. Invalid responses fail the turn and cancel the
@@ -225,13 +238,13 @@ and command advertisement before returning.
 ## Runtime discovery and editor context
 
 SDK session creation, load and retained-session resume query public `model/list`
-without starting a model turn. ACP model choices use host IDs and labels; the
+without starting a model turn. ACP model choices retain model, provider and optional profile identity; values with
+provider identity are opaque `muse-model:` choices and labels identify the provider; the
 current configured/restored model is retained even when absent from the catalog.
 The option description identifies the catalog source. An unavailable, malformed
 or unsupported catalog falls back to the current model only and says so explicitly.
-Legacy exec retains its compatibility menu. Changing a model preserves the saved
-effort, and previously saved selections survive reload; explicit custom model
-selections retain the existing host-validation behavior at submission.
+Legacy exec retains its compatibility menu. Explicit custom model selections retain host validation at submission. Ambiguous
+raw IDs and stale qualified catalog choices are rejected; selection preserves effort.
 
 Discovery uses a per-agent 30-second cache (including failures), with at most four
 entries and four concurrent probes. Identity includes canonical workspace, binary
@@ -265,7 +278,7 @@ dummy credentials and a local loopback endpoint; no paid provider was called.
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Initialize           | Observed server version 1.1.1, schema version 1, durable sessions, empty grantedCapabilities and experimentalApi false. These fields alone do not prove every declared method works.                                                   |
 | Model discovery      | `initialize` followed by `model/list {}` returned `bundledCatalog` with configured `fake-model`; provider discovery need not run and nullable catalog metadata is valid. ACP consumes the returned snapshot.                           |
-| Effort               | Public schema declares seven tiers; all seven raw SDK turns completed against the loopback host. Adapter forwards exactly those tiers and rejects unknown values. Per-model restrictions are not present in model/list.                |
+| Effort               | Seven requested tiers: main-provider captures show 1.1.1 omits effort; 1.2.1 maps none→minimal and ultra→max, passing the other five. Per-model restrictions remain unknown.                                                           |
 | Embedded context     | ACP resource-only prompt traversed the real SDK/host; captured provider input decoded to the exact unsaved text, URI and MIME attribution.                                                                                             |
 | Reasoning summaries  | Public item schema declares `reasoning.summary` and indexed summary deltas. Actual summary events are not yet verified or forwarded; private/encrypted reasoning is not accessed.                                                      |
 | Usage/context        | Public schema declares usage/context data. End-to-end ACP reporting is unverified and remains unadvertised until m9.                                                                                                                   |
@@ -287,8 +300,9 @@ writer lease: close the old ACP session (or allow idle expiry) before another
 client takes over that native session. No host is pooled across ACP sessions.
 
 Compatibility includes canonical workspace, binary identity, environment,
-settings/auth content, model, effort, mode and MCP server configuration. Changes
-replace the host before the next turn. Private settings overlays remain available
+settings/auth content, model/provider, mode, safety and MCP server configuration.
+Compatible effort updates use the retained host; other supported changes replace it
+before the next turn. Model changes require a new idle host and the explicit public setter. Private settings overlays remain available
 until their owning host closes, including while idle, then are deleted. Read-only
 flags are fixed at process creation. SDK permission/elicitation handlers are scoped
 to each turn; late replies cannot answer a later turn. Legacy exec keeps its
@@ -501,3 +515,38 @@ The adapter retains `MuseClient` routing and its gap-fill/host-death handling.
 Actual model/mode events and durable page reads are exercised on real hosts;
 persistence failure handling is verified with a deterministic public-wire fixture,
 not by inducing a real user's policy-write failure.
+
+## Explicit client gateways and recommendations
+
+SDK clients may negotiate `clientCapabilities._meta["muse/provider"] = 1` and
+supply session new/load/resume metadata:
+
+```json
+{
+  "_meta": {
+    "muse/provider": {
+      "providerId": "meta",
+      "baseUrl": "http://127.0.0.1:8080",
+      "apiKey": "gateway-token"
+    }
+  }
+}
+```
+
+This configures Muse's public `endpoint_transport` and bearer credential in an
+isolated session environment. Currently only the Meta-compatible transport is
+accepted. Separate sessions have separate overlays and credential-sensitive catalog
+cache identities. A rejected endpoint never falls back to the default gateway.
+The preference store contains only an endpoint fingerprint, never the key; after
+close or process restart, supply the same endpoint and credentials again. Idle
+resume permits key rotation. Fork inherits an independent overlay; logout closes
+bound custom-provider sessions and clears their in-memory credentials. URLs cannot
+contain embedded credentials, query parameters or fragments.
+
+An independent opt-in, `clientCapabilities._meta["muse/configRecommendations"] = 1`,
+adds recommendations to model/effort config option metadata under that same key.
+Recommendations reference displayed choices, identify catalog-default or retained
+selection provenance, and always carry `applied: false`. They never overwrite a
+selection or infer account tiers, quotas or model restrictions. Unavailable catalogs
+retain the current choice; Muse 1.1.1 effort is explicitly marked unavailable.
+Baseline ACP clients need neither extension.

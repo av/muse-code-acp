@@ -7,6 +7,9 @@ export interface DiscoveredModel {
   id: string;
   name: string;
   description?: string;
+  providerId?: string;
+  profileId?: string | null;
+  isDefault?: boolean;
 }
 export type ModelDiscoveryResult =
   | { status: "available"; models: readonly DiscoveredModel[]; source: string }
@@ -41,21 +44,29 @@ function parseCatalog(value: unknown): ModelDiscoveryResult {
   const ids = new Set<string>();
   const result = models.map((row: unknown): DiscoveredModel => {
     if (!row || typeof row !== "object") throw new Error("malformed model/list row");
-    const { modelId, displayLabel, description } = row as Record<string, unknown>;
+    const { modelId, displayLabel, description, providerId, profileId, isDefault } = row as Record<
+      string,
+      unknown
+    >;
     if (
       typeof modelId !== "string" ||
       !modelId.trim() ||
       typeof displayLabel !== "string" ||
       !displayLabel.trim() ||
       (description != null && typeof description !== "string") ||
-      ids.has(modelId)
+      (providerId != null && (typeof providerId !== "string" || !providerId.trim())) ||
+      (profileId != null && typeof profileId !== "string") ||
+      ids.has(JSON.stringify([providerId ?? null, profileId ?? null, modelId]))
     ) {
       throw new Error("malformed or duplicate model/list row");
     }
-    ids.add(modelId);
+    ids.add(JSON.stringify([providerId ?? null, profileId ?? null, modelId]));
     return Object.freeze({
       id: modelId,
       name: displayLabel,
+      ...(typeof providerId === "string" ? { providerId } : {}),
+      ...(profileId !== undefined ? { profileId: profileId as string | null } : {}),
+      ...(typeof isDefault === "boolean" ? { isDefault } : {}),
       ...(typeof description === "string" ? { description } : {}),
     });
   });
@@ -75,10 +86,13 @@ export class MuseModelDiscovery {
     this.capacity = Math.max(1, Math.min(32, options.maxEntries ?? 4));
   }
 
-  async discover(cwd: string): Promise<ModelDiscoveryResult> {
+  async discover(
+    cwd: string,
+    overrideEnv?: Record<string, string | undefined>,
+  ): Promise<ModelDiscoveryResult> {
     if (this.disposed) return fallback("Model discovery is disposed");
     try {
-      const env = { ...this.options.env };
+      const env = { ...(overrideEnv ?? this.options.env) };
       const {
         binary,
         cwd: workspace,
