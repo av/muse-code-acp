@@ -54,27 +54,26 @@ A separate allowAll run verified the marker was absent before the decision and r
 
 Resume t001 with a documented public configuration/tool path that verifies the intended matched/unmatched distinctions and explain how it interacts with explicit SDK approval requests. Then implement only proven choices, and continue separate sandbox-posture enforcement/host-replacement checks in t003/t004. Do not synthesize approvals or add disable-sandbox/yolo defaults to force the tests through. All eight tasks remain open; no safety options were advertised or production policy changed. Local executable probes and public notifications are retained in `.tmp/m25-probe/`. No paid providers or external writes were used.
 
-## User-impact triage refresh (2026-09-13)
+## User-impact follow-up — 2026-09-13
 
-[w2/003](../../w2/003.md) records a P1 unattended-execution gap. On supported
-Muse 1.1.1-R2514.1 / SDK 0.1.1, fresh isolated startup onRequest and allowAll
-probes each requested one approval for the shell marker action; both reported
-matching effective state and wrote the marker only after a fixture decision.
-No new policy enforcement capability was established. t001 remains the next
-investigation; w1/m10/t008 is complete. Prioritize verified automatic approvals
-with sandbox retained, and measure multiple distinct actions and resumed turns.
-Do not conflate that outcome with full sandbox-off YOLO. See the linked triage
-for commands, observed effects, scope limits and the existing session-grant mapping.
+[w2/003](../../w2/done/003.md) is closed as expected Allow once behavior, not as
+an automatic-execution fix. Real Bex Dev two-operation probes on local adapter
+ed57631 / SDK 0.1.1 with Muse 1.1.1 and, separately, 1.2.1 verified that each
+operation waited for its own approval and executed only after Bex returned it.
+No broader choice was offered or discarded. This does not prove an automatic
+policy failure: those integration runs used Default / onRequest.
 
-## Codex parity follow-up — 2026-09-13
+The user's request for a selectable automatic-execution mode remains here. All
+existing tasks and acceptance criteria remain open; t001 is next and w1/m10/t008
+is complete. Keep the native policy enforcement investigation above separate
+from correct manual approval behavior. No duplicate inbox implementation remains.
 
-The adapter now exposes its existing modes through ACP configOptions and keeps
-legacy mode and config updates synchronized, including `/plan` and restored state.
-This is interface parity, not completion of native automatic approval. No m25 task
-is closed. Repeated prompts alone do not establish a Bex or adapter defect.
-
-A fresh native comparison found `pwd` runs without approval in both onRequest and
-allowAll; the shell redirect marker still requested approval in allowAll, with an
-unresolved stage, protectedWrite=false and judgeEscalated=false. Rejecting the
-request prevented the write. Native Codex auto_review has no equivalent reviewer
-selector in the pinned public Muse schema. See w2/003 for the narrowed attribution.
+The separate ed57631 interface fix exposes existing modes through configOptions
+and synchronizes legacy mode/config updates, including `/plan` and restored state.
+It does not deliver native automatic approval. Fresh native comparisons found
+`pwd` and ordinary `write_file` complete without approval in both onRequest and
+allowAll, while the tested shell redirect still requests approval under allowAll
+with an unresolved stage, protectedWrite=false and judgeEscalated=false. Rejection
+prevents that write. The pinned Muse schema has no Codex-style reviewer selector.
+Prioritize verified automatic approvals with sandbox retained; full sandbox-off
+YOLO remains a separate choice. Policy probes in `.tmp/m25-probe/` are retained.
