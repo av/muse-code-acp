@@ -44,19 +44,19 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 
 ## Public SDK API map
 
-| ACP / adapter behavior | Public SDK / MSP API                                                     | Fallback                                                                    |
-| ---------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Spawn MSP host         | `spawnMspConnection` + `MuseClient`                                      | —                                                                           |
-| Handshake / durability | `initialize` + `readSessionDurability`                                   | fingerprint mismatch is advisory                                            |
-| Start / resume session | `MuseClient.startSession` / `resumeSession`                              | missing session (`-32020`) → start; in-use/busy/wrong workspace fail closed |
-| Approval mode          | `startSession({ approvalMode: "onRequest" })` + resume `setApprovalMode` | host default is `promptUnmatched`                                           |
-| Set model              | `Connection.command("session/setModel")`                                 | facade has no setModel                                                      |
-| Submit turn            | `Session.sendUserTurn`                                                   | —                                                                           |
-| Stream items / deltas  | `Turn.items()` / `Turn.deltas()` (+ fold catch-up for pre-ack deltas)    | —                                                                           |
-| Cancel                 | `Connection.command("turn/cancel")`                                      | close host if cancel fails                                                  |
-| Approvals              | `Session.onApproval` → ACP `session/request_permission`                  | cancel/deny map to a host-offered deny choice; no fabricated grants         |
-| User input             | fold `pendingUserInputs` + `userInput/answer`\|`cancel`                  | clients without form elicitation cancel and fail the turn                   |
-| View gaps              | Session gap-fill (`view/page`) + `onGapError`                            | stalled/failed fill fails the prompt; no extra `turn/start`                 |
+| ACP / adapter behavior | Public SDK / MSP API                                                                             | Fallback                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| Spawn MSP host         | `spawnMspConnection` + `MuseClient`                                                              | —                                                                                               |
+| Handshake / durability | `initialize` + `readSessionDurability`                                                           | fingerprint mismatch is advisory                                                                |
+| Start / resume session | `MuseClient.startSession` / `resumeSession`                                                      | missing session (`-32020`) → start; in-use/busy/wrong workspace fail closed                     |
+| Approval mode          | `startSession({ approvalMode: "onRequest" })` + resume `setApprovalMode`                         | host default is `promptUnmatched`                                                               |
+| Set model              | `Connection.command("session/setModel")`                                                         | facade has no setModel                                                                          |
+| Submit turn            | `Session.sendUserTurn`                                                                           | —                                                                                               |
+| Stream items / deltas  | `Turn.items()` / `Turn.deltas()` (+ fold catch-up for pre-ack deltas)                            | —                                                                                               |
+| Cancel                 | `Connection.command("turn/cancel")`                                                              | close host if cancel fails                                                                      |
+| Approvals              | fold `pendingApprovals` (+`latestUpdate`) → ACP `session/request_permission` → `approval/decide` | cancel/deny map to a host-offered deny choice; no fabricated grants; `-32053` re-reads the fold |
+| User input             | fold `pendingUserInputs` + `userInput/answer`\|`cancel`                                          | clients without form elicitation cancel and fail the turn                                       |
+| View gaps              | Session gap-fill (`view/page`) + `onGapError`                                                    | stalled/failed fill fails the prompt; no extra `turn/start`                                     |
 
 ## Retained CLI / store helpers
 
@@ -118,16 +118,19 @@ input request. Cancelling a turn never waits for a still-open client dialog.
 
 ## Test owners / CI profiles
 
-| Profile / suite                     | Covers                                                                   |
-| ----------------------------------- | ------------------------------------------------------------------------ |
-| `npm run test:unit`                 | Deterministic fake-MSP/wire contracts; no Muse binary                    |
-| `npm run test:muse-loopback`        | Real Muse + loopback: live, approval, ACP process restart                |
-| `npm run test:pack-smoke`           | `npm pack` → clean install → stdio initialize/new/prompt/stream/end_turn |
-| `RUN_INTEGRATION_TESTS=true`        | Optional external-provider acceptance (separate from CI)                 |
-| `src/tests/session-history.test.ts` | Export replay completeness / schema reject                               |
-| `src/tests/permissions.test.ts`     | MSP→ACP permission mapping + fake-host gate                              |
-| `src/tests/muse-sdk-gap.test.ts`    | Recoverable and failed view/page fills                                   |
-| `src/tests/acp-wire.test.ts`        | Spawned `dist/index.js` NDJSON wire                                      |
+| Profile / suite                      | Covers                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `npm run test:unit`                  | Deterministic fake-MSP/wire contracts; no Muse binary                    |
+| `npm run test:muse-loopback`         | Real Muse + loopback: live, approval, multi-stage approval, ACP restart  |
+| `npm run test:pack-smoke`            | `npm pack` → clean install → stdio initialize/new/prompt/stream/end_turn |
+| `RUN_INTEGRATION_TESTS=true`         | Optional external-provider acceptance (separate from CI)                 |
+| `src/tests/session-history.test.ts`  | Export replay completeness / schema reject                               |
+| `src/tests/permissions.test.ts`      | MSP→ACP permission mapping, multi-stage reconciliation, fake-host gate   |
+| `src/tests/fake-msp.test.ts`         | The fixture's own replay scripts (stage wire shapes and error codes)     |
+| `src/tests/pending-watchdog.test.ts` | Stall bound and stalled-host prompt failure                              |
+| `src/tests/muse-view-events.test.ts` | View-event classification + host compatibility metadata                  |
+| `src/tests/muse-sdk-gap.test.ts`     | Recoverable and failed view/page fills                                   |
+| `src/tests/acp-wire.test.ts`         | Spawned `dist/index.js` NDJSON wire                                      |
 
 CI installs the public Linux Muse **1.1.1-R2514.1** artifact and verifies its
 pinned SHA-256. Real-host tests run on Ubuntu 22.04: Muse 1.1.1's bundled
@@ -288,6 +291,54 @@ plan into implementation. Git snapshots and MCP exclusions bound the supported
 workflow. Review status and public approval-stage metadata are opt-in, with
 ordinary ACP output and permission options as the baseline. See the
 [workflow contract](workflows.md) for exact commands, limits and real-host evidence.
+
+## Multi-stage approvals and stall bounds (w2/m1)
+
+Muse splits a compound shell command into stages and requires a decision for each
+stage that is not already known-safe. On 1.2.1-R2847.1 the host advances such an
+approval by REFRESHING it — `approval/decide` answers `terminal: false` and an
+`approval/updated` names the next `currentRequirementId` — and never re-issues
+`approval/requested`. The pinned SDK routes only the request to `onApproval`
+(`facade/session.js` documents the omission), so a router-driven client answers
+the first stage and then waits forever. This is the w2/m1 defect.
+
+The adapter therefore decides approvals from the fold rather than from the
+router, the way pending user input was already handled:
+
+- The current requirement, offered choices and stage evidence come from
+  `latestUpdate` when the host has published one, otherwise from `requested`.
+  This covers BOTH host behaviors: a host that re-issues the request replaces the
+  fold entry, and a host that refreshes updates it.
+- Decisions are keyed by `(approvalId, sourceIndex)`, so each stage is asked
+  exactly once and never twice, and independent approvals stay concurrent.
+- `requirementId` is echoed from the view the host last published. MSP `-32053`
+  (stale requirement) means "re-read the approval", not "the turn failed"; any
+  other rejection fails the turn with its MSP code and no host detail.
+- Denying any stage submits the host-offered deny or abort choice for that
+  requirement. The host aborts the whole pending action, so no earlier stage runs.
+
+`Session.onApproval` is no longer registered for decisions. Two guardrails bound
+the class of defect rather than the instance:
+
+- **Stall bound.** A pending approval or user input with no outstanding ACP
+  request and no host progress for `MUSE_CODE_ACP_STALL_MS` (default 10 s) fails
+  the prompt with the approval id, requirement position, stage evidence and last
+  host frame, then asks the host to cancel. An open permission dialog, a slow
+  model and a long-running tool are progress and never trip it.
+- **Classification.** `src/muse-view-events.ts` names a consumer or a recorded
+  reason for every view event the pinned SDK can fold, and a test fails when an
+  installed SDK folds a method neither table lists.
+
+Clients receive `_meta["muse/hostCompatibility"]` on `session_info_update` once
+per host: pinned and served schema fingerprints, whether they agree, the detected
+host version, the minimum supported version and the hosts exercised end to end.
+A divergence stays advisory, matching the SDK's own rule.
+
+Verified on 1.2.1-R2847.1 with the loopback provider: two-stage and three-stage
+commands ask once per unresolved stage and write every file; denying the second
+stage writes nothing and still returns `end_turn`. The 1.1.1 baseline could not be
+re-tested locally because the Muse launcher removes superseded binaries and offers
+no pin; CI's 1.1.1 lane covers it.
 
 ## Standalone packaging (m24)
 

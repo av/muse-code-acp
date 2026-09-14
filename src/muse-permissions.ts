@@ -51,6 +51,75 @@ export interface MuseApprovalRequest {
   };
 }
 
+/** The `approval/updated` fields the ACP bridge re-reads (MSP SS5.6). */
+export interface MuseApprovalUpdate {
+  approvalId: string;
+  currentRequirementId: { approvalId: string; sourceIndex: number };
+  availableChoices: MuseApprovalChoice[];
+  change?: { kind: string };
+  subject?: {
+    kind: string;
+    stages?: ApprovalStage[];
+  };
+}
+
+/** A fold entry for an approval awaiting its durable terminal. */
+export interface MusePendingApproval {
+  requested: MuseApprovalRequest;
+  latestUpdate?: MuseApprovalUpdate;
+}
+
+/**
+ * The approval as the host most recently published it.
+ *
+ * `approval/requested` carries the identity (`turnId`, `toolCallId`, `rawArgs`);
+ * `approval/updated` carries the CURRENT requirement, the choices offered for it
+ * and refreshed stage resolutions. Muse 1.2.1 advances a multi-stage approval
+ * with an update and never re-issues the request, so a decision built from
+ * `requested` alone aims at a requirement the host already satisfied and is
+ * rejected as stale. Overlay rather than replace: an update carries none of the
+ * identity fields.
+ */
+export function currentApprovalView(pending: MusePendingApproval): MuseApprovalRequest {
+  const update = pending.latestUpdate;
+  if (!update) {
+    return pending.requested;
+  }
+  return {
+    ...pending.requested,
+    currentRequirementId: update.currentRequirementId,
+    availableChoices: update.availableChoices,
+    ...(update.subject ? { subject: update.subject } : {}),
+  };
+}
+
+/** Human-readable state of an approval that is not progressing, for diagnostics. */
+export function approvalStallDetail(pending: MusePendingApproval): string {
+  const view = currentApprovalView(pending);
+  const stages = view.subject?.stages ?? [];
+  const position = stages.find(
+    (stage) => stage.requirementId.sourceIndex === view.currentRequirementId.sourceIndex,
+  );
+  const resolutions = stages.map((stage) => stage.resolution.kind).join(", ");
+  return (
+    `Muse approval ${view.approvalId} is still pending at requirement ` +
+    `${view.currentRequirementId.sourceIndex}` +
+    (position ? ` (stage ${position.position} of ${position.totalStages})` : "") +
+    `; stages ${resolutions || "unreported"}` +
+    `; last host frame ${pending.latestUpdate ? "approval/updated" : "approval/requested"}`
+  );
+}
+
+/** Changes whenever the host publishes new state for an approval. */
+export function approvalSignature(pending: MusePendingApproval): string {
+  const view = currentApprovalView(pending);
+  return [
+    view.currentRequirementId.sourceIndex,
+    view.availableChoices.map((choice) => choice.choiceId).join(","),
+    (view.subject?.stages ?? []).map((stage) => stage.resolution.kind).join(","),
+  ].join("|");
+}
+
 /**
  * Map host-offered MSP approval choices onto ACP permission options.
  * optionId is the host choiceId so the selected value round-trips exactly.

@@ -24,6 +24,13 @@ and unauthorized, malformed or unreachable HTTP MCP endpoints no longer failed
 the prompt as required by the adapter's diagnostic contract. Pin the verified
 host; disabling approvals or sandboxing is not a workaround.
 
+One 1.2.1 defect is now fixed: a compound shell command needing approval for more
+than one stage used to hang forever on the SDK backend. That host continues such
+an approval by refreshing it rather than by asking again, and the adapter now
+follows either form. Multi-stage allow, deny and three-stage cases are verified
+on 1.2.1-R2847.1. The remaining 1.2.1 failures above are unchanged, so the
+supported host is still 1.1.1-R2514.1.
+
 The npm adapter and its pinned `@muse-code/sdk@0.1.1` dependency do not include
 the Muse executable. Native execution, model access, persistence and sandboxing
 remain owned by Muse.
@@ -121,6 +128,20 @@ automatic approval has not been verified on the supported Muse host. In isolated
 tests, `allowAll` was accepted but a shell write still required a decision.
 Remaining approval requests are forwarded to the client, not automatically granted.
 
+A shell command can need more than one approval: Muse splits a compound command
+into stages and asks about each one that is not already known-safe. The adapter
+decides every stage from the host's latest published requirement, so one tool
+call produces one permission request per unresolved stage and runs only after the
+last decision. Denying any stage cancels the whole command. Only choices the host
+offered are ever submitted.
+
+If the host stops making progress on a request the adapter owes it an answer to,
+the turn fails after `MUSE_CODE_ACP_STALL_MS` with the approval, requirement and
+stage evidence, rather than waiting indefinitely. Clients also receive a
+`muse/hostCompatibility` entry on `session_info_update` once per host, carrying
+the pinned and served schema fingerprints and the detected host version; a
+mismatch is advisory and never blocks a session.
+
 Each SDK session can retain its host across compatible turns. Idle hosts expire
 after 60 seconds; session close also releases them. Close a session before moving
 its native conversation to another client.
@@ -155,6 +176,7 @@ for Muse 0.2.1; this release's integration baseline remains 1.1.1-R2514.1.
 | `META_API_KEY`             | Provider credential; takes priority over stored auth                   |
 | `MUSE_CODE_ACP_ALLOW_YOLO` | Set to `1` to advertise yolo mode on exec only                         |
 | `MUSE_AGENT_LOGS`          | Directory for adapter spawn/stderr logs                                |
+| `MUSE_CODE_ACP_STALL_MS`   | Stall bound for pending host requests, default `10000` (SDK backend)   |
 
 `muse-code-acp --cli login` and `muse-code-acp --cli logout` delegate to the
 selected Muse executable. Logout does not unset an exported `META_API_KEY`.

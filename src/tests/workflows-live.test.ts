@@ -98,7 +98,7 @@ describe.skipIf(!available)("real Muse planning and review", () => {
           // shell tool. The adapter must surface failure and preserve the guard.
           // Implementation and review prompts below still require normal success.
           expect((error as Error).message).toBe(
-            "Internal error: Muse SDK turn failed: Muse approval round-trip failed (submitFailed; MSP -32603)",
+            "Internal error: Muse SDK turn failed: Muse approval decision rejected (MSP -32603)",
           );
         }
       };

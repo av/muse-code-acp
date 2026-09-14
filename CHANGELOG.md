@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Complete multi-stage shell approvals on the SDK backend. Muse splits a compound command into stages; on 1.2.1 the host advances the approval with `approval/updated` and never re-issues `approval/requested`, which the pinned SDK does not route, so the turn hung with no error. Approvals are now decided from the session fold, asking once per unresolved stage and submitting only host-offered choices.
+- Bound every wait on a pending host request: an approval or user input with no outstanding client call and no host progress for `MUSE_CODE_ACP_STALL_MS` (default 10s) now fails the prompt with the requirement and stage evidence instead of waiting indefinitely.
+- Stop re-asking a user input that was already answered but never settled by the host.
+- Publish `muse/hostCompatibility` on `session_info_update` once per host, with pinned and served schema fingerprints and the detected host version. A mismatch stays advisory.
+
 - Expose session modes through ACP config options, using the same validation and persistence as `set_mode`; synchronize config updates after mode, model, effort and `/plan` changes.
 - Centralize backend mode availability so SDK clients cannot select exec-only approval bypass modes through either interface. Native automatic approval remains unverified; this does not resolve unattended execution.
 

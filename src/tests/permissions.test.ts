@@ -11,7 +11,7 @@ import {
 } from "../muse-permissions.js";
 import { connectTestClient, fixturesDir, newTestSession } from "./helpers.js";
 
-function sdkClient(mode = "approval") {
+function sdkClient(mode = "approval", script?: string) {
   const binary = join(fixturesDir, "fake-msp.cjs");
   chmodSync(binary, 0o755);
   const capture = join(mkdtempSync(join(tmpdir(), "muse-perm-")), "requests.jsonl");
@@ -19,7 +19,12 @@ function sdkClient(mode = "approval") {
     backend: "sdk",
     museBinary: binary,
     skipSdkHostCheck: true,
-    env: { ...process.env, FAKE_MSP_MODE: mode, FAKE_MSP_CAPTURE: capture },
+    env: {
+      ...process.env,
+      FAKE_MSP_MODE: mode,
+      FAKE_MSP_CAPTURE: capture,
+      ...(script ? { FAKE_MSP_SCRIPT: script } : {}),
+    },
   });
   return {
     ...testClient,
@@ -159,6 +164,139 @@ describe("SDK approvals over ACP", () => {
   });
 });
 
+describe("multi-stage SDK approvals", () => {
+  /** One ACP request per unresolved stage, answered with the host's own choices. */
+  function stagedResponder(client: ReturnType<typeof sdkClient>, pick: (stage: number) => string) {
+    const seen: { stage: number; options: string[] }[] = [];
+    client.setPermissionResponder((params) => {
+      const stage = (params._meta?.museRequirementId as { sourceIndex: number }).sourceIndex;
+      seen.push({ stage, options: params.options.map((o) => o.optionId) });
+      return { outcome: { outcome: "selected", optionId: pick(stage) } };
+    });
+    return seen;
+  }
+
+  function decides(client: ReturnType<typeof sdkClient>) {
+    return client.requests().filter((r) => r.method === "approval/decide");
+  }
+
+  it("asks once per unresolved stage and runs the tool only after the last one", async () => {
+    const client = sdkClient("complete", "two-stage");
+    const seen = stagedResponder(client, () => "allow_once");
+    const { ctx, sessionId } = await newTestSession(client, { _meta: { "muse/approval": 1 } });
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "compound command" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+
+    expect(seen.map((s) => s.stage)).toEqual([0, 2]);
+    expect(decides(client).map((d) => d.params.requirementId.sourceIndex)).toEqual([0, 2]);
+    expect(
+      client.updates.map((u) => u.update).find((u) => u.sessionUpdate === "tool_call"),
+    ).toMatchObject({ toolCallId: "call1" });
+    const tool = client.updates
+      .map((u) => u.update)
+      .filter((u) => u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update")
+      .at(-1);
+    expect(tool).toMatchObject({ status: "completed" });
+  });
+
+  it("carries the refreshed stage evidence of the requirement being decided", async () => {
+    const client = sdkClient("complete", "two-stage");
+    const stages: string[][] = [];
+    client.setPermissionResponder((params) => {
+      const meta = params._meta?.["muse/approval"] as { stages?: { resolutionKind: string }[] };
+      stages.push((meta.stages ?? []).map((s) => s.resolutionKind));
+      return { outcome: { outcome: "selected", optionId: "allow_once" } };
+    });
+    const { ctx, sessionId } = await newTestSession(client, { _meta: { "muse/approval": 1 } });
+    await ctx.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: [{ type: "text", text: "compound command" }],
+    });
+    expect(stages[0]).toEqual(["unresolved", "known_safe", "unresolved", "known_safe"]);
+    // The second ask reflects the first decision rather than the opening view.
+    expect(stages[1]).toEqual(["allow_once", "known_safe", "unresolved", "known_safe"]);
+  });
+
+  it("handles more than two unresolved stages", async () => {
+    const client = sdkClient("complete", "three-stage");
+    const seen = stagedResponder(client, () => "allow_once");
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "three writes" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(seen.map((s) => s.stage)).toEqual([0, 2, 3]);
+    expect(decides(client)).toHaveLength(3);
+  });
+
+  it("denies a later stage with a host-offered choice and runs nothing", async () => {
+    const client = sdkClient("complete", "deny-at-stage-2");
+    const seen = stagedResponder(client, (stage) => (stage === 0 ? "allow_once" : "abort"));
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "deny the second write" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(seen.map((s) => s.stage)).toEqual([0, 2]);
+    expect(decides(client).map((d) => d.params.choiceId)).toEqual(["allow_once", "abort"]);
+    const tool = client.updates
+      .map((u) => u.update)
+      .filter((u) => u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update")
+      .at(-1);
+    expect(tool).toMatchObject({ status: "failed" });
+  });
+
+  it("offers the refreshed choices when an update widens them before any decision", async () => {
+    const client = sdkClient("complete", "choices-refresh");
+    const seen = stagedResponder(client, () => "allow_session");
+    const { ctx, sessionId } = await newTestSession(client);
+    await ctx.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: [{ type: "text", text: "refresh" }],
+    });
+    expect(seen[0].options).toEqual(["allow_once", "allow_session", "abort"]);
+    expect(decides(client)[0].params.choiceId).toBe("allow_session");
+  });
+
+  it("re-reads the fold when a decision is rejected as stale instead of failing", async () => {
+    const client = sdkClient("complete", "stale-then-progress");
+    const seen = stagedResponder(client, () => "allow_once");
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "raced decision" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    // Stage 0 bounced with -32053; the refreshed requirement was decided next.
+    expect(seen.map((s) => s.stage)).toEqual([0, 1]);
+    expect(decides(client).map((d) => d.params.requirementId.sourceIndex)).toEqual([0, 1]);
+  });
+
+  it("never submits a choice the host did not offer for the current requirement", async () => {
+    const client = sdkClient("complete", "two-stage");
+    client.setPermissionResponder(() => ({
+      outcome: { outcome: "selected", optionId: "allow_always" },
+    }));
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "invented choice" }],
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining("unknown option") });
+    expect(decides(client)).toHaveLength(0);
+  });
+});
+
 type RequestPermissionResponse = {
   outcome: { outcome: "cancelled" } | { outcome: "selected"; optionId: string };
 };
@@ -216,8 +354,7 @@ it("reports rejected approval MSP codes without exposing arbitrary host details"
         prompt: [{ type: "text", text: "approval rejected by host" }],
       }),
     ).rejects.toMatchObject({
-      message:
-        "Internal error: Muse SDK turn failed: Muse approval round-trip failed (submitFailed; MSP -32053)",
+      message: "Internal error: Muse SDK turn failed: Muse approval decision rejected (MSP -32051)",
     });
     expect(client.requests().filter((r) => r.method === "approval/decide")).toHaveLength(1);
     expect(client.updates.some((n) => JSON.stringify(n).includes("sensitive host detail"))).toBe(

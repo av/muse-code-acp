@@ -125,7 +125,13 @@ test("steering targets only an acknowledged active turn and never a later turn",
   expect(await first.done).toEqual({ stopReason: "end_turn" });
   const metadata = [];
   for await (const notification of first.updates) {
-    if (notification.update.sessionUpdate === "session_info_update")
+    // Steering metadata only: a turn also announces host compatibility, and
+    // other negotiated `_meta` keys ride the same notification kind.
+    if (
+      notification.update.sessionUpdate === "session_info_update" &&
+      notification.update._meta &&
+      "muse/activeTurnId" in notification.update._meta
+    )
       metadata.push(notification.update._meta);
   }
   expect(metadata).toEqual([{ "muse/activeTurnId": target }, { "muse/activeTurnId": null }]);

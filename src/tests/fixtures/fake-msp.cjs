@@ -59,7 +59,253 @@ function approvalParams(id, toolName, toolCallId, rawArgs) {
   };
 }
 
+// ---- Multi-stage approval scripts (w2/m1) ---------------------------------
+// Shapes replay the Muse 1.2.1 wire recorded in w2/m1's "Issue cause":
+// `approval/requested` carries `subject.stages[]`; a decision that satisfies one
+// stage while others remain answers `terminal: false` and is followed by
+// `approval/updated` whose `currentRequirementId` names the next unresolved
+// stage. `terminal: true` only accompanies the last requirement.
+const SCRIPTS = {
+  "two-stage": { stages: ["unresolved", "known_safe", "unresolved", "known_safe"] },
+  "three-stage": { stages: ["unresolved", "known_safe", "unresolved", "unresolved"] },
+  "deny-at-stage-2": { stages: ["unresolved", "known_safe", "unresolved", "known_safe"] },
+  "choices-refresh": { stages: ["unresolved", "unresolved"], refreshChoices: true },
+  "decide-then-silence": { stages: ["unresolved", "unresolved"], silenceAfterStage: 0 },
+  "stale-then-progress": { stages: ["unresolved", "unresolved"], staleOnStage: 0 },
+  "userinput-settle-then-silence": { userInputSilence: true },
+  "unknown-method": { unknownMethod: true },
+};
+const script = SCRIPTS[process.env.FAKE_MSP_SCRIPT ?? ""];
+
+const STAGE_ARGV = [
+  ["echo", "one"],
+  ["ls", "."],
+  ["echo", "two"],
+  ["cat", "a.txt"],
+];
+const STAGED_COMMAND = "echo one > a.txt; ls .; echo two > b.txt; cat a.txt";
+
+function stagedChoices(withSessionScope = false) {
+  const choices = [
+    { choiceId: "allow_once", label: "Allow once", decision: "approved", scope: "once" },
+    { choiceId: "abort", label: "Abort", decision: "abort", scope: "once" },
+  ];
+  if (withSessionScope) {
+    choices.splice(1, 0, {
+      choiceId: "allow_session",
+      label: "Allow for session",
+      decision: "approvedForSession",
+      scope: "session",
+    });
+  }
+  return choices;
+}
+
+function stageList(state) {
+  return state.stages.map((kind, index) => ({
+    position: index + 1,
+    totalStages: state.stages.length,
+    requirementId: { approvalId: state.approvalId, sourceIndex: index },
+    resolution: { kind: state.resolutions[index] ?? kind },
+    argv: STAGE_ARGV[index] ?? ["echo", String(index)],
+  }));
+}
+
+function stagedSubject(state) {
+  return { kind: "shellCommand", rawCommand: STAGED_COMMAND, stages: stageList(state) };
+}
+
+function startStagedApproval() {
+  const state = {
+    approvalId: "apr-staged",
+    itemId: "apr-staged-item",
+    toolCallId: "call1",
+    stages: script.stages,
+    resolutions: script.stages.slice(),
+    choices: stagedChoices(),
+    currentIndex: script.stages.indexOf("unresolved"),
+    rawArgs: JSON.stringify({ command: STAGED_COMMAND, description: "Run the compound command" }),
+  };
+  stagedApprovals.set(state.approvalId, state);
+  notify("approval/requested", {
+    turnId,
+    approvalId: state.approvalId,
+    itemId: state.itemId,
+    toolCallId: state.toolCallId,
+    toolName: "bash",
+    taskId: "apr-staged-task",
+    rawArgs: state.rawArgs,
+    judgeEscalated: false,
+    protectedWrite: false,
+    currentRequirementId: { approvalId: state.approvalId, sourceIndex: state.currentIndex },
+    availableChoices: state.choices,
+    subject: stagedSubject(state),
+    sourceRange: { start: 0, end: 0 },
+  });
+  if (script.refreshChoices) {
+    // A refresh that keeps the requirement and widens the offered choices.
+    state.choices = stagedChoices(true);
+    notify("approval/updated", {
+      approvalId: state.approvalId,
+      change: { kind: "choicesRefreshed" },
+      currentRequirementId: { approvalId: state.approvalId, sourceIndex: state.currentIndex },
+      availableChoices: state.choices,
+      subject: stagedSubject(state),
+      sourceRange: { start: 0, end: 0 },
+    });
+  }
+}
+
+function finishStagedApproval(state, decision) {
+  stagedApprovals.delete(state.approvalId);
+  const approved = decision === "approved" || decision === "approvedForSession";
+  notify("item/completed", {
+    item: {
+      itemId: state.itemId,
+      callId: state.toolCallId,
+      turnId,
+      kind: "toolCall",
+      tool: "bash",
+      revision: 1,
+      status: approved ? "completed" : "failed",
+      args: state.rawArgs,
+      visibleOutput: approved
+        ? JSON.stringify({ command: STAGED_COMMAND, output: "ok" })
+        : "tool approval cancelled",
+      failureReason: approved ? undefined : "tool approval cancelled",
+    },
+  });
+  notify("approval/resolved", {
+    approvalId: state.approvalId,
+    decision,
+    policyResult: approved ? "allow" : "deny",
+    resolvedBy: "user",
+    itemId: state.itemId,
+    turnId,
+    stageEvidence: stageList(state),
+    sourceRange: { start: 0, end: 0 },
+  });
+  notify("item/completed", {
+    item: {
+      itemId: `message-${turnId}`,
+      turnId,
+      kind: "agentMessage",
+      revision: 2,
+      status: "completed",
+      text: "hello world",
+    },
+  });
+  terminal("completed");
+}
+
+function decideStaged(id, params, state) {
+  const requirement = params.requirementId;
+  if (script.staleOnStage === state.currentIndex && !state.staleFired) {
+    // The SS5.4 race the requirementId guard exists for: the stage this
+    // decision names is satisfied concurrently, so the decision bounces and the
+    // refreshed requirement arrives on the view instead.
+    state.staleFired = true;
+    write({
+      id,
+      error: {
+        code: -32053,
+        message: "requirement is stale",
+        data: { kind: "approvalRequirementStale" },
+      },
+    });
+    const decidedIndex = state.currentIndex;
+    state.resolutions[decidedIndex] = "allow_once";
+    state.currentIndex = state.stages.findIndex(
+      (kind, index) => index > decidedIndex && kind === "unresolved",
+    );
+    notify("approval/updated", {
+      approvalId: state.approvalId,
+      change: {
+        kind: "stageResolved",
+        requirementId: { approvalId: state.approvalId, sourceIndex: decidedIndex },
+        choiceId: "allow_once",
+        decision: "approved",
+      },
+      currentRequirementId: { approvalId: state.approvalId, sourceIndex: state.currentIndex },
+      availableChoices: state.choices,
+      subject: stagedSubject(state),
+      sourceRange: { start: 0, end: 0 },
+    });
+    return;
+  }
+  if (
+    !requirement ||
+    requirement.approvalId !== state.approvalId ||
+    requirement.sourceIndex !== state.currentIndex
+  ) {
+    write({
+      id,
+      error: {
+        code: -32053,
+        message: "requirement is stale",
+        data: { kind: "approvalRequirementStale" },
+      },
+    });
+    return;
+  }
+  const choice = state.choices.find((c) => c.choiceId === params.choiceId);
+  if (!choice) {
+    write({
+      id,
+      error: { code: -32052, message: "invalid choice", data: { kind: "approvalChoiceInvalid" } },
+    });
+    return;
+  }
+  const approved = choice.decision === "approved" || choice.decision === "approvedForSession";
+  state.resolutions[state.currentIndex] = approved ? choice.choiceId : "abort";
+  const decidedIndex = state.currentIndex;
+  const next = approved
+    ? state.stages.findIndex((kind, index) => index > decidedIndex && kind === "unresolved")
+    : -1;
+  if (next === -1) {
+    write({
+      id,
+      result: {
+        status: "accepted",
+        commandId: params.commandId,
+        approvalId: state.approvalId,
+        terminal: true,
+      },
+    });
+    finishStagedApproval(state, approved ? choice.decision : "abort");
+    return;
+  }
+  write({
+    id,
+    result: {
+      status: "accepted",
+      commandId: params.commandId,
+      approvalId: state.approvalId,
+      terminal: false,
+    },
+  });
+  if (script.silenceAfterStage === decidedIndex) {
+    // The w2/m1 watchdog case: a non-terminal decision with no follow-up frame.
+    return;
+  }
+  state.currentIndex = next;
+  notify("approval/updated", {
+    approvalId: state.approvalId,
+    change: {
+      kind: "stageResolved",
+      requirementId: { approvalId: state.approvalId, sourceIndex: decidedIndex },
+      choiceId: choice.choiceId,
+      decision: choice.decision,
+    },
+    currentRequirementId: { approvalId: state.approvalId, sourceIndex: next },
+    availableChoices: state.choices,
+    subject: stagedSubject(state),
+    sourceRange: { start: 0, end: 0 },
+  });
+}
+
 const pendingApprovals = new Map();
+const stagedApprovals = new Map();
 const pendingUserInputs = new Map();
 let gapFillCursor = null;
 let goalEmitted = false;
@@ -157,7 +403,33 @@ rl.on("line", async (line) => {
       if (mode === "exit") {
         process.exit(1);
       }
-      if (mode === "approval" || mode === "approvalSubmitFailure" || mode === "approvalAllow" || mode === "approvalDeny" || mode === "concurrentApprovals") {
+      if (script) {
+        if (script.unknownMethod) {
+          // SS1.5.4 additive evolution: a method this SDK does not know.
+          notify("session/futureFrame", { detail: "emitted by a newer host" });
+          notify("item/completed", { item: { ...item, revision: 2, status: "completed", text: "hello world" } });
+          terminal("completed");
+        } else if (script.userInputSilence) {
+          const ui = {
+            turnId,
+            userInputId: "ui1",
+            itemId: "ui-item",
+            toolCallId: "ui-call",
+            toolName: "ask_user",
+            questions: [{
+              id: "q1",
+              header: "Choice",
+              question: "Pick a color",
+              options: [{ label: "red" }, { label: "blue" }],
+              selection: { mode: "single" },
+            }],
+          };
+          pendingUserInputs.set("ui1", ui);
+          notify("userInput/requested", ui);
+        } else {
+          startStagedApproval();
+        }
+      } else if (mode === "approval" || mode === "approvalSubmitFailure" || mode === "approvalAllow" || mode === "approvalDeny" || mode === "concurrentApprovals") {
         const first = approvalParams("apr1", "bash", "call1", JSON.stringify({ command: "pwd", description: "Show directory" }));
         pendingApprovals.set("apr1", first);
         notify("approval/requested", first);
@@ -217,8 +489,13 @@ rl.on("line", async (line) => {
       break;
     }
     case "approval/decide": {
+      const staged = stagedApprovals.get(params.approvalId);
+      if (staged) {
+        decideStaged(id, params, staged);
+        break;
+      }
       if (mode === "approvalSubmitFailure") {
-        write({ id, error: { code: -32053, message: "sensitive host detail", data: { kind: "approvalRequirementStale" } } });
+        write({ id, error: { code: -32051, message: "sensitive host detail", data: { kind: "approvalNotFound" } } });
         break;
       }
       const held = pendingApprovals.get(params.approvalId);
@@ -275,6 +552,11 @@ rl.on("line", async (line) => {
       }
       pendingUserInputs.delete(params.userInputId);
       reply({ status: "accepted", commandId: params.commandId, userInputId: params.userInputId });
+      if (script?.userInputSilence) {
+        // Accepted, then no `userInput/settled` and no terminal: the fold keeps
+        // the prompt pending forever. The watchdog is the only way out.
+        break;
+      }
       notify("userInput/settled", {
         userInputId: params.userInputId,
         outcome: method === "userInput/cancel" ? "cancelled" : "answered",

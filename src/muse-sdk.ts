@@ -23,9 +23,13 @@ import { isReasoningEffort, type MuseReasoningEffort } from "./config-options.js
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import {
+  approvalSignature,
   approvalStageMetadata,
+  approvalStallDetail,
   approvalToPermissionRequest,
+  currentApprovalView,
   MuseApprovalRequest,
+  MusePendingApproval,
   PermissionLifecycle,
   resolvePermissionChoice,
 } from "./muse-permissions.js";
@@ -45,6 +49,7 @@ import {
   type GoalObservation,
 } from "./goal-state.js";
 import { Pushable } from "./utils.js";
+import { PendingWorkWatchdog, stallLimitMs, type PendingWorkItem } from "./pending-watchdog.js";
 
 export interface MuseSdkOptions {
   sessionId: string;
@@ -148,6 +153,12 @@ export async function readMuseSdkSession(
   }
 }
 
+/**
+ * MSP rejects a decision aimed at a requirement the approval has already moved
+ * past (tdd SS5.4). It means "re-read the approval", never "the turn failed".
+ */
+const STALE_APPROVAL_REQUIREMENT = -32053;
+
 /** Preserve the public MSP effort vocabulary verified against Muse 1.1.1. */
 export function sdkReasoningEffort(effort: string | undefined): MuseReasoningEffort | undefined {
   return isReasoningEffort(effort) ? effort : undefined;
@@ -163,7 +174,6 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   const fileChanges = new FileChangeEvidence(options.cwd);
   const translator = new MuseSdkTranslator(options.sessionId, options.logger, fileChanges);
   const permissions = new PermissionLifecycle();
-  const approvalIds = new Set<string>();
   const userInputs = new UserInputLifecycle();
   const owner = options.hostOwner ?? new MuseSdkHost(options);
   if (!owner.reusable)
@@ -240,73 +250,6 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         userInputs.beginTurn(nextTurnId);
       };
 
-      session.onApproval(async (request) => {
-        if (cancelled || options.isCancelled?.()) {
-          throw new Error("permission request cancelled");
-        }
-        const approval = request as unknown as MuseApprovalRequest;
-        // Approvals can arrive before turn/start acknowledgement.
-        if (turnId && approval.turnId !== turnId) {
-          throw new Error("stale approval for a different turn");
-        }
-        adoptTurn(approval.turnId);
-        const approvalGeneration = generation;
-        approvalIds.add(approval.approvalId);
-        if (
-          !permissions.track(
-            approval.approvalId,
-            approval.turnId,
-            approval.toolCallId,
-            approvalGeneration,
-          )
-        ) {
-          throw new Error("stale approval after turn disposal");
-        }
-        try {
-          const response = await Promise.race([
-            options.acpClient.requestPermission(
-              approvalToPermissionRequest(
-                options.sessionId,
-                approval,
-                options.clientCapabilities?._meta?.["muse/approval"] === 1,
-              ),
-            ),
-            interactionsStopped,
-          ]);
-          if (!response) {
-            throw new Error("permission request ended with its turn");
-          }
-          if (!permissions.isLive(approval.approvalId, approval.turnId, approvalGeneration)) {
-            throw new Error("stale permission response");
-          }
-          if (cancelled || options.isCancelled?.()) {
-            throw new Error("permission request cancelled");
-          }
-          const choiceId = resolvePermissionChoice(approval, response);
-          const choice = approval.availableChoices.find((c) => c.choiceId === choiceId);
-          if (choice && ["approved", "approvedForSession"].includes(choice.decision))
-            fileChanges.beforeApproval(approval.toolName, approval.rawArgs);
-          return { choiceId };
-        } finally {
-          permissions.resolve(approval.approvalId);
-        }
-      });
-      session.onApprovalError((failure) => {
-        if (!approvalIds.has(failure.approvalId) || cancelled || options.isCancelled?.()) {
-          return;
-        }
-        failTurn(
-          failure.kind === "handlerThrew"
-            ? failure.error
-            : new Error(
-                `Muse approval round-trip failed (${failure.kind}${
-                  failure.kind === "submitFailed" && failure.error instanceof MspError
-                    ? `; MSP ${failure.error.code}`
-                    : ""
-                })`,
-              ),
-        );
-      });
       // Gap fill runs automatically on wired Sessions. Only hard fill failures
       // become turn errors; recoverable gaps must not abort the prompt.
       session.onGapError((error) => {
@@ -341,6 +284,17 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           },
         });
       clearTimeout(startupTimer);
+      // Advisory, emitted once per host: a client that later reports a stall
+      // should be able to name the host and schema it was talking to.
+      const compatibility = owner.takeCompatibilityAnnouncement();
+      if (compatibility)
+        updates.push({
+          sessionId: options.sessionId,
+          update: {
+            sessionUpdate: "session_info_update",
+            _meta: { "muse/hostCompatibility": compatibility },
+          },
+        });
 
       const emitItem = (item: FoldedItem) => {
         // Hold publication while a gap fill is reconstituting the fold.
@@ -412,6 +366,110 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           });
         }
       };
+      // ---- Approval reconciliation ---------------------------------------
+      // Muse 1.2.1 advances a multi-stage approval by REFRESHING it
+      // (`approval/updated`) instead of re-issuing `approval/requested`, and the
+      // pinned SDK routes only the request to `onApproval` — so a router-driven
+      // client answers stage 0 and then waits forever (w2/m1 "Issue cause").
+      // Deciding from the fold covers both frames with one path, the way pending
+      // user input is already handled, and keeps the SDK's stage latch out of the
+      // critical path. The ACP round trip is NOT awaited in the poll loop:
+      // independent approvals must stay concurrent for the client.
+      const askedRequirements = new Set<string>();
+      const decidingApprovals = new Set<string>();
+
+      const turnApprovals = (): MusePendingApproval[] => {
+        if (!session.fold.current || !turnId) {
+          return [];
+        }
+        return session.fold
+          .pendingApprovals()
+          .map((pending) => pending as unknown as MusePendingApproval)
+          .filter((pending) => currentApprovalView(pending).turnId === turnId);
+      };
+
+      const decideApproval = async (view: MuseApprovalRequest): Promise<void> => {
+        const approvalGeneration = generation;
+        if (!permissions.track(view.approvalId, view.turnId, view.toolCallId, approvalGeneration)) {
+          return;
+        }
+        try {
+          const response = await Promise.race([
+            options.acpClient.requestPermission(
+              approvalToPermissionRequest(
+                options.sessionId,
+                view,
+                options.clientCapabilities?._meta?.["muse/approval"] === 1,
+              ),
+            ),
+            interactionsStopped,
+          ]);
+          // A dialog still open when the turn ends decides nothing; the host
+          // aborts the pending action when the turn is cancelled.
+          if (!response || cancelled || options.isCancelled?.()) {
+            return;
+          }
+          if (!permissions.isLive(view.approvalId, view.turnId, approvalGeneration)) {
+            return;
+          }
+          const choiceId = resolvePermissionChoice(view, response);
+          const choice = view.availableChoices.find((c) => c.choiceId === choiceId);
+          if (choice && ["approved", "approvedForSession"].includes(choice.decision))
+            fileChanges.beforeApproval(view.toolName, view.rawArgs);
+          await connection!.command(
+            "approval/decide",
+            {
+              sessionId: options.sessionId,
+              approvalId: view.approvalId,
+              choiceId,
+              // Echoed from the view the host last published; a remembered value
+              // is exactly what MSP -32053 exists to reject.
+              requirementId: view.currentRequirementId,
+            },
+            { maxAttempts: 1 },
+          );
+        } catch (error) {
+          if (error instanceof MspError && error.code === STALE_APPROVAL_REQUIREMENT) {
+            // The host advanced this approval while the client was deciding. The
+            // refreshed requirement lands on the fold and is decided on a later
+            // tick; the pending-work watchdog bounds the wait if it never does.
+            options.logger.log(
+              `muse-sdk: approval ${view.approvalId} requirement ${view.currentRequirementId.sourceIndex} was superseded`,
+            );
+            return;
+          }
+          if (cancelled || options.isCancelled?.()) {
+            return;
+          }
+          failTurn(
+            error instanceof MspError
+              ? new Error(`Muse approval decision rejected (MSP ${error.code})`)
+              : error,
+          );
+        } finally {
+          permissions.resolve(view.approvalId);
+        }
+      };
+
+      const reconcileApprovals = (): void => {
+        if (!connection || !session.fold.current || cancelled || options.isCancelled?.()) {
+          return;
+        }
+        for (const pending of turnApprovals()) {
+          const view = currentApprovalView(pending);
+          const key = `${view.approvalId}:${view.currentRequirementId.sourceIndex}`;
+          // Keyed by requirement, not approval: a multi-stage approval must be
+          // asked once per stage, and never twice for the same stage.
+          if (askedRequirements.has(key) || decidingApprovals.has(view.approvalId)) {
+            continue;
+          }
+          askedRequirements.add(key);
+          decidingApprovals.add(view.approvalId);
+          void decideApproval(view).finally(() => decidingApprovals.delete(view.approvalId));
+        }
+      };
+
+      const answeredUserInputs = new Set<string>();
       const handlePendingUserInputs = async () => {
         for (const pendingInput of session.fold.pendingUserInputs()) {
           const request = pendingInput as unknown as MuseUserInputRequest & {
@@ -421,12 +479,16 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           if (request.turnId !== turnId) {
             continue;
           }
-          if (userInputs.has(request.userInputId)) {
+          // `has` covers the round trip in progress; `answeredUserInputs`
+          // covers the window after it, because the fold keeps the prompt until
+          // `userInput/settled` arrives and a stalled host never sends one.
+          if (userInputs.has(request.userInputId) || answeredUserInputs.has(request.userInputId)) {
             continue;
           }
           if (!userInputs.track(request.userInputId, turnId!, generation)) {
             continue;
           }
+          answeredUserInputs.add(request.userInputId);
           const support = options.clientCapabilities?.elicitation;
           const formOk = support?.form != null;
           if (!formOk || !connection) {
@@ -490,6 +552,60 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         }
       };
 
+      const watchdog = new PendingWorkWatchdog(stallLimitMs(options.env));
+      const pendingWork = (): PendingWorkItem[] => {
+        const items: PendingWorkItem[] = [];
+        if (!session.fold.current || !turnId) {
+          return items;
+        }
+        for (const pending of turnApprovals()) {
+          items.push({
+            kind: "approval",
+            id: pending.requested.approvalId,
+            signature: approvalSignature(pending),
+            inFlight: decidingApprovals.has(pending.requested.approvalId),
+            detail: approvalStallDetail(pending),
+          });
+        }
+        for (const pendingInput of session.fold.pendingUserInputs()) {
+          const request = pendingInput as unknown as { userInputId: string; turnId: string };
+          if (request.turnId !== turnId) continue;
+          items.push({
+            kind: "userInput",
+            id: request.userInputId,
+            signature: request.userInputId,
+            inFlight: userInputs.has(request.userInputId),
+            detail:
+              `Muse user input ${request.userInputId} is still pending; ` +
+              `last host frame userInput/requested`,
+          });
+        }
+        return items;
+      };
+      const checkPendingWork = (): void => {
+        if (cancelled || options.isCancelled?.() || settled || finished) {
+          return;
+        }
+        const stalled = watchdog.check(pendingWork());
+        if (!stalled) {
+          return;
+        }
+        // Reject the ACP prompt BEFORE asking the host to unwind, so a
+        // turn/completed produced by the cancellation cannot win the race and
+        // report a successful end_turn (same ordering as failed user input).
+        failTurn(
+          new Error(
+            `${stalled}. The Muse host is waiting for a decision this adapter did not make; ` +
+              "reload the session or report this with the host version.",
+          ),
+        );
+        if (connection && turnId) {
+          void connection
+            .command("turn/cancel", { sessionId: options.sessionId, turnId }, { maxAttempts: 1 })
+            .catch(() => {});
+        }
+      };
+
       // deltas() is live-only; catch up anything folded before the turn ack.
       flushFold();
 
@@ -517,8 +633,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       })();
       const pumpUserInput = (async () => {
         while (!finished && !settled && !cancelled) {
+          reconcileApprovals();
           await handlePendingUserInputs();
           publishApprovalResults();
+          checkPendingWork();
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
       })();
@@ -529,6 +647,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
 
       const outcome = await Promise.race([turn.completed, turnFailure]);
       settled = true;
+      watchdog.reset();
       stopInteractions();
       await Promise.all([
         pumpItems.catch(() => {}),

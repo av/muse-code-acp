@@ -11,6 +11,11 @@ import type { MuseSdkOptions } from "./muse-sdk.js";
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import { parseGoalObservation, type GoalObservation } from "./goal-state.js";
+import {
+  hostCompatibility,
+  servedFingerprint,
+  type HostCompatibility,
+} from "./host-compatibility.js";
 
 type HostOptions = Pick<
   MuseSdkOptions,
@@ -45,6 +50,18 @@ export class MuseSdkHost {
   private goalDelivery?: Promise<void>;
   private lastGoal?: string;
   private lastGoalState?: unknown;
+  private compatibility?: HostCompatibility;
+  private compatibilityAnnounced = false;
+
+  /**
+   * The host/SDK comparison, once per host. Announced on the first turn of a
+   * lease and not repeated for reused hosts, which would be noise.
+   */
+  takeCompatibilityAnnouncement(): HostCompatibility | undefined {
+    if (!this.compatibility || this.compatibilityAnnounced) return undefined;
+    this.compatibilityAnnounced = true;
+    return this.compatibility;
+  }
 
   get hasActiveTurn(): boolean {
     return !!this.lease?.session.fold.activeTurnId;
@@ -144,7 +161,12 @@ export class MuseSdkHost {
 
   private async open(): Promise<HostLease> {
     const options = this.options;
-    if (options.checkHost !== false) assertSdkHostSupport(options.env, options.museBinary);
+    // Only probed when the host check runs: spawning the real binary for a
+    // version string is exactly what `checkHost: false` exists to avoid.
+    const hostVersion =
+      options.checkHost !== false
+        ? assertSdkHostSupport(options.env, options.museBinary).version
+        : null;
     const binary = options.museBinary ?? museCliPath(options.env);
     const args = ["serve", ...(options.readOnly ? ["--disable-write", "--disable-shell"] : [])];
     options.logger.log(`muse-sdk spawn: ${binary} ${args.join(" ")}`);
@@ -171,6 +193,13 @@ export class MuseSdkHost {
       clientInfo: { name: "muse_code_acp", version: packageJson.version },
     });
     if (host.fingerprintWarning) options.logger.log(`muse-sdk: ${host.fingerprintWarning.message}`);
+    this.compatibility = hostCompatibility({
+      hostVersion,
+      ...(servedFingerprint(host.initializeResult) === undefined
+        ? {}
+        : { served: servedFingerprint(host.initializeResult)! }),
+      ...(host.fingerprintWarning ? { fingerprintWarning: host.fingerprintWarning } : {}),
+    });
     const client = new MuseClient(host.connection, {
       durability: readSessionDurability(host.initializeResult),
       host,
