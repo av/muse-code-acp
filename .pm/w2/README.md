@@ -10,7 +10,6 @@
 
 ## Inbox
 
-- [007 — Evaluate observing raw MSP notifications instead of polling the fold](007.md) — phase 3; a recommendation, not an implementation.
 - [008 — Report the SDK's unrouted `approval/updated` upstream](008.md) — 30m; no repository change.
 
 ## Done
@@ -31,3 +30,5 @@ adopters still need the exec workaround for the multi-stage hang. Release item 0
 - [x] [m3](done/m3/README.md) — Permission titles distinguish host stages in plain ACP clients; verified through Bex and both host versions.
 
 - [x] [006 — Observe host session state](done/006.md) — negotiated reporting, idle model/mode changes and durable policy-persistence outcomes; 377 unit and 29 live tests passed on both host versions.
+
+- [x] [007 — Notification observation recommendation](done/007.md) — retain SDK routing and narrow public reads; alternatives and engineering costs recorded.
