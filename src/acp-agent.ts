@@ -1,3 +1,4 @@
+import { requireAvailable, requireSingleWorkspace, unavailable } from "./availability.js";
 import {
   agent as acpAgent,
   AgentContext,
@@ -84,7 +85,7 @@ import {
 import { probeSdkHost, assertSdkSafetySupport } from "./muse-host.js";
 import { Logger } from "./logger.js";
 import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery.js";
-import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
+import { guardContext, modeAvailability, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
 import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from "./muse-sdk.js";
 import {
@@ -305,11 +306,7 @@ export class MuseAcpAgent {
   }
 
   private validateSafety(config: SessionConfig, mode: MuseModeId): void {
-    if (!isModeAvailable(mode, this.safetyGuard(), this.backend))
-      throw RequestError.invalidParams(
-        undefined,
-        `Stored mode ${mode} is unavailable under current safety guards; restore it under the original non-root environment`,
-      );
+    requireAvailable(modeAvailability(mode, this.safetyGuard(), this.backend));
     assertSafetyGuard(config.safety ?? DEFAULT_SAFETY, this.safetyGuard());
     if (!this.options.skipSdkHostCheck)
       assertSdkSafetySupport(config.safety, this.options.env, this.options.museBinary);
@@ -341,7 +338,7 @@ export class MuseAcpAgent {
       },
       ...buildConfigOptions(session.config, this.backend, session.modelDiscovery, hostVersion),
       ...(this.backend === "sdk"
-        ? safetyConfigOptions(session.config.safety, this.safetyGuard())
+        ? safetyConfigOptions(session.config.safety, this.safetyGuard(), hostVersion)
         : []),
     ];
     if (this.backend !== "sdk" || this.clientCapabilities._meta?.[RECOMMENDATION_EXTENSION] !== 1)
@@ -528,6 +525,7 @@ export class MuseAcpAgent {
   }
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+    requireSingleWorkspace(params.additionalDirectories);
     this.assertRunning();
     this.validateMcp(params.mcpServers);
     const cwd = resolveWorkspace(params.cwd);
@@ -640,6 +638,7 @@ export class MuseAcpAgent {
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+    requireSingleWorkspace(params.additionalDirectories);
     return this.withSessionBinding(params.sessionId, () => this.loadSessionState(params));
   }
 
@@ -785,8 +784,7 @@ export class MuseAcpAgent {
         "Session fork requires supported Muse SDK host 1.1.1+",
       );
     this.validateMcp(params.mcpServers ?? []);
-    if (params.additionalDirectories?.length)
-      throw RequestError.invalidParams(undefined, "Muse fork supports one workspace root");
+    requireSingleWorkspace(params.additionalDirectories);
     const cwd = resolveWorkspace(params.cwd);
     const extension = params._meta?.[FORK_METADATA];
     let lastTurnId: string | undefined;
@@ -917,12 +915,7 @@ export class MuseAcpAgent {
         `cwd must be an absolute path, got "${params.cwd}"`,
       );
     }
-    if (params.additionalDirectories?.length) {
-      throw RequestError.invalidParams(
-        undefined,
-        "Muse Code supports one workspace root; start a separate session for another workspace",
-      );
-    }
+    requireSingleWorkspace(params.additionalDirectories);
 
     const existing = this.sessions.get(params.sessionId);
     if (existing?.turnFinished) {
@@ -1043,9 +1036,11 @@ export class MuseAcpAgent {
       this.backend === "sdk" &&
       (session.safetyChanging || session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
     )
-      throw RequestError.invalidRequest(
-        undefined,
-        "Wait for the active turn or configuration change before changing settings",
+      requireAvailable(
+        unavailable(
+          "busy",
+          "Wait for the active turn or configuration change before changing settings",
+        ),
       );
     if (params.configId === "mode") {
       if (typeof params.value !== "string")
@@ -1135,19 +1130,7 @@ export class MuseAcpAgent {
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
     const session = this.requireSession(params.sessionId);
-    if (
-      !isModeAvailable(params.modeId, this.safetyGuard(), this.backend) ||
-      !this.sessionModes(session.modeId).availableModes.some((mode) => mode.id === params.modeId)
-    ) {
-      throw RequestError.invalidParams(
-        undefined,
-        `unknown or unavailable session mode: ${params.modeId} (backend ${this.backend}, root=${this.safetyGuard().isRoot}); supported alternatives: ${this.sessionModes(
-          session.modeId,
-        )
-          .availableModes.map((m) => m.id)
-          .join(", ")}`,
-      );
-    }
+    requireAvailable(modeAvailability(params.modeId, this.safetyGuard(), this.backend));
     if (
       (this.backend === "sdk" || params.modeId === "plan" || session.modeId === "plan") &&
       (session.safetyChanging || session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
@@ -1157,7 +1140,7 @@ export class MuseAcpAgent {
         "Wait for the active turn before changing safety or planning mode",
       );
     if (session.modeId !== params.modeId)
-      await this.changeMode(params.sessionId, session, params.modeId);
+      await this.changeMode(params.sessionId, session, params.modeId as MuseModeId);
     return {};
   }
 

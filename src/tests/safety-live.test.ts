@@ -81,7 +81,14 @@ it.each([
     });
     try {
       const ctx = await initialized(client);
-      const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+      const created = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+      const { sessionId } = created;
+      const policies = created.configOptions?.find((o) => o.id === "nativeApprovalPolicy");
+      if (policies?.type === "select") {
+        expect(policies.options.some((o) => "value" in o && o.value === "allowAll")).toBe(
+          probeSdkHost().version !== "1.1.1",
+        );
+      } else throw Error("Missing native policy choices");
       await ctx.request(methods.agent.session.setMode, { sessionId, modeId: mode });
       const selection = ctx.request(methods.agent.session.setConfigOption, {
         sessionId,

@@ -1,3 +1,4 @@
+import { unavailable, type Availability } from "./availability.js";
 import { SessionModeState } from "@agentclientprotocol/sdk";
 
 /**
@@ -29,7 +30,7 @@ const EXEC_DEFAULT_DESCRIPTION =
 
 const SDK_DEFAULT_DESCRIPTION =
   "Tool calls that need approval are offered through ACP permission requests " +
-  "(approval mode onRequest). Applies from the next prompt.";
+  "unless the independently configured native policy settles them. Applies from the next prompt.";
 
 export const MODES: Record<MuseModeId, ModeDef> = {
   default: {
@@ -96,20 +97,36 @@ export function availableModes(
   guard: ModeGuardContext,
   backend: MuseBackendId = "exec",
 ): ModeDef[] {
-  return Object.values(MODES).filter((mode) => {
-    if ((mode.id === "plan" || mode.id === "rejectApprovals") && backend !== "sdk") return false;
-    if (backend === "sdk" && mode.id === "yolo") return false;
-    if (!mode.dangerous) {
-      return true;
-    }
-    if (guard.isRoot) {
-      return false;
-    }
-    if (mode.id === "yolo") {
-      return guard.env.MUSE_CODE_ACP_ALLOW_YOLO === "1";
-    }
-    return true;
-  });
+  return Object.values(MODES).filter((mode) => modeAvailability(mode.id, guard, backend).available);
+}
+
+export function modeAvailability(
+  id: string,
+  guard: ModeGuardContext,
+  backend: MuseBackendId,
+): Availability {
+  if (!Object.hasOwn(MODES, id))
+    return unavailable("unknown", `Unknown session mode ${id}; choose an advertised mode`);
+  const mode = MODES[id as MuseModeId];
+  if (
+    ((id === "plan" || id === "rejectApprovals") && backend !== "sdk") ||
+    (id === "yolo" && backend === "sdk")
+  )
+    return unavailable(
+      "backend",
+      `Mode ${id} is unavailable on backend ${backend}; choose an advertised mode. The backend was not changed`,
+    );
+  if (mode.dangerous && guard.isRoot)
+    return unavailable(
+      "guard",
+      `Mode ${id} is unavailable as root; use the default mode or a non-root environment`,
+    );
+  if (id === "yolo" && guard.env.MUSE_CODE_ACP_ALLOW_YOLO !== "1")
+    return unavailable(
+      "guard",
+      "Yolo requires explicit MUSE_CODE_ACP_ALLOW_YOLO=1; use the default sandboxed mode",
+    );
+  return { available: true, implementation: backend === "sdk" ? "adapter" : "native" };
 }
 
 export function isModeAvailable(

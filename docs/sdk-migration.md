@@ -550,3 +550,16 @@ selection provenance, and always carry `applied: false`. They never overwrite a
 selection or infer account tiers, quotas or model restrictions. Unavailable catalogs
 retain the current choice; Muse 1.1.1 effort is explicitly marked unavailable.
 Baseline ACP clients need neither extension.
+
+## Availability consistency
+
+See the [dated capability audit](capability-audit.md) for public routes, tested
+versions, remaining owners and future support triggers. Native policy options
+unverified on the current host are omitted from the menu and rejected if sent
+directly. This does not hide the independently implemented adapter automatic
+approval/rejection modes. Mode errors distinguish unknown values, backend mismatch
+and unmet root/opt-in guards; configuration busy errors identify temporary state.
+
+All session new/load/resume/fork requests reject nonempty `additionalDirectories`
+before binding or changing an existing session. A separate session is an explicit
+alternative, not authorization for another root in the current session.

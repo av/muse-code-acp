@@ -1,20 +1,20 @@
 # w2 · m6 — Capability audit and evidence-backed directive fixes
 
-**Worker:** worker1 **Goal:** Correct feasible omissions and misleading availability claims across the current adapter surface, with precise ownership for remaining blockers. **Status:** todo
+**Worker:** worker1 **Goal:** Correct feasible omissions and misleading availability claims across the current adapter surface, with precise ownership for remaining blockers. **Status:** done
 
 ## Tasks (in order)
 
-| id   | title                                                     | est | depends_on             |
-| ---- | --------------------------------------------------------- | --- | ---------------------- |
-| t001 | Inventory advertised, rejected and ignored capabilities   | 60m | —                      |
-| t002 | Recheck public routes and faithful adapter alternatives   | 90m | w2/m6/t001             |
-| t003 | Fix residual capability routing and advertisement defects | 90m | w2/m6/t002             |
-| t004 | Centralize actionable availability decisions              | 60m | w2/m6/t001, w2/m6/t003 |
-| t005 | Validate ownership and prevent stale capability blockers  | 60m | w2/m6/t003, w2/m6/t004 |
-| t006 | Update adoption guidance and capability limits            | 30m | w2/m6/t005             |
-| t007 | Simplify milestone changes                                | 30m | w2/m6/t006             |
-| t008 | CI and behavior coverage                                  | 45m | w2/m6/t006, w2/m6/t007 |
-| t009 | Close out milestone                                       | 15m | w2/m6/t008             |
+| id   | title                                                                | est | depends_on             |
+| ---- | -------------------------------------------------------------------- | --- | ---------------------- |
+| t001 | Inventory advertised, rejected and ignored capabilities — **DONE**   | 60m | —                      |
+| t002 | Recheck public routes and faithful adapter alternatives — **DONE**   | 90m | w2/m6/t001             |
+| t003 | Fix residual capability routing and advertisement defects — **DONE** | 90m | w2/m6/t002             |
+| t004 | Centralize actionable availability decisions — **DONE**              | 60m | w2/m6/t001, w2/m6/t003 |
+| t005 | Validate ownership and prevent stale capability blockers — **DONE**  | 60m | w2/m6/t003, w2/m6/t004 |
+| t006 | Update adoption guidance and capability limits — **DONE**            | 30m | w2/m6/t005             |
+| t007 | Simplify milestone changes — **DONE**                                | 30m | w2/m6/t006             |
+| t008 | CI and behavior coverage — **DONE**                                  | 45m | w2/m6/t006, w2/m6/t007 |
+| t009 | Close out milestone — **DONE**                                       | 15m | w2/m6/t008             |
 
 ## Definition of done
 
@@ -37,13 +37,12 @@
 
 ## Validation evidence
 
-[Feasibility research and ownership map](../evidence/capability-feasibility.md).
-All implementation tasks remain todo. Existing approval and provider-request probes
-support feasibility only; each task requires its specified regression coverage.
+[Feasibility research and ownership map](../../evidence/capability-feasibility.md).
+See [delivery evidence](evidence.md) and the [capability audit](../../../../docs/capability-audit.md) for verified corrections, the fresh two-host matrix and current/future ownership.
 
 ## Ownership after w1 cleanup
 
-The [2026-09-14 ledger](../../ownership-2026-09-14.md) has completed the task
+The [2026-09-14 ledger](../../../ownership-2026-09-14.md) has completed the task
 allocation; do not repeat that migration or implement features owned by
 m4/m5/m7/m8/m9/m10. This milestone owns capability classification, uncovered
 routing/advertisement defects and regression checks preventing contradictory

@@ -17,9 +17,12 @@ must translate, advertise, and validate them.
 This document consolidates both source comparisons and their w1 handoffs. It is
 a repository implementation snapshot, not a claim about the latest npm release
 or a promise that every feature works on every provider or editor. In particular,
-m8 and m10 are implemented, while m9 remains open with a durable-compaction
-blocker. m11 also remains open after the host rejected worker launch and child-history access. Earlier statements that models are static or that every SDK turn always
-spawns a new execution host no longer describe the current implementation.
+the old w1 queues have been split into current w2 delivery and future native
+watches. The [dated capability audit](capability-audit.md) supersedes blanket
+worker/compaction blockers: 1.2.1 workflow launch succeeds, while durable
+compaction rejects on both tested hosts and does not block usage reporting.
+Earlier statements that models are static or every SDK turn spawns a new host
+no longer describe the current implementation.
 
 ## Decision
 
@@ -117,9 +120,9 @@ workspace, mode, or MCP changes can require replacement. See
 | Token usage                                    | Supported                                           | Missing                          | Raw Muse usage has been observed, but ACP forwarding remains m9 work.                                                                          |
 | Context usage/pressure                         | Context-window and compaction reporting             | Missing                          | m9; preserve unknown values and do not derive unsupported counters.                                                                            |
 | Explicit compaction and lifecycle              | `/compact` and compaction events                    | Blocked                          | Muse durable `session/compact` rejects admission on the tested host; see blocker below.                                                        |
-| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/evidence/2026-09-14-superseded/m11.md).   |
-| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/evidence/2026-09-14-superseded/m11.md).   |
-| Worker controls                                | Reference supports delegated-agent operations       | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/evidence/2026-09-14-superseded/m11.md).   |
+| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Pending adapter delivery         | 1.1.1 workflow launch fails; 1.2.1 succeeds. Current lifecycle/controls: w2/m9; inaccessible child history: w1/005.                            |
+| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked                          | 1.1.1 workflow launch fails; 1.2.1 succeeds. Current lifecycle/controls: w2/m9; inaccessible child history: w1/005.                            |
+| Worker controls                                | Reference supports delegated-agent operations       | Unverified adapter delivery      | 1.1.1 workflow launch fails; 1.2.1 succeeds. Current lifecycle/controls: w2/m9; inaccessible child history: w1/005.                            |
 | Background commands beyond prompt completion   | Negotiated async tasks, status and targeted stop    | Missing                          | m15; m9 live output and m11 workers do not cover background command ownership.                                                                 |
 | Persistent goal snapshots                      | Goal extension                                      | Supported (SDK)                  | m18 forwards negotiated public goal observations, restores history and preserves explicit clearing. See [contract](goal-extension.md).         |
 | Goal set/pause/resume/clear                    | Advertised goal actions and `/goal`                 | Controls unavailable             | Read-only `/goal` is supported; no verified public MSP control API, so controls remain unadvertised.                                           |
@@ -145,8 +148,9 @@ completed lifecycle. The same investigation observed a raw token-usage event.
 Thus usage is an adapter gap while durable compaction has observed host failure.
 Do not generalize this into a claim about every Muse build. A newer supported
 host must be tested before updating the row; schema presence and fake-host
-success do not resolve this blocker. The board records m10 as delivered
-independently of the still-open m9; that does not imply m9 completion.
+success do not resolve this blocker. Fresh m6 probes reproduce the same rejection
+on 1.2.1. Native compaction is now w1/004; current usage/output delivery is w2/m7
+and has no dependency on that watch.
 
 ## Authentication, permissions, MCP and recovery
 

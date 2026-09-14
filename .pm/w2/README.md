@@ -12,7 +12,7 @@
 
 - [x] [**m5** — Faithful model, effort and restored session settings](done/m5/README.md) (10 tasks) ← feasibility research and user handoff (2026-09-14)
 
-- [ ] [**m6** — Capability audit and evidence-backed directive fixes](m6/README.md) (9 tasks) ← feasibility research and user handoff (2026-09-14)
+- [x] [**m6** — Capability audit and evidence-backed directive fixes](done/m6/README.md) (9 tasks) ← feasibility research and user handoff (2026-09-14)
 
 - [ ] [**m7** — Usage, plans and truthful output visibility](m7/README.md) (9 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 

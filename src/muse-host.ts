@@ -1,3 +1,4 @@
+import { nativePolicyAvailability, requireAvailable } from "./availability.js";
 import { DEFAULT_SAFETY, safetyArgs, type SafetySettings } from "./safety-settings.js";
 import { spawnSync } from "node:child_process";
 import { RequestError } from "@agentclientprotocol/sdk";
@@ -98,16 +99,7 @@ export function assertSdkSafetySupport(
   binary?: string,
 ): void {
   const check = assertSdkHostSupport(env, binary);
-  const version = check.version?.split(".").map(Number);
-  const nativeVerified =
-    version &&
-    (version[0] > 1 ||
-      (version[0] === 1 && (version[1] > 2 || (version[1] === 2 && version[2] >= 1))));
-  if (safety.nativeApprovalPolicy !== "onRequest" && !nativeVerified)
-    throw RequestError.invalidParams(
-      undefined,
-      `Native ${safety.nativeApprovalPolicy} enforcement is not verified on Muse ${check.version ?? "unknown"}; use onRequest with bypassApprovals/rejectApprovals, or Muse 1.2.1+`,
-    );
+  requireAvailable(nativePolicyAvailability(safety.nativeApprovalPolicy, check.version));
   for (const flag of safetyArgs(safety).filter((arg) => arg.startsWith("--"))) {
     if (!check.serveHelp?.includes(flag))
       throw RequestError.invalidParams(

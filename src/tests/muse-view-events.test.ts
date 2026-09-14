@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   HANDLED_VIEW_EVENTS,
+  ITEM_KIND_CONSUMERS,
   IGNORED_VIEW_EVENTS,
   classifiedViewEvents,
   unclassifiedViewEvents,
@@ -47,6 +48,19 @@ describe("view event classification", () => {
     expect(classified.filter((method) => !folded.has(method))).toEqual([]);
   });
 
+  it("classifies every named public item family without stale implementation owners", () => {
+    const require = createRequire(import.meta.url);
+    const source = readFileSync(require.resolve("@muse-code/sdk/dist/src/msp.d.ts"), "utf8");
+    const declaration = source.match(/export type ItemKind = ([^;]+);/)![1];
+    const kinds = [...declaration.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(Object.keys(ITEM_KIND_CONSUMERS).sort()).toEqual(kinds.sort());
+    for (const reason of [
+      ...Object.values(ITEM_KIND_CONSUMERS),
+      ...Object.values(IGNORED_VIEW_EVENTS),
+    ])
+      expect(reason).not.toMatch(/w1\/m(?:9|11|14|15|17|20|21|23)\b/);
+  });
+
   it("routes both approval frames, which is the w2/m1 regression guard", () => {
     expect(HANDLED_VIEW_EVENTS["approval/requested"]).toContain("reconcileApprovals");
     expect(HANDLED_VIEW_EVENTS["approval/updated"]).toContain("reconcileApprovals");
@@ -54,7 +68,7 @@ describe("view event classification", () => {
 
   it("gives every ignored method a reason naming its owner", () => {
     for (const [method, reason] of Object.entries(IGNORED_VIEW_EVENTS)) {
-      expect(reason, method).toMatch(/w1\/m\d+|phase 2|not scheduled|contract/);
+      expect(reason, method).toMatch(/w2\/m\d+|w1\/\d{3}|not scheduled|contract/);
     }
   });
 });

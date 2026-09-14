@@ -1,3 +1,4 @@
+import { nativePolicyAvailability } from "./availability.js";
 import { RequestError, type SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { ModeGuardContext } from "./modes.js";
 
@@ -83,6 +84,7 @@ export function safetyArgs(safety: SafetySettings = DEFAULT_SAFETY, readOnly = f
 export function safetyConfigOptions(
   current: SafetySettings | undefined,
   guard: ModeGuardContext,
+  hostVersion?: string | null,
 ): SessionConfigOption[] {
   const safety = current ?? DEFAULT_SAFETY;
   const names: Record<keyof SafetySettings, string> = {
@@ -103,6 +105,11 @@ export function safetyConfigOptions(
         : "Fixed for the host lifetime. Changing this setting replaces an idle host; it does not trust workspace rules or change approval decisions.",
     options: values
       .filter((value) => {
+        if (
+          id === "nativeApprovalPolicy" &&
+          !nativePolicyAvailability(value, hostVersion).available
+        )
+          return false;
         try {
           selectSafety(safety, id as keyof SafetySettings, value, guard);
           return true;
