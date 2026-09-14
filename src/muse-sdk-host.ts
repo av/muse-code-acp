@@ -5,11 +5,12 @@ import {
   spawnMspConnection,
   type Session,
 } from "@muse-code/sdk";
+import { DEFAULT_SAFETY, safetyArgs } from "./safety-settings.js";
 import { realpathSync } from "node:fs";
 import packageJson from "../package.json" with { type: "json" };
 import type { MuseSdkOptions } from "./muse-sdk.js";
 import { museCliPath } from "./muse-cli.js";
-import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
+import { assertSdkHostSupport, assertSdkSafetySupport, sdkHostExitMessage } from "./muse-host.js";
 import { parseGoalObservation, type GoalObservation } from "./goal-state.js";
 import { SessionStateObserver, type SessionStateObservation } from "./session-state-observer.js";
 import {
@@ -20,7 +21,15 @@ import {
 
 type HostOptions = Pick<
   MuseSdkOptions,
-  "sessionId" | "cwd" | "model" | "readOnly" | "env" | "museBinary" | "logger" | "checkHost"
+  | "sessionId"
+  | "cwd"
+  | "model"
+  | "readOnly"
+  | "env"
+  | "museBinary"
+  | "logger"
+  | "checkHost"
+  | "safety"
 > & {
   idleTimeoutMs?: number;
   maxTurns?: number;
@@ -103,16 +112,30 @@ export class MuseSdkHost {
       options.sessionId !== this.options.sessionId ||
       realpathSync(options.cwd) !== realpathSync(this.options.cwd) ||
       options.model !== this.options.model ||
-      options.readOnly !== this.options.readOnly
+      options.readOnly !== this.options.readOnly ||
+      JSON.stringify(options.safety ?? DEFAULT_SAFETY) !==
+        JSON.stringify(this.options.safety ?? DEFAULT_SAFETY)
     ) {
       throw new Error("Muse SDK host configuration is incompatible with this turn");
     }
     this.busy = true;
     this.failActive = fail;
     clearTimeout(this.idleTimer);
+    const reusing = !!this.initialized;
     this.initialized ??= this.open();
     const lease = await this.initialized;
     if (this.stopped) throw new Error("Muse SDK host closed during startup");
+    if (reusing) {
+      if (
+        lease.session.fold.activeTurnId ||
+        lease.session.fold.pendingApprovals().length ||
+        lease.session.fold.pendingUserInputs().length
+      )
+        throw new Error(
+          "Muse SDK host has unfinished native work; wait before reconfiguring or prompting",
+        );
+      await this.applyPolicy(lease.host);
+    }
     return lease;
   }
 
@@ -188,7 +211,9 @@ export class MuseSdkHost {
         ? assertSdkHostSupport(options.env, options.museBinary).version
         : null;
     const binary = options.museBinary ?? museCliPath(options.env);
-    const args = ["serve", ...(options.readOnly ? ["--disable-write", "--disable-shell"] : [])];
+    if (options.checkHost !== false)
+      assertSdkSafetySupport(options.safety, options.env, options.museBinary);
+    const args = ["serve", ...safetyArgs(options.safety, options.readOnly)];
     options.logger.log(`muse-sdk spawn: ${binary} ${args.join(" ")}`);
     const handshake = (this.handshake = spawnMspConnection({
       command: binary,
@@ -225,7 +250,7 @@ export class MuseSdkHost {
       host,
     });
     let session: Session;
-    let startedFresh = false;
+    const requestedPolicy = options.safety?.nativeApprovalPolicy ?? "onRequest";
     try {
       session = await client.resumeSession({ sessionId: options.sessionId, excludeItems: true });
     } catch (error) {
@@ -247,15 +272,9 @@ export class MuseSdkHost {
         sessionId: options.sessionId,
         workspaceRoot: options.cwd,
         modelId: options.model,
-        approvalMode: "onRequest",
+        approvalMode: requestedPolicy,
       });
-      startedFresh = true;
     }
-    if (!startedFresh)
-      await host.connection.command("session/setApprovalMode", {
-        sessionId: options.sessionId,
-        mode: "onRequest",
-      });
     const opening = session.opening;
     const saved =
       opening?.verb === "session/resume"
@@ -273,6 +292,7 @@ export class MuseSdkHost {
       throw new Error(
         "The saved Muse session has an unfinished turn or pending input; resolve it in Muse before continuing",
       );
+    await this.applyPolicy(host);
     if (saved.modelId !== options.model)
       await host.connection.command("session/setModel", {
         sessionId: options.sessionId,
@@ -293,6 +313,33 @@ export class MuseSdkHost {
       await this.observeSessionState();
     }
     return this.lease;
+  }
+
+  private async applyPolicy(host: InitializedHost): Promise<void> {
+    const options = this.options;
+    const requestedPolicy = options.safety?.nativeApprovalPolicy ?? "onRequest";
+    const policy = await host.connection.command("session/setApprovalMode", {
+      sessionId: options.sessionId,
+      mode: requestedPolicy,
+    });
+    options.logger.log(
+      `muse-sdk approval policy: requested=${requestedPolicy} effective=${JSON.stringify(policy.effectiveMode)}`,
+    );
+    const effective = policy.effectiveMode;
+    if (
+      effective &&
+      typeof effective === "object" &&
+      "mode" in effective &&
+      typeof effective.mode === "string"
+    )
+      await options.onSessionState?.({
+        approvalMode: {
+          mode: effective.mode,
+          ...("source" in effective && typeof effective.source === "string"
+            ? { source: effective.source }
+            : {}),
+        },
+      });
   }
 
   private observeGoal(): void {

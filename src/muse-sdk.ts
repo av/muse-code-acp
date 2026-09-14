@@ -59,6 +59,8 @@ export interface MuseSdkOptions {
   model: string;
   reasoningEffort: string;
   readOnly: boolean;
+  safety?: import("./safety-settings.js").SafetySettings;
+  automaticDecision?: "approve" | "reject";
   museBinary?: string;
   env: Record<string, string | undefined>;
   logger: Logger;
@@ -394,25 +396,49 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           return;
         }
         try {
-          const response = await Promise.race([
-            options.acpClient.requestPermission(
-              approvalToPermissionRequest(
-                options.sessionId,
-                view,
-                options.clientCapabilities?._meta?.["muse/approval"] === 1,
+          let choiceId: string;
+          if (options.automaticDecision) {
+            const choice = view.availableChoices.find((c) =>
+              options.automaticDecision === "approve"
+                ? c.decision === "approved" && c.scope === "once"
+                : (c.decision === "denied" || c.decision === "abort") && c.scope === "once",
+            );
+            if (!choice)
+              throw new Error(
+                `Automatic ${options.automaticDecision} unavailable: Muse offered no eligible once choice; the turn was stopped without granting permission`,
+              );
+            choiceId = choice.choiceId;
+          } else {
+            const response = await Promise.race([
+              options.acpClient.requestPermission(
+                approvalToPermissionRequest(
+                  options.sessionId,
+                  view,
+                  options.clientCapabilities?._meta?.["muse/approval"] === 1,
+                ),
               ),
-            ),
-            interactionsStopped,
-          ]);
-          // A dialog still open when the turn ends decides nothing; the host
-          // aborts the pending action when the turn is cancelled.
-          if (!response || cancelled || options.isCancelled?.()) {
-            return;
+              interactionsStopped,
+            ]);
+            if (!response) return;
+            choiceId = resolvePermissionChoice(view, response);
           }
-          if (!permissions.isLive(view.approvalId, view.turnId, approvalGeneration)) {
+          if (
+            cancelled ||
+            options.isCancelled?.() ||
+            !permissions.isLive(view.approvalId, view.turnId, approvalGeneration)
+          )
             return;
-          }
-          const choiceId = resolvePermissionChoice(view, response);
+          // Do not decide a stage the fold has already settled while the dialog was open.
+          if (
+            !turnApprovals().some((p) => {
+              const current = currentApprovalView(p);
+              return (
+                current.approvalId === view.approvalId &&
+                current.currentRequirementId.sourceIndex === view.currentRequirementId.sourceIndex
+              );
+            })
+          )
+            return;
           const choice = view.availableChoices.find((c) => c.choiceId === choiceId);
           if (choice?.scope === "localPersistent")
             owner.watchPolicyPersistence(view.approvalId, view.viewCursor);
@@ -431,7 +457,11 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
             { maxAttempts: 1 },
           );
         } catch (error) {
-          if (error instanceof MspError && error.code === STALE_APPROVAL_REQUIREMENT) {
+          if (
+            error instanceof MspError &&
+            (error.code === STALE_APPROVAL_REQUIREMENT ||
+              (error.code === -32051 && error.data?.kind === "approvalAlreadyResolved"))
+          ) {
             // The host advanced this approval while the client was deciding. The
             // refreshed requirement lands on the fold and is decided on a later
             // tick; the pending-work watchdog bounds the wait if it never does.

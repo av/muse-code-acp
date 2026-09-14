@@ -8,7 +8,7 @@ settings, and other capabilities currently rejected or described as unsupported.
 This is a research/planning handoff; it does not enable production controls or
 authorize a new release.
 
-Create [m4](../m4/README.md) (11 tasks), [m5](../m5/README.md) (8 tasks) and
+Create [m4](../done/m4/README.md) (11 tasks), [m5](../m5/README.md) (8 tasks) and
 [m6](../m6/README.md) (9 tasks). m4 consumes 010 and supersedes all eight still-open
 w1/m25 tasks, preserving their full content and explicit replacement mapping.
 No external task frontmatter depended on a w1/m25 task. Historical links are
@@ -96,7 +96,7 @@ Primary sources inspected:
 - [Upstream effort issue #6](https://github.com/meta-models/muse-code-sdk/issues/6) and [model issue #7](https://github.com/meta-models/muse-code-sdk/issues/7): still open when checked, but their original reports concern 1.0.3; they do not override fresh 1.2.1 evidence.
 - Public `muse serve --help` on installed hosts: sandbox posture fixed for host lifetime, approval selected on the wire.
 - Adapter `src/modes.ts`, `src/config-options.ts`, `src/muse-sdk-host.ts`, `src/muse-sdk.ts` and `src/host-configuration.ts`: SDK dangerous-mode exclusion, hard-coded onRequest, fixed effort list, model setters and current host keys.
-- Existing w1/m9, m11, m14, m15, m17, m20, m21 and m23 evidence, plus [preserved m25 source](../m4/sources.md).
+- Existing w1/m9, m11, m14, m15, m17, m20, m21 and m23 evidence, plus [preserved m25 source](../done/m4/sources.md).
 
 ## Handoff validation
 

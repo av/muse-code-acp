@@ -1,3 +1,4 @@
+import { DEFAULT_SAFETY, safetyArgs, type SafetySettings } from "./safety-settings.js";
 import { spawnSync } from "node:child_process";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { museCliPath } from "./muse-cli.js";
@@ -10,6 +11,7 @@ export interface SdkHostCheck {
   binary: string;
   version: string | null;
   serveHelpOk: boolean;
+  serveHelp?: string;
 }
 
 const probed = new Map<string, SdkHostCheck>();
@@ -44,6 +46,7 @@ export function probeSdkHost(
     binary,
     version: match?.[1] ?? null,
     serveHelpOk: help.status === 0,
+    serveHelp: `${help.stdout ?? ""}${help.stderr ?? ""}`,
   };
   probed.set(binary, check);
   return check;
@@ -86,4 +89,30 @@ export function sdkHostExitMessage(stderr: string): string | undefined {
     );
   }
   return undefined;
+}
+
+/** Validate requested controls before binding them or starting a model turn. */
+export function assertSdkSafetySupport(
+  safety: SafetySettings = DEFAULT_SAFETY,
+  env: Record<string, string | undefined> = process.env,
+  binary?: string,
+): void {
+  const check = assertSdkHostSupport(env, binary);
+  const version = check.version?.split(".").map(Number);
+  const nativeVerified =
+    version &&
+    (version[0] > 1 ||
+      (version[0] === 1 && (version[1] > 2 || (version[1] === 2 && version[2] >= 1))));
+  if (safety.nativeApprovalPolicy !== "onRequest" && !nativeVerified)
+    throw RequestError.invalidParams(
+      undefined,
+      `Native ${safety.nativeApprovalPolicy} enforcement is not verified on Muse ${check.version ?? "unknown"}; use onRequest with bypassApprovals/rejectApprovals, or Muse 1.2.1+`,
+    );
+  for (const flag of safetyArgs(safety).filter((arg) => arg.startsWith("--"))) {
+    if (!check.serveHelp?.includes(flag))
+      throw RequestError.invalidParams(
+        undefined,
+        `Muse SDK host does not advertise ${flag}; use default posture or upgrade Muse`,
+      );
+  }
 }

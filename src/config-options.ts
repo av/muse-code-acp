@@ -28,6 +28,7 @@ const DEFAULT_MODEL = "muse-spark-1.2";
 const DEFAULT_EFFORT = "high";
 
 export interface SessionConfig {
+  safety?: import("./safety-settings.js").SafetySettings;
   model: string;
   reasoningEffort: string;
 }

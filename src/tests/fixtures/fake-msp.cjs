@@ -11,7 +11,8 @@ if (process.argv.includes("skills")) {
 if (!process.argv.includes("serve")) {
   process.exit(2);
 }
-const mode = process.env.FAKE_MSP_MODE ?? "complete";
+const noOnce = process.env.FAKE_MSP_MODE === "approvalNoOnce";
+const mode = noOnce ? "approval" : (process.env.FAKE_MSP_MODE ?? "complete");
 if (process.env.FAKE_MSP_SETTINGS_CAPTURE) {
   const configHome = process.env.XDG_CONFIG_HOME;
   writeFileSync(process.env.FAKE_MSP_SETTINGS_CAPTURE, JSON.stringify({
@@ -39,7 +40,7 @@ function defaultChoices() {
   return [
     { choiceId: "allow-once", label: "Allow once", decision: "approved", scope: "once" },
     { choiceId: "deny-once", label: "Deny once", decision: "denied", scope: "once" },
-  ];
+  ].filter(choice => !noOnce || choice.decision !== "approved");
 }
 
 function approvalParams(id, toolName, toolCallId, rawArgs) {

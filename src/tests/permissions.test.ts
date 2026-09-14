@@ -449,3 +449,53 @@ it("reports rejected approval MSP codes without exposing arbitrary host details"
     await client.agent.dispose();
   }
 });
+
+it.each([
+  ["bypassApprovals", "two-stage", ["allow_once", "allow_once"]],
+  ["bypassApprovals", "choices-refresh", ["allow_once", "allow_once"]],
+  ["bypassApprovals", "stale-then-progress", ["allow_once", "allow_once"]],
+  ["rejectApprovals", "two-stage", ["abort"]],
+] as const)("automatic %s uses only host once choices (%s)", async (mode, script, expected) => {
+  const client = sdkClient("complete", script);
+  const { ctx, sessionId } = await newTestSession(client);
+  try {
+    await ctx.request(methods.agent.session.setConfigOption, {
+      sessionId,
+      configId: "mode",
+      value: mode,
+    });
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "automatic stages" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(client.permissionRequests).toHaveLength(0);
+    expect(
+      client
+        .requests()
+        .filter((r) => r.method === "approval/decide")
+        .map((r) => r.params.choiceId),
+    ).toEqual(expected);
+  } finally {
+    await client.agent.dispose();
+  }
+});
+
+it("fails closed without an eligible automatic once choice", async () => {
+  const client = sdkClient("approvalNoOnce");
+  const { ctx, sessionId } = await newTestSession(client);
+  try {
+    await ctx.request(methods.agent.session.setMode, { sessionId, modeId: "bypassApprovals" });
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "no eligible choice" }],
+      }),
+    ).rejects.toThrow(/no eligible once choice/);
+    expect(client.permissionRequests).toHaveLength(0);
+    expect(client.requests().filter((r) => r.method === "approval/decide")).toHaveLength(0);
+  } finally {
+    await client.agent.dispose();
+  }
+});

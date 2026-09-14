@@ -97,24 +97,82 @@ An explicit ACP effort selection is saved in adapter-owned
 `$XDG_DATA_HOME/muse-code-acp/sessions/` (or `~/.local/share/muse-code-acp/sessions/`).
 Loading reads the authoritative model through MSP `session/read` and restores
 that effort selection; sessions without one use the current settings default.
-Mode resets to `default` on load; Muse session logs and global settings are not
-modified by the adapter preference store.
+Load/resume restore validated mode and safety choices; fork resets them to
+defaults. Muse session logs and global settings are not modified by the adapter
+preference store.
 
 Muse 1.1.1 initializes its execution provider from settings even when MSP
 selects a different session model. SDK turns therefore put the selected model
 and effort into the same private settings overlay used for MCP, in addition to
-the MSP selection. The overlay is removed at turn end; user settings stay intact.
+the MSP selection. The overlay remains until its retained host closes; user settings stay intact.
 
 Form elicitation supports single selections, bounded multiple selections, and
 free text up to 500 characters. Invalid responses fail the turn and cancel the
 input request. Cancelling a turn never waits for a still-open client dialog.
 
-| Mode              | SDK | Exec | Notes                                           |
-| ----------------- | --- | ---- | ----------------------------------------------- |
-| `default`         | yes | yes  | SDK: ACP permission gating (`onRequest`)        |
-| `readOnly`        | yes | yes  | `--disable-write --disable-shell` on serve/exec |
-| `bypassApprovals` | no  | yes  | dangerous; not advertised on SDK                |
-| `yolo`            | no  | yes  | requires `MUSE_CODE_ACP_ALLOW_YOLO=1`           |
+| Mode              | SDK | Exec | Notes                                                   |
+| ----------------- | --- | ---- | ------------------------------------------------------- |
+| `default`         | yes | yes  | SDK: ACP permission gating (`onRequest`)                |
+| `readOnly`        | yes | yes  | `--disable-write --disable-shell` on serve/exec         |
+| `bypassApprovals` | yes | yes  | SDK selects offered approved/once choices; root refused |
+| `rejectApprovals` | yes | no   | SDK selects offered denied/abort once choices           |
+| `plan`            | yes | no   | Read-only planning; explicit mode change required       |
+| `yolo`            | no  | yes  | requires `MUSE_CODE_ACP_ALLOW_YOLO=1`                   |
+
+## Approval and sandbox settings
+
+The mode config option and `session/set_mode` share one implementation. SDK
+`bypassApprovals` automatically decides each current stage through public MSP;
+it never constructs an ACP permission response, chooses a persistent grant,
+answers user input, or overrides host denial. An absent eligible once choice
+fails the turn without granting. `rejectApprovals` rejects only genuine pending
+requests; it is not equivalent to native `denyUnmatched`.
+
+| Config ID              | Values; default first                                       | Contract                                                                                                    |
+| ---------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `nativeApprovalPolicy` | `onRequest`, `promptUnmatched`, `denyUnmatched`, `allowAll` | Requested native policy, independent of automatic decisions; non-default choices require 1.2.1+             |
+| `sandbox`              | `enabled`, `disabled`                                       | Shell OS filesystem/network sandbox; disabling requires `MUSE_CODE_ACP_ALLOW_YOLO=1` and non-root execution |
+| `sandboxNetwork`       | `proxy-only`, `restricted`, `enabled`                       | Restrict direct network or enable it; broad network refused as root                                         |
+| `workspaceWrite`       | `enabled`, `disabled`                                       | Non-shell filesystem tools only; shell may still write                                                      |
+| `shell`                | `enabled`, `disabled`                                       | Workspace shell execution                                                                                   |
+
+Network restrictions require an enabled OS sandbox; selecting sandbox-off
+disables that containment regardless of the network setting.
+
+`readOnly` and `plan` always disable both shell and non-shell writes regardless
+of these settings. Automatic approval does not change sandbox or workspace
+trust. SDK yolo remains unavailable; exec yolo retains its combined native semantics.
+The requested native policy appears in config options; the host-returned effective
+policy is logged separately and sent to clients negotiating `muse/sessionState`.
+An accepted native setter alone is not evidence of enforcement.
+
+Real-host probes on macOS establish:
+
+| Native policy     | Muse 1.1.1-R2514.1                                | Muse 1.2.1-R2847.1                                                  |
+| ----------------- | ------------------------------------------------- | ------------------------------------------------------------------- |
+| `onRequest`       | Known-safe `pwd` runs; unknown write asks         | Same                                                                |
+| `promptUnmatched` | Behaves like onRequest in the probe               | Both tested commands ask                                            |
+| `denyUnmatched`   | Still asks; adapter rejects non-default selection | Emits a request then policy denial; neither tested command executes |
+| `allowAll`        | Still asks; adapter rejects non-default selection | Both tested commands execute without asking                         |
+
+These commands exercise default known-safe and unresolved effects, not an
+exhaustive user-rule matching matrix. Automatic once approval and rejection
+work on both hosts. Outside-workspace writes remain denied until sandbox-off
+is separately selected. Direct loopback HTTP is blocked under proxy-only and
+restricted, and succeeds under enabled. Both hosts advertise the same launch
+flags; Linux enforcement depends on the OS sandbox. CI uses Ubuntu 22.04 because
+its supported Muse bwrap sandbox fails namespace creation under Ubuntu 24.04's
+default AppArmor policy. macOS results do not assert parity on other platforms.
+
+Safety changes require an idle session, including no native background turn.
+An ongoing approval cannot be made permissive by a concurrent config update.
+Cancellation and stale generations cannot grant; MSP `approvalAlreadyResolved`
+and stale requirement races do not retry old decisions. A change closes the
+retained host before deleting its settings overlay, then the next prompt starts
+a host with the new posture. Load/resume restore validated preferences after
+workspace ownership checks and reapply current root/opt-in guards. A fork resets
+all mode, approval and sandbox preferences. Unsupported selections fail before
+mutation or a model turn, with an actionable alternative.
 
 ## Test owners / CI profiles
 

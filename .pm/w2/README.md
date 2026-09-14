@@ -8,7 +8,7 @@
 - [x] **m2** — Muse 1.2.1 host support: resolve or record the six real-host failures (7 tasks) ← from m1 real-host verification (2026-09-14)
 - [x] **m3** — Distinguishable staged permission prompts (6 tasks) ← from w2/005 (2026-09-14)
 
-- [ ] [**m4** — Verified approval policies and independent sandbox controls](m4/README.md) (11 tasks) ← feasibility research and user handoff (2026-09-14)
+- [x] [**m4** — Verified approval policies and independent sandbox controls](done/m4/README.md) (11 tasks) ← feasibility research and user handoff (2026-09-14)
 
 - [ ] [**m5** — Faithful model, effort and restored session settings](m5/README.md) (10 tasks) ← feasibility research and user handoff (2026-09-14)
 
@@ -33,7 +33,7 @@ Note 010 was promoted into m4 with its complete source preserved.
 - [x] [001 — `/goal <objective>` command UX](done/001.md) — shipped in `d9f509f`; executes the task once with an explicit persistence limitation.
 - [x] [002 — Slash-command routing with editor context](done/002.md) — shipped in `d9f509f`; preserves context and workflow enforcement.
 
-- [x] [003 — Repeated Allow once confirmations](done/003.md) — closed as expected behavior; automatic-execution follow-up is now scheduled in [w2/m4](m4/README.md).
+- [x] [003 — Repeated Allow once confirmations](done/003.md) — closed as expected behavior; automatic-execution follow-up is now scheduled in [w2/m4](done/m4/README.md).
 
 - [x] [m1 — Multi-stage approval reconciliation and silent-stall guardrails](done/m1/README.md) — consumed inbox note 004; multi-stage shell approvals now complete on the SDK backend and stalled host requests fail with diagnostics. Verified on Muse 1.2.1-R2847.1.
 

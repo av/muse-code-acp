@@ -75,9 +75,9 @@ it.each([false, true])(
         .map((line) => JSON.parse(line));
       expect(requests.filter((r) => r.method === "view/page").length > 0).toBe(negotiated);
       expect(requests.filter((r) => r.method === "approval/decide")).toHaveLength(1);
-      // Observations never rewrite the ACP configuration or ask for a policy change.
+      // Observations never rewrite the ACP configuration; startup applies the requested policy once.
       expect(client.agent.sessions.get(sessionId)?.config.model).not.toBe("idle-model");
-      expect(requests.filter((r) => r.method === "session/setApprovalMode")).toHaveLength(0);
+      expect(requests.filter((r) => r.method === "session/setApprovalMode")).toHaveLength(1);
       await ctx.request(methods.agent.session.close, { sessionId });
       const count = reports().length;
       await new Promise((resolve) => setTimeout(resolve, 150));

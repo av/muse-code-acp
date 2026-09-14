@@ -79,7 +79,7 @@ User-authorized scheduling cleanup: w1 contains completed history and future pub
 ## Other consolidation
 
 - w1/001 moves to [w2/011](w2/011.md), retaining its [original source](w1/evidence/2026-09-14-superseded/001.md).
-- w1/m25 was already superseded by [w2/m4](w2/m4/README.md); its original source and eight-task mapping remain intact.
+- w1/m25 was already superseded by [w2/m4](w2/done/m4/README.md); its original source and eight-task mapping remain intact.
 - w2/m5 owns all current model/provider/effort/recommendation work, including client gateway provisioning in t009 and recommendations in t010.
 - w2/m6 is the capability classification and residual routing consistency owner, not a duplicate implementation milestone for m4/m5/m7–m10. It consumes this ledger and verifies uncovered rows rather than reassigning already-owned work.
 - Closed w1/done milestones remain historical deliveries. Only necessary link relocation occurs; no completion status is changed.

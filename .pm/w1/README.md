@@ -52,7 +52,7 @@ move implementation into w2; do not create a duplicate queue or auto-poll unchan
 - **m20** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m20.md). No task marked done by migration.
 - **m21** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m21.md). No task marked done by migration.
 - **m23** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m23.md). No task marked done by migration.
-- **m25** — transferred to [w2/m4](../w2/m4/README.md), with complete source and ID migration map.
+- **m25** — transferred to [w2/m4](../w2/done/m4/README.md), with complete source and ID migration map.
 - **001** — current documentation reconciliation moved to [w2/011](../w2/011.md).
 
 [Exact task allocation and evidence](../ownership-2026-09-14.md) is authoritative.

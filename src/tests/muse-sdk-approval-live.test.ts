@@ -67,6 +67,16 @@ describe("SDK live approval gating (real Muse host)", () => {
       });
       await expect.poll(() => client.permissionRequests.length, { timeout: 30_000 }).toBe(1);
       expect(existsSync(marker)).toBe(false);
+      await expect(
+        ctx.request(methods.agent.session.setMode, { sessionId, modeId: "bypassApprovals" }),
+      ).rejects.toMatchObject({ code: -32600 });
+      await expect(
+        ctx.request(methods.agent.session.setConfigOption, {
+          sessionId,
+          configId: "sandboxNetwork",
+          value: "enabled",
+        }),
+      ).rejects.toMatchObject({ code: -32600 });
       expect(client.permissionRequests[0]._meta?.["muse/approval"]).toMatchObject({
         judgeEscalated: expect.any(Boolean),
         protectedWrite: expect.any(Boolean),

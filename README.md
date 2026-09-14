@@ -166,6 +166,25 @@ compatibility lookups and title fallback. Auth and skills use CLI helpers.
 Session indexes are eventually consistent, so a new session may not appear
 immediately in a refreshed list.
 
+### Approval and sandbox controls
+
+SDK `bypassApprovals` automatically selects only host-offered once approvals at
+all stages, with no ACP dialogs or persistent grants. `rejectApprovals` rejects
+pending prompts using offered once-denial choices; known-safe tools can still run.
+Both work on Muse 1.1.1 and 1.2.1. Select them using either `session/set_mode` or
+`session/set_config_option` with `configId: "mode"`.
+
+Separate SDK config options select `nativeApprovalPolicy`, `sandbox`,
+`sandboxNetwork`, `workspaceWrite` and `shell`. Defaults remain prompted
+`onRequest`, sandbox enabled, proxy-only network, writes and shell enabled.
+Non-default native policies require Muse 1.2.1+; automatic once decisions work
+on 1.1.1 without those policies. Disabling the sandbox additionally requires
+`MUSE_CODE_ACP_ALLOW_YOLO=1`. No SDK option implicitly trusts workspace rules.
+
+Changes require an idle session and replace its retained host. Load/resume
+restore validated preferences; fork resets safety settings and modes. See the
+[policy matrix and platform limits](docs/sdk-migration.md#approval-and-sandbox-settings).
+
 ### Legacy exec backend (rollback)
 
 ```sh
@@ -175,8 +194,7 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 The legacy backend runs `muse exec --json` per turn. It supports the echo provider,
 uses store-based session listing and accepts stdio MCP servers only. Approvals
 resolve inside Muse rather than through interactive ACP permissions. Default and
-read-only modes are available; bypass-approvals is exec-only, and advertising
-yolo requires `MUSE_CODE_ACP_ALLOW_YOLO=1`.
+read-only and bypass-approvals modes are available; advertising yolo requires `MUSE_CODE_ACP_ALLOW_YOLO=1`.
 
 SDK failures never silently switch to exec. The legacy backend was introduced
 for Muse 0.2.1; this release's integration baseline remains 1.1.1-R2514.1.
@@ -188,7 +206,7 @@ for Muse 0.2.1; this release's integration baseline remains 1.1.1-R2514.1.
 | `MUSE_CODE_EXECUTABLE`     | Path to the external Muse binary; takes precedence over PATH discovery |
 | `MUSE_CODE_ACP_BACKEND`    | `sdk` (default) or `exec`; unknown values fail at startup              |
 | `META_API_KEY`             | Provider credential; takes priority over stored auth                   |
-| `MUSE_CODE_ACP_ALLOW_YOLO` | Set to `1` to advertise yolo mode on exec only                         |
+| `MUSE_CODE_ACP_ALLOW_YOLO` | Opt in to exec yolo or separately selected SDK sandbox-off             |
 | `MUSE_AGENT_LOGS`          | Directory for adapter spawn/stderr logs                                |
 | `MUSE_CODE_ACP_STALL_MS`   | Stall bound for pending host requests, default `10000` (SDK backend)   |
 

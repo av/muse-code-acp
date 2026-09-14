@@ -60,6 +60,15 @@ describe("ACP process restart continuity (real Muse host)", () => {
           });
           sessionId = created.sessionId;
           expect(sessionId.split("-")[2][0]).toBe("7");
+          await agent1.ctx.request(methods.agent.session.setMode, {
+            sessionId,
+            modeId: "bypassApprovals",
+          });
+          await agent1.ctx.request(methods.agent.session.setConfigOption, {
+            sessionId,
+            configId: "sandboxNetwork",
+            value: "restricted",
+          });
           await agent1.ctx.request(methods.agent.session.setConfigOption, {
             sessionId,
             configId: "model",
@@ -109,6 +118,10 @@ describe("ACP process restart continuity (real Muse host)", () => {
           );
           expect(loaded.configOptions?.find((o) => o.id === "reasoningEffort")?.currentValue).toBe(
             "medium",
+          );
+          expect(loaded.modes?.currentModeId).toBe("bypassApprovals");
+          expect(loaded.configOptions?.find((o) => o.id === "sandboxNetwork")?.currentValue).toBe(
+            "restricted",
           );
           if (method === "load")
             expect(JSON.stringify(agent2.updates)).toContain("restart-token-one");

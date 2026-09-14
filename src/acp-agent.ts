@@ -65,7 +65,14 @@ import {
   FILE_REPORT_CAPABILITIES,
 } from "./file-change-evidence.js";
 import { forkMuseSession, FORK_METADATA } from "./session-fork.js";
-import { probeSdkHost } from "./muse-host.js";
+import {
+  DEFAULT_SAFETY,
+  assertSafetyGuard,
+  isSafetyConfig,
+  selectSafety,
+  safetyConfigOptions,
+} from "./safety-settings.js";
+import { probeSdkHost, assertSdkSafetySupport } from "./muse-host.js";
 import { Logger } from "./logger.js";
 import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery.js";
 import { guardContext, isModeAvailable, MODES, modeState, MuseModeId } from "./modes.js";
@@ -151,6 +158,7 @@ export interface SessionState {
   /** Set by `session/cancel`; forces the turn to settle with `cancelled`. */
   cancelRequested: boolean;
   turnFinished: Promise<void> | null;
+  safetyChanging?: boolean;
   /** Active ACP session mode; decides the safety flags of the next spawn. */
   modeId: MuseModeId;
   /** Model + reasoning effort applied to every spawn for this session. */
@@ -227,8 +235,23 @@ export class MuseAcpAgent {
     });
   }
 
+  private safetyGuard() {
+    return { ...guardContext(), env: this.options.env ?? process.env };
+  }
+
+  private validateSafety(config: SessionConfig, mode: MuseModeId): void {
+    if (!isModeAvailable(mode, this.safetyGuard(), this.backend))
+      throw RequestError.invalidParams(
+        undefined,
+        `Stored mode ${mode} is unavailable under current safety guards; restore it under the original non-root environment`,
+      );
+    assertSafetyGuard(config.safety ?? DEFAULT_SAFETY, this.safetyGuard());
+    if (!this.options.skipSdkHostCheck)
+      assertSdkSafetySupport(config.safety, this.options.env, this.options.museBinary);
+  }
+
   private sessionModes(current: MuseModeId) {
-    return modeState(current, guardContext(), this.backend);
+    return modeState(current, this.safetyGuard(), this.backend);
   }
 
   private sessionConfigOptions(
@@ -249,6 +272,9 @@ export class MuseAcpAgent {
         })),
       },
       ...buildConfigOptions(session.config, this.backend, session.modelDiscovery),
+      ...(this.backend === "sdk"
+        ? safetyConfigOptions(session.config.safety, this.safetyGuard())
+        : []),
     ];
   }
 
@@ -604,6 +630,8 @@ export class MuseAcpAgent {
       const preferences = readSessionPreferences(params.sessionId, env);
       config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
       savedMode = preferences.modeId ?? "default";
+      config.safety = preferences.safety;
+      this.validateSafety(config, savedMode);
     }
     const modelDiscovery =
       this.backend === "sdk" ? await this.modelDiscovery.discover(cwd) : undefined;
@@ -699,6 +727,7 @@ export class MuseAcpAgent {
       const config = {
         ...(source?.config ?? defaultSessionConfig(readMuseSettings(env, this.logger))),
       };
+      config.safety = undefined;
       config.model = saved.modelId ?? config.model;
       config.reasoningEffort =
         source?.config.reasoningEffort ?? preferences.reasoningEffort ?? config.reasoningEffort;
@@ -844,6 +873,8 @@ export class MuseAcpAgent {
       const preferences = readSessionPreferences(params.sessionId, env);
       config.reasoningEffort = preferences.reasoningEffort ?? config.reasoningEffort;
       savedMode = preferences.modeId ?? "default";
+      config.safety = preferences.safety;
+      this.validateSafety(config, savedMode);
     }
     const modelDiscovery =
       this.backend === "sdk" ? await this.modelDiscovery.discover(storedCwd) : undefined;
@@ -887,6 +918,39 @@ export class MuseAcpAgent {
       await this.setSessionMode({ sessionId: params.sessionId, modeId: params.value });
       return { configOptions: this.sessionConfigOptions(session) };
     }
+    if (this.backend === "sdk" && isSafetyConfig(params.configId)) {
+      if (session.safetyChanging || session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
+        throw RequestError.invalidRequest(
+          undefined,
+          "Wait for the active turn before changing safety settings",
+        );
+      const safety = selectSafety(
+        session.config.safety,
+        params.configId,
+        params.value,
+        this.safetyGuard(),
+      );
+      this.validateSafety({ ...session.config, safety }, session.modeId);
+      if (JSON.stringify(safety) === JSON.stringify(session.config.safety ?? DEFAULT_SAFETY))
+        return { configOptions: this.sessionConfigOptions(session) };
+      session.safetyChanging = true;
+      try {
+        writeSessionPreferences(params.sessionId, { safety }, this.options.env ?? process.env);
+        if (session.sdkHost) {
+          await session.sdkHost.owner.close();
+          session.sdkHost = undefined;
+        }
+        session.config = { ...session.config, safety };
+        const configOptions = this.sessionConfigOptions(session);
+        await this.client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: { sessionUpdate: "config_option_update", configOptions },
+        });
+        return { configOptions };
+      } finally {
+        session.safetyChanging = false;
+      }
+    }
     const config = applyConfigSelection(session.config, params.configId, params.value);
     if (this.backend === "sdk" && params.configId === "reasoningEffort") {
       writeSessionEffort(params.sessionId, config.reasoningEffort, this.options.env ?? process.env);
@@ -903,23 +967,28 @@ export class MuseAcpAgent {
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
     const session = this.requireSession(params.sessionId);
     if (
-      !isModeAvailable(params.modeId, guardContext(), this.backend) ||
+      !isModeAvailable(params.modeId, this.safetyGuard(), this.backend) ||
       !this.sessionModes(session.modeId).availableModes.some((mode) => mode.id === params.modeId)
     ) {
       throw RequestError.invalidParams(
         undefined,
-        `unknown or unavailable session mode: ${params.modeId}`,
+        `unknown or unavailable session mode: ${params.modeId} (backend ${this.backend}, root=${this.safetyGuard().isRoot}); supported alternatives: ${this.sessionModes(
+          session.modeId,
+        )
+          .availableModes.map((m) => m.id)
+          .join(", ")}`,
       );
     }
     if (
-      (params.modeId === "plan" || session.modeId === "plan") &&
-      (session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
+      (this.backend === "sdk" || params.modeId === "plan" || session.modeId === "plan") &&
+      (session.safetyChanging || session.turnFinished || session.sdkHost?.owner.hasActiveTurn)
     )
       throw RequestError.invalidRequest(
         undefined,
-        "Wait for the active turn before changing planning mode",
+        "Wait for the active turn before changing safety or planning mode",
       );
-    await this.changeMode(params.sessionId, session, params.modeId);
+    if (session.modeId !== params.modeId)
+      await this.changeMode(params.sessionId, session, params.modeId);
     return {};
   }
 
@@ -939,21 +1008,36 @@ export class MuseAcpAgent {
     session: SessionState,
     mode: MuseModeId,
   ): Promise<void> {
-    if (mode === "plan") this.assertWorkflowTools(session);
-    if (this.backend === "sdk" && (mode === "default" || mode === "readOnly" || mode === "plan"))
-      writeSessionMode(sessionId, mode, this.options.env ?? process.env);
-    session.modeId = mode;
-    await this.client.sessionUpdate({
-      sessionId,
-      update: { sessionUpdate: "current_mode_update", currentModeId: mode },
-    });
-    await this.client.sessionUpdate({
-      sessionId,
-      update: {
-        sessionUpdate: "config_option_update",
-        configOptions: this.sessionConfigOptions(session),
-      },
-    });
+    if (session.safetyChanging)
+      throw RequestError.invalidRequest(
+        undefined,
+        "A safety setting change is already in progress",
+      );
+    session.safetyChanging = true;
+    try {
+      if (mode === "plan") this.assertWorkflowTools(session);
+      if (this.backend === "sdk" && mode !== "yolo") {
+        writeSessionMode(sessionId, mode, this.options.env ?? process.env);
+        if (session.sdkHost) {
+          await session.sdkHost.owner.close();
+          session.sdkHost = undefined;
+        }
+      }
+      session.modeId = mode;
+      await this.client.sessionUpdate({
+        sessionId,
+        update: { sessionUpdate: "current_mode_update", currentModeId: mode },
+      });
+      await this.client.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "config_option_update",
+          configOptions: this.sessionConfigOptions(session),
+        },
+      });
+    } finally {
+      session.safetyChanging = false;
+    }
   }
 
   async steer(
@@ -987,7 +1071,7 @@ export class MuseAcpAgent {
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const session = this.requireSession(params.sessionId);
-    if (session.turnFinished) {
+    if (session.turnFinished || session.safetyChanging) {
       throw RequestError.invalidRequest(
         undefined,
         `session ${params.sessionId} already has a prompt turn in flight`,
@@ -1151,6 +1235,7 @@ export class MuseAcpAgent {
             cwd: session.cwd,
             model: session.config.model,
             readOnly,
+            safety: session.config.safety,
             museBinary: this.options.museBinary,
             env: overlay.env,
             logger: this.logger,
@@ -1188,6 +1273,14 @@ export class MuseAcpAgent {
           model: session.config.model,
           reasoningEffort: session.config.reasoningEffort,
           readOnly,
+          safety: session.config.safety,
+          automaticDecision: readOnly
+            ? undefined
+            : session.modeId === "bypassApprovals"
+              ? "approve"
+              : session.modeId === "rejectApprovals"
+                ? "reject"
+                : undefined,
           museBinary: this.options.museBinary,
           env: session.sdkHost.overlay.env,
           hostOwner: session.sdkHost.owner,

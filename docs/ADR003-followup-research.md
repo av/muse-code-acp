@@ -6,7 +6,7 @@ not production implementation. Existing concurrent workflow edits were not chang
 
 ## Ownership update (2026-09-14)
 
-The user moved the approval/sandbox corrective work to [w2/m4](../.pm/w2/m4/README.md). The original w1/m25 plan and evidence are [preserved](../.pm/w2/m4/sources.md); its tasks were superseded, not completed. [Fresh feasibility research](../.pm/w2/evidence/capability-feasibility.md) records newer host results and the w2/m5–m6 settings/capability follow-ups. Historical findings below retain their original date and scope.
+The user moved the approval/sandbox corrective work to [w2/m4](../.pm/w2/done/m4/README.md). The original w1/m25 plan and evidence are [preserved](../.pm/w2/done/m4/sources.md); its tasks were superseded, not completed. [Fresh feasibility research](../.pm/w2/evidence/capability-feasibility.md) records newer host results and the w2/m5–m6 settings/capability follow-ups. Historical findings below retain their original date and scope.
 
 ## Sources and evidence
 
@@ -21,7 +21,7 @@ The user moved the approval/sandbox corrective work to [w2/m4](../.pm/w2/m4/READ
   probe described below. Online official repository inspection supplemented local
   evidence; the documentation-site URL could not be opened by the browser tool.
 
-Subsequent execution probes are recorded in [m25 enforcement evidence](../.pm/w2/m4/sources.md). They confirmed selection acknowledgements but did not establish the expected policy distinctions for the tested shell action. m25 remains open; the initial proposal below is research, not a claim of delivered enforcement.
+Subsequent execution probes are recorded in [m25 enforcement evidence](../.pm/w2/done/m4/sources.md). They confirmed selection acknowledgements but did not establish the expected policy distinctions for the tested shell action. m25 remains open; the initial proposal below is research, not a claim of delivered enforcement.
 
 ## 1. SDK approval and sandbox configuration is actionable
 

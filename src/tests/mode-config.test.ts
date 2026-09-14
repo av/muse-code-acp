@@ -102,17 +102,22 @@ describe("mode selection through ACP config options", () => {
     expect(client.permissionRequests).toHaveLength(0);
   });
 
-  it("does not expose or accept unverified SDK approval bypass modes", async () => {
+  it("accepts adapter automatic policies while rejecting unavailable SDK modes", async () => {
     expect(
       availableModes({ env: { MUSE_CODE_ACP_ALLOW_YOLO: "1" }, isRoot: false }, "sdk").map(
         (m) => m.id,
       ),
-    ).toEqual(["default", "readOnly", "plan"]);
+    ).toEqual(["default", "readOnly", "plan", "bypassApprovals", "rejectApprovals"]);
     const {
       ctx,
       session: { sessionId },
     } = await setup();
-    for (const value of ["bypassApprovals", "yolo", "agent", "agent-full-access", "missing"]) {
+    await ctx.request(methods.agent.session.setConfigOption, {
+      sessionId,
+      configId: "mode",
+      value: "bypassApprovals",
+    });
+    for (const value of ["yolo", "agent", "agent-full-access", "missing"]) {
       await expect(
         ctx.request(methods.agent.session.setConfigOption, { sessionId, configId: "mode", value }),
       ).rejects.toMatchObject({ code: -32602 });

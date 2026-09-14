@@ -2,7 +2,7 @@ import { methods } from "@agentclientprotocol/sdk";
 import { chmodSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MuseSdkTranslator } from "../muse-sdk-events.js";
 import { connectTestClient, fixturesDir, newTestSession, silentLogger } from "./helpers.js";
 
@@ -54,10 +54,14 @@ describe("SDK backend over ACP", () => {
     const client = sdkClient();
     const { ctx, sessionId, modes } = await newTestSession(client);
     expect(sessionId.split("-")[2][0]).toBe("7");
-    expect(modes?.availableModes.map((mode) => mode.id)).toEqual(["default", "readOnly", "plan"]);
-    await expect(
-      ctx.request(methods.agent.session.setMode, { sessionId, modeId: "bypassApprovals" }),
-    ).rejects.toMatchObject({ code: -32602 });
+    expect(modes?.availableModes.map((mode) => mode.id)).toEqual([
+      "default",
+      "readOnly",
+      "plan",
+      "bypassApprovals",
+      "rejectApprovals",
+    ]);
+    await ctx.request(methods.agent.session.setMode, { sessionId, modeId: "bypassApprovals" });
     await ctx.request(methods.agent.session.setConfigOption, {
       sessionId,
       configId: "model",
@@ -280,4 +284,42 @@ describe("MSP tool translation", () => {
     expect(sdkReasoningEffort("medium")).toBe("medium");
     expect(sdkReasoningEffort("bogus")).toBeUndefined();
   });
+});
+
+it("serializes safety host replacement against prompts and other safety changes", async () => {
+  const client = sdkClient();
+  const { ctx, sessionId } = await newTestSession(client);
+  const gate = Promise.withResolvers<void>();
+  try {
+    await ctx.request(methods.agent.session.prompt, {
+      sessionId,
+      prompt: [{ type: "text", text: "start" }],
+    });
+    const owner = client.agent.sessions.get(sessionId)!.sdkHost!.owner;
+    const close = owner.close.bind(owner);
+    const spy = vi.spyOn(owner, "close").mockImplementation(() => gate.promise.then(close));
+    const changing = ctx.request(methods.agent.session.setConfigOption, {
+      sessionId,
+      configId: "shell",
+      value: "disabled",
+    });
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce());
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "race" }],
+      }),
+    ).rejects.toMatchObject({ code: -32600 });
+    await expect(
+      ctx.request(methods.agent.session.setMode, { sessionId, modeId: "bypassApprovals" }),
+    ).rejects.toMatchObject({ code: -32600 });
+    gate.resolve();
+    await changing;
+    expect(owner.closed).toBe(true);
+    expect(client.agent.sessions.get(sessionId)!.config.safety?.shell).toBe("disabled");
+    spy.mockRestore();
+  } finally {
+    gate.resolve();
+    await client.agent.dispose();
+  }
 });

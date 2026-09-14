@@ -1,6 +1,6 @@
 # SDK approval bypass verification — 2026-09-14
 
-Investigated for [w2/010](../m4/sources.md) and [w1/m25](../m4/sources.md).
+Investigated for [w2/010](../done/m4/sources.md) and [w1/m25](../done/m4/sources.md).
 No production mode or approval policy was changed by this investigation.
 
 ## Result

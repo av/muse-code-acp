@@ -47,6 +47,13 @@ describe("ACP fork binding", () => {
     const { client, env, ctx, sessionId, cwd } = await setup();
     const source = client.agent.sessions.get(sessionId)!;
     source.modeId = "plan";
+    source.config.safety = {
+      nativeApprovalPolicy: "allowAll",
+      sandbox: "disabled",
+      sandboxNetwork: "enabled",
+      workspaceWrite: "enabled",
+      shell: "enabled",
+    };
     source.config.reasoningEffort = "high";
     const rpc = vi.spyOn(fork, "forkMuseSession").mockResolvedValue(result(sessionId, cwd));
     try {
@@ -59,6 +66,7 @@ describe("ACP fork binding", () => {
       const branch = client.agent.sessions.get(response.sessionId)!;
       expect(branch.config).not.toBe(source.config);
       expect(branch.mcpServers).not.toBe(source.mcpServers);
+      expect(branch.config.safety).toBeUndefined();
       expect(branch.config).toMatchObject({ model: "source-model", reasoningEffort: "high" });
       expect(readSessionPreferences(response.sessionId, env)).toMatchObject({
         reasoningEffort: "high",

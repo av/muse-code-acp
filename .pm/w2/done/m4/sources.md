@@ -43,7 +43,7 @@ Source: user request to file the diagnosed Muse ACP compatibility issue in w2. N
 ## Triage and fresh verification (2026-09-14)
 
 The adapter's generic rejection is intentional capability gating, but its native
-support assumption was too broad. [Fresh verification](../evidence/010-sdk-approval-verification.md)
+support assumption was too broad. [Fresh verification](../../evidence/010-sdk-approval-verification.md)
 proves allowAll bypasses the tested shell approvals on Muse 1.2.1-R2847.1, including
 multi-stage commands and reconfiguration from onRequest. The same native promise
 remains unverified on 1.1.1, where the probe still requests approval.
@@ -121,7 +121,7 @@ Resume t001 with a documented public configuration/tool path that verifies the i
 
 ## User-impact follow-up — 2026-09-13
 
-[w2/003](../done/003.md) is closed as expected Allow once behavior, not as
+[w2/003](../003.md) is closed as expected Allow once behavior, not as
 an automatic-execution fix. Real Bex Dev two-operation probes on local adapter
 ed57631 / SDK 0.1.1 with Muse 1.1.1 and, separately, 1.2.1 verified that each
 operation waited for its own approval and executed only after Bex returned it.
@@ -146,7 +146,7 @@ YOLO remains a separate choice. Policy probes in `.tmp/m25-probe/` are retained.
 ## Updated enforcement evidence — 2026-09-14
 
 [w2/010](sources.md) adds a published-0.5.0 client compatibility reproduction.
-[Fresh public-host probes](../evidence/010-sdk-approval-verification.md) now
+[Fresh public-host probes](../../evidence/010-sdk-approval-verification.md) now
 verify native allowAll on Muse 1.2.1-R2847.1 for single/multi-stage writes and an
 onRequest-to-allowAll reconfiguration, with zero approval requests. The 1.1.1
 native limitation remains. Earlier onRequest-only 1.2.1 runs did not establish

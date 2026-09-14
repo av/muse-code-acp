@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { museDataDir } from "./session-store.js";
 import { isReasoningEffort } from "./config-options.js";
 
+import { validSafety, type SafetySettings } from "./safety-settings.js";
+
 // ACP-only effort and safety-mode choices live outside native Muse logs.
 function preferencePath(sessionId: string, env: Record<string, string | undefined>): string {
   return join(
@@ -17,7 +19,8 @@ function preferencePath(sessionId: string, env: Record<string, string | undefine
 type Preferences = {
   schemaVersion: 1;
   reasoningEffort?: string;
-  modeId?: "default" | "readOnly" | "plan";
+  modeId?: "default" | "readOnly" | "plan" | "bypassApprovals" | "rejectApprovals";
+  safety?: SafetySettings;
 };
 export function readSessionPreferences(
   sessionId: string,
@@ -33,8 +36,10 @@ export function readSessionPreferences(
   if (
     !doc ||
     doc.schemaVersion !== 1 ||
+    (doc.safety !== undefined && !validSafety(doc.safety)) ||
     (doc.reasoningEffort !== undefined && !isReasoningEffort(doc.reasoningEffort)) ||
-    (doc.modeId !== undefined && !["default", "readOnly", "plan"].includes(doc.modeId))
+    (doc.modeId !== undefined &&
+      !["default", "readOnly", "plan", "bypassApprovals", "rejectApprovals"].includes(doc.modeId))
   )
     throw new Error("Invalid stored ACP session preference");
   return doc;
@@ -47,7 +52,7 @@ export function readSessionEffort(
 }
 export function writeSessionPreferences(
   sessionId: string,
-  change: Pick<Preferences, "reasoningEffort" | "modeId">,
+  change: Pick<Preferences, "reasoningEffort" | "modeId" | "safety">,
   env: Record<string, string | undefined>,
 ): void {
   const doc = { ...readSessionPreferences(sessionId, env), ...change };

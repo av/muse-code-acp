@@ -6,11 +6,11 @@ import { SessionModeState } from "@agentclientprotocol/sdk";
  * Exec backend: modes choose spawn-time `muse exec` flags. Approvals resolve
  * inside Muse (policy + judge) unless the SDK path is selected.
  *
- * SDK backend: `default`, `readOnly` and adapter-defined `plan` are advertised. Approvals route
- * through ACP `session/request_permission`; native automatic approval enforcement
- * is not verified on the supported host, so bypass/yolo remain exec-only.
+ * SDK backend: modes select prompted, automatic once, rejection, or read-only
+ * operation. Native approval policy and sandbox posture are independent settings.
  */
-export type MuseModeId = "default" | "readOnly" | "plan" | "bypassApprovals" | "yolo";
+export type MuseModeId =
+  "default" | "readOnly" | "plan" | "bypassApprovals" | "rejectApprovals" | "yolo";
 export type MuseBackendId = "exec" | "sdk";
 
 export interface ModeDef {
@@ -60,6 +60,13 @@ export const MODES: Record<MuseModeId, ModeDef> = {
     flags: ["--disable-approval"],
     dangerous: true,
   },
+  rejectApprovals: {
+    id: "rejectApprovals",
+    name: "Reject approval requests",
+    description:
+      "Reject genuine pending prompts using host-offered denial choices. Known-safe tools may still run. Applies from the next prompt.",
+    flags: [],
+  },
   yolo: {
     id: "yolo",
     name: "Yolo (no approval, no sandbox)",
@@ -90,8 +97,8 @@ export function availableModes(
   backend: MuseBackendId = "exec",
 ): ModeDef[] {
   return Object.values(MODES).filter((mode) => {
-    if (mode.id === "plan" && backend !== "sdk") return false;
-    if (backend === "sdk" && mode.dangerous) return false;
+    if ((mode.id === "plan" || mode.id === "rejectApprovals") && backend !== "sdk") return false;
+    if (backend === "sdk" && mode.id === "yolo") return false;
     if (!mode.dangerous) {
       return true;
     }
@@ -124,7 +131,11 @@ export function modeState(
       id: mode.id,
       name: mode.name,
       description:
-        mode.id === "default" && backend === "sdk" ? SDK_DEFAULT_DESCRIPTION : mode.description,
+        mode.id === "default" && backend === "sdk"
+          ? SDK_DEFAULT_DESCRIPTION
+          : mode.id === "bypassApprovals" && backend === "sdk"
+            ? "Automatically select host-offered approved/once choices at each stage. No persistent grants; sandbox stays enabled unless separately changed. Applies from the next prompt."
+            : mode.description,
     })),
   };
 }
