@@ -84,6 +84,7 @@ import {
   readConfiguredMcpServers,
 } from "./mcp-overlay.js";
 import { mcpStatus, mcpStartupFailure } from "./mcp-status.js";
+import { SESSION_STATE_EXTENSION } from "./session-state-observer.js";
 import { BUILTIN_COMMANDS, parseSlashCommand } from "./slash-commands.js";
 import { buildReviewPrompt } from "./review-prompt.js";
 import type { GoalObservation } from "./goal-state.js";
@@ -298,6 +299,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.[SESSION_STATE_EXTENSION] === 1
+          ? { [SESSION_STATE_EXTENSION]: { version: 1, reportingOnly: true } }
+          : {}),
         ...(this.backend === "sdk" && supportsFileReport(this.clientCapabilities)
           ? FILE_REPORT_CAPABILITIES
           : {}),
@@ -1154,6 +1158,20 @@ export class MuseAcpAgent {
             onClose: () => overlay.cleanup(),
             onGoal: (goal) => this.publishGoal(params.sessionId, session, goal),
             initialGoal: session.goal,
+            ...(this.clientCapabilities._meta?.[SESSION_STATE_EXTENSION] === 1
+              ? {
+                  onSessionState: async (state) => {
+                    if (this.disposed || this.sessions.get(params.sessionId) !== session) return;
+                    await this.client.sessionUpdate({
+                      sessionId: params.sessionId,
+                      update: {
+                        sessionUpdate: "session_info_update",
+                        _meta: { [SESSION_STATE_EXTENSION]: state },
+                      },
+                    });
+                  },
+                }
+              : {}),
           });
           session.sdkHost = { owner, identity, overlay };
         }

@@ -483,3 +483,98 @@ describe.skipIf(!available)("SDK retained host and steering", () => {
     }
   }, 90_000);
 });
+
+it.skipIf(!available)(
+  "observes public model/mode changes and reads their durable page without changing policy",
+  async () => {
+    const { spawnMspConnection, MuseClient, readSessionDurability } =
+      await import("@muse-code/sdk");
+    const { SessionStateObserver } = await import("../session-state-observer.js");
+    const provider = await startLoopbackProvider({
+      scriptedToolCallWhen: ["never-tool"],
+      scriptedToolCallCommand: "",
+      holdMs: 10,
+    });
+    const host = spawnMspConnection({
+      command: museCliPath(),
+      args: ["serve"],
+      cwd: provider.root,
+      env: {
+        PATH: process.env.PATH,
+        HOME: provider.home,
+        XDG_CONFIG_HOME: join(provider.root, "config"),
+        XDG_DATA_HOME: join(provider.root, "data"),
+        TBH_CREDENTIAL_BACKEND: "file",
+        TBH_DISABLE_TELEMETRY: "1",
+      },
+      shutdownTimeoutMs: 1000,
+    });
+    const seen: unknown[] = [];
+    try {
+      const initialized = await host.initialize({
+        clientInfo: { name: "state_observer_probe", version: "1" },
+      });
+      const client = new MuseClient(initialized.connection, {
+        host: initialized,
+        durability: readSessionDurability(initialized.initializeResult),
+      });
+      const session = await client.startSession({
+        workspaceRoot: provider.root,
+        modelId: "initial-model",
+        approvalMode: "onRequest",
+      });
+      const observer = new SessionStateObserver(
+        session.sessionId,
+        async (value) => {
+          seen.push(value);
+        },
+        () => {},
+      );
+      const catalog = await initialized.connection.request("model/list", {});
+      expect(catalog.models).toEqual(
+        expect.arrayContaining([expect.objectContaining({ modelId: "fake-model" })]),
+      );
+      await initialized.connection.command("session/setModel", {
+        sessionId: session.sessionId,
+        model: { modelId: "fake-model", providerId: "meta" },
+      });
+      // This probe selects the stricter mode; the observer itself never sends setters.
+      await initialized.connection.command("session/setApprovalMode", {
+        sessionId: session.sessionId,
+        mode: "denyUnmatched",
+      });
+      await expect
+        .poll(async () => {
+          await observer.poll(session.fold, initialized.connection);
+          return seen;
+        })
+        .toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              model: expect.objectContaining({ modelId: "fake-model" }),
+            }),
+            expect.objectContaining({
+              approvalMode: expect.objectContaining({ mode: "denyUnmatched" }),
+            }),
+          ]),
+        );
+      const page = await initialized.connection.request("view/page", {
+        sessionId: session.sessionId,
+        direction: "forward",
+        limit: 100,
+      });
+      expect(page.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ method: "session/modelChanged" }),
+          expect.objectContaining({ method: "session/approvalModeChanged" }),
+        ]),
+      );
+      observer.stop();
+    } finally {
+      await host.close();
+      await provider.close();
+      await rm(provider.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  },
+  30_000,
+);

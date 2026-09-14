@@ -35,6 +35,7 @@ export function approvalStageMetadata(stage: ApprovalStage) {
 }
 
 export interface MuseApprovalRequest {
+  viewCursor?: string;
   approvalId: string;
   availableChoices: MuseApprovalChoice[];
   currentRequirementId: { approvalId: string; sourceIndex: number };

@@ -152,6 +152,11 @@ stage evidence, rather than waiting indefinitely. Clients also receive a
 the pinned and served schema fingerprints and the detected host version; a
 mismatch is advisory and never blocks a session.
 
+Clients can opt into `muse/sessionState` to receive observed host model and
+approval-mode changes, plus verified or explicitly unverified persistent-rule
+outcomes. These reports do not change ACP configuration or permission policy.
+See [observed session state](docs/sdk-migration.md#observed-session-state-w2006).
+
 Each SDK session can retain its host across compatible turns. Idle hosts expire
 after 60 seconds; session close also releases them. Close a session before moving
 its native conversation to another client.

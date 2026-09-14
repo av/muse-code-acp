@@ -403,3 +403,43 @@ require successful legacy continuation on 1.1.1. Their SDK-created session paths
 always require successful continuation. Passing these tests does not imply that
 the legacy host defect is fixed. See [compatibility](../README.md#requirements-and-compatibility)
 and [MCP diagnostics](mcp-passthrough.md#diagnostics). These changes are Unreleased.
+
+## Observed session state (w2/006)
+
+Clients opt in with `clientCapabilities._meta["muse/sessionState"]: 1`; SDK
+initialization acknowledges `{ version: 1, reportingOnly: true }`. The adapter
+publishes `session_info_update._meta["muse/sessionState"]` with only changed
+observations:
+
+```json
+{
+  "model": { "modelId": "host-selected-model", "providerId": "meta", "source": "policy" },
+  "approvalMode": { "mode": "denyUnmatched", "source": "approvalReconfigure" }
+}
+```
+
+These are host facts, not ACP configuration changes. They do not select a mode,
+change the model, offer a choice, or grant permission. Missing fields stay absent;
+a host-cleared family is `null`. Source/provider fields are included only when
+published. The existing retained-host timer observes latest folded state every
+100ms, including idle time, suppresses unchanged values, and waits during gap
+recovery. Intermediate changes between samples can coalesce. Host closure stops
+observation; a new host reports its own first observations.
+
+For a selected host-offered `localPersistent` rule, the same extension initially
+reports `{ "policyPersistence": { "approvalId": "...", "status": "unverified" } }`.
+The pinned SDK drops post-resolution `approval/updated` persistence reports.
+The adapter therefore reads the public durable view from an observed approval
+cursor, at most one 100-event page per second while a rule remains unverified.
+A host `policyPersistence` report changes the status to `succeeded` or `failed`;
+raw rule text, paths and failure reasons are not forwarded. No persistence is
+inferred from an accepted choice or successful tool execution. Missing events,
+unknown statuses, unsupported reads and a one-second read timeout leave it
+unverified. Failed reads disable further persistence polling for that host.
+This is bounded reporting and never fails or replays the model turn.
+
+No observation metadata or additional view reads are sent without negotiation.
+The adapter retains `MuseClient` routing and its gap-fill/host-death handling.
+Actual model/mode events and durable page reads are exercised on real hosts;
+persistence failure handling is verified with a deterministic public-wire fixture,
+not by inducing a real user's policy-write failure.

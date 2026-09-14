@@ -27,6 +27,7 @@ if (process.env.FAKE_MSP_PID) writeFileSync(process.env.FAKE_MSP_PID, String(pro
 let sessionId;
 let turnId;
 let cursor = 0;
+const observationPages = [];
 const barrier = process.env.FAKE_MSP_BARRIER;
 const write = (message) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));
 const notify = (method, params) =>
@@ -391,6 +392,14 @@ rl.on("line", async (line) => {
       });
       break;
     case "turn/start": {
+      if (process.env.FAKE_MSP_OBSERVE === "1") {
+        notify("session/modelChanged", { modelId: "host-model", providerId: "meta", source: "policy", sourceRange: { start: 0, end: 0 } });
+        notify("session/approvalModeChanged", { mode: "denyUnmatched", source: "approvalReconfigure", clientName: "probe", commandId: "change", sourceRange: { start: 0, end: 0 } });
+        setTimeout(() => {
+          notify("session/modelChanged", { modelId: "idle-model", source: "policy", sourceRange: { start: 0, end: 0 } });
+          notify("session/modelChanged", { modelId: "idle-model", source: "policy", sourceRange: { start: 0, end: 0 } });
+        }, 300);
+      }
       if (process.env.FAKE_MSP_GOAL === "lifecycle" && !goalEmitted) {
         goalEmitted = true;
         const goal = { objective: "wire-goal", status: "active", percentComplete: 140, currentWork: "observed", nextWork: "clear" };
@@ -438,6 +447,7 @@ rl.on("line", async (line) => {
         }
       } else if (mode === "approval" || mode === "approvalSubmitFailure" || mode === "approvalAllow" || mode === "approvalDeny" || mode === "concurrentApprovals") {
         const first = approvalParams("apr1", "bash", "call1", JSON.stringify({ command: "pwd", description: "Show directory" }));
+        if (process.env.FAKE_MSP_OBSERVE === "1") first.availableChoices.push({ choiceId: "allow-persistent", label: "Always allow", decision: "approved", scope: "localPersistent" });
         pendingApprovals.set("apr1", first);
         notify("approval/requested", first);
         if (mode === "concurrentApprovals") {
@@ -542,6 +552,13 @@ rl.on("line", async (line) => {
         stageEvidence: [],
         sourceRange: { start: 0, end: 0 },
       });
+      if (choice.scope === "localPersistent") {
+        const persistence = { ...held, sessionId, viewCursor: `v:${++cursor}`,
+          change: { kind: "policyPersistence", status: "failed", reason: "private-path secret-policy-detail" } };
+        const event = { method: "approval/updated", params: persistence };
+        observationPages.push(event);
+        write(event); // Deliberately after resolution: the SDK fold drops it.
+      }
       if (pendingApprovals.size === 0 && mode !== "block") {
         notify("item/completed", {
           item: { itemId: `message-${turnId}`, turnId, kind: "agentMessage", revision: 2, status: "completed", text: "hello world" },
@@ -580,6 +597,10 @@ rl.on("line", async (line) => {
       break;
     }
     case "view/page": {
+      if (process.env.FAKE_MSP_OBSERVE === "1") {
+        reply({ events: observationPages, nextCursor: null });
+        break;
+      }
       if (mode === "gapFail") {
         write({ id, error: { code: -32603, message: "page failed", data: { kind: "internal" } } });
         break;

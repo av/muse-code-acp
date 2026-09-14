@@ -10,7 +10,6 @@
 
 ## Inbox
 
-- [006 — Surface session-state changes the adapter folds and ignores](006.md) — phase 2 of the m1 design; reporting-only is about an hour.
 - [007 — Evaluate observing raw MSP notifications instead of polling the fold](007.md) — phase 3; a recommendation, not an implementation.
 - [008 — Report the SDK's unrouted `approval/updated` upstream](008.md) — 30m; no repository change.
 
@@ -25,8 +24,10 @@
 
 The 001 and 002 fixes shipped in `d9f509f`; m1 shipped in `a82cc2f` and m2 in
 `39fc8a5`. These fixes and m3 remain Unreleased on npm. Until publication, npm
-adopters still need the exec workaround for the multi-stage hang. A release remains separate from this milestone loop.
+adopters still need the exec workaround for the multi-stage hang. Release item 009 follows the remaining inbox work, per the expanded loop request.
 
 - [x] [m2](done/m2/README.md) — HTTP MCP startup failures restored; legacy-profile host limitation reproduced and explained.
 
 - [x] [m3](done/m3/README.md) — Permission titles distinguish host stages in plain ACP clients; verified through Bex and both host versions.
+
+- [x] [006 — Observe host session state](done/006.md) — negotiated reporting, idle model/mode changes and durable policy-persistence outcomes; 377 unit and 29 live tests passed on both host versions.

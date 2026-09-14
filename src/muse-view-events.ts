@@ -27,14 +27,14 @@ export const HANDLED_VIEW_EVENTS: Readonly<Record<string, string>> = {
   "userInput/settled": "muse-sdk.ts handlePendingUserInputs (clears the pending prompt)",
   "view/gap": "SDK gap fill; muse-sdk.ts onGapError fails unrecoverable holes",
   "session/goalChanged": "muse-sdk-host.ts observeGoal → goal extension",
+  "session/modelChanged": "session-state-observer.ts → negotiated observed model",
+  "session/approvalModeChanged": "session-state-observer.ts → negotiated observed approval mode",
 };
 
 /** Methods the adapter deliberately drops, with the owner of that decision. */
 export const IGNORED_VIEW_EVENTS: Readonly<Record<string, string>> = {
   "turn/retracted": "Non-terminal by contract; the turn still reaches its own terminal.",
   "turn/retryScheduled": "Observed host retries are not yet forwarded; w1/m14.",
-  "session/modelChanged": "Session-state observers are w2/m1 phase 2.",
-  "session/approvalModeChanged": "Session-state observers are w2/m1 phase 2.",
   "session/todoListChanged": "Plan/todo updates are not forwarded; w1/m9.",
   "session/tokenUsage": "Token usage is not forwarded; w1/m9.",
   "session/contextUsage": "Context pressure is not forwarded; w1/m9.",

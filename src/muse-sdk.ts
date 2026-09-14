@@ -414,6 +414,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           }
           const choiceId = resolvePermissionChoice(view, response);
           const choice = view.availableChoices.find((c) => c.choiceId === choiceId);
+          if (choice?.scope === "localPersistent")
+            owner.watchPolicyPersistence(view.approvalId, view.viewCursor);
           if (choice && ["approved", "approvedForSession"].includes(choice.decision))
             fileChanges.beforeApproval(view.toolName, view.rawArgs);
           await connection!.command(
@@ -657,6 +659,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       // Flush any items that arrived only through gap fill after the last yield.
       flushFold();
       publishApprovalResults();
+      await owner.observeSessionState();
       const response = terminalResponse(outcome);
       successful = response.stopReason === "end_turn";
       const goal = parseGoalObservation(session.fold.sessionState.get("session/goalChanged")?.goal);

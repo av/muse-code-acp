@@ -11,6 +11,7 @@ import type { MuseSdkOptions } from "./muse-sdk.js";
 import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import { parseGoalObservation, type GoalObservation } from "./goal-state.js";
+import { SessionStateObserver, type SessionStateObservation } from "./session-state-observer.js";
 import {
   hostCompatibility,
   servedFingerprint,
@@ -26,6 +27,7 @@ type HostOptions = Pick<
   onClose?: () => void | Promise<void>;
   onGoal?: (goal: GoalObservation) => void | Promise<void>;
   initialGoal?: GoalObservation;
+  onSessionState?: (state: SessionStateObservation) => Promise<void>;
 };
 type InitializedHost = Awaited<ReturnType<ReturnType<typeof spawnMspConnection>["initialize"]>>;
 interface HostLease {
@@ -52,6 +54,7 @@ export class MuseSdkHost {
   private lastGoalState?: unknown;
   private compatibility?: HostCompatibility;
   private compatibilityAnnounced = false;
+  private readonly stateObserver?: SessionStateObserver;
 
   /**
    * The host/SDK comparison, once per host. Announced on the first turn of a
@@ -67,7 +70,23 @@ export class MuseSdkHost {
     return !!this.lease?.session.fold.activeTurnId;
   }
 
-  constructor(private readonly options: HostOptions) {}
+  constructor(private readonly options: HostOptions) {
+    if (options.onSessionState)
+      this.stateObserver = new SessionStateObserver(
+        options.sessionId,
+        options.onSessionState,
+        (message) => options.logger.log(message),
+      );
+  }
+
+  watchPolicyPersistence(approvalId: string, cursor?: string): void {
+    this.stateObserver?.watchPolicy(approvalId, cursor);
+  }
+
+  async observeSessionState(): Promise<void> {
+    if (this.lease)
+      await this.stateObserver?.poll(this.lease.session.fold, this.lease.host.connection);
+  }
   get closed(): boolean {
     return this.stopped;
   }
@@ -139,6 +158,7 @@ export class MuseSdkHost {
       this.stopped = true;
       clearTimeout(this.idleTimer);
       clearInterval(this.goalTimer);
+      this.stateObserver?.stop();
       this.failActive?.(new Error("Muse SDK host closed during the turn"));
       this.closing = (async () => {
         try {
@@ -263,10 +283,14 @@ export class MuseSdkHost {
       throw new Error("Muse SDK host closed during startup");
     }
     this.lease = { host, client, session };
-    if (options.onGoal) {
-      this.goalTimer = setInterval(() => this.observeGoal(), 100);
+    if (options.onGoal || this.stateObserver) {
+      this.goalTimer = setInterval(() => {
+        if (options.onGoal) this.observeGoal();
+        void this.observeSessionState();
+      }, 100);
       this.goalTimer.unref();
-      this.observeGoal();
+      if (options.onGoal) this.observeGoal();
+      await this.observeSessionState();
     }
     return this.lease;
   }

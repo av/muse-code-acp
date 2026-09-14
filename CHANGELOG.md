@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add opt-in `muse/sessionState` observations for host-selected model and approval-mode changes, including idle retained hosts. Persistent-rule choices remain explicitly unverified until a public host report establishes success or failure; observation never changes policy or retries a turn.
+
 - Distinguish multi-stage permission prompts in every ACP client: titles show the host's current stage arguments and position, while the full command remains in raw input. Single-stage titles, offered choices and negotiated approval metadata are preserved.
 
 - Require startup of ACP-provided MCP servers explicitly on the SDK backend, restoring prompt failures for unauthorized, malformed and unreachable HTTP endpoints on Muse 1.2.1. Preserve user-configured server modes.
