@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Require startup of ACP-provided MCP servers explicitly on the SDK backend, restoring prompt failures for unauthorized, malformed and unreachable HTTP endpoints on Muse 1.2.1. Preserve user-configured server modes.
+- Explain the Muse 1.2.1 host limitation when resuming a saved `:auto-review` session. SDK-created continuity passes; affected legacy sessions need a new ACP session or Muse with reviewer support. No saved profile is rewritten.
+- Verify the complete loopback suite against the directly downloaded, checksum-pinned Muse 1.1.1 macOS artifact; document durable pinning separately from the launcher's replaceable cache.
+
 - Complete multi-stage shell approvals on the SDK backend. Muse splits a compound command into stages; on 1.2.1 the host advances the approval with `approval/updated` and never re-issues `approval/requested`, which the pinned SDK does not route, so the turn hung with no error. Approvals are now decided from the session fold, asking once per unresolved stage and submitting only host-offered choices.
 - Bound every wait on a pending host request: an approval or user input with no outstanding client call and no host progress for `MUSE_CODE_ACP_STALL_MS` (default 10s) now fails the prompt with the requirement and stage evidence instead of waiting indefinitely.
 - Stop re-asking a user input that was already answered but never settled by the host.

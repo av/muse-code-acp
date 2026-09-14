@@ -209,6 +209,19 @@ export class MuseSdkHost {
     try {
       session = await client.resumeSession({ sessionId: options.sessionId, excludeItems: true });
     } catch (error) {
+      if (
+        error instanceof MspError &&
+        error.code === -32603 &&
+        error.message.includes("permission profile ':auto-review' cannot be used") &&
+        error.message.includes("the automated reviewer is unavailable on this host")
+      ) {
+        throw new Error(
+          "This Muse host cannot resume a saved session using the :auto-review permission profile " +
+            "because its automated reviewer is unavailable. Continue it in Muse with reviewer support, " +
+            "or start a new ACP session. The public SDK cannot replace a saved permission profile.",
+          { cause: error },
+        );
+      }
       if (!(error instanceof MspError) || error.code !== -32020) throw error;
       session = await client.startSession({
         sessionId: options.sessionId,

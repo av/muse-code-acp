@@ -137,7 +137,7 @@ it("merges canonical and legacy global servers with session HTTP precedence in a
       duplicate: { transport: "stdio", command: "/bin/obsolete" },
     },
     mcpServers: {
-      duplicate: { type: "stdio", command: "/bin/canonical" },
+      duplicate: { type: "stdio", command: "/bin/canonical", mode: "optional" },
       remote: {
         type: "http",
         url: "https://old.invalid",
@@ -166,7 +166,7 @@ it("merges canonical and legacy global servers with session HTTP precedence in a
     expect(settings.mcp_servers).toBeUndefined();
     expect(readConfiguredMcpServers({ XDG_CONFIG_HOME: root })).toEqual({
       legacy: { type: "stdio", command: "/bin/legacy", args: [], env: {} },
-      duplicate: { type: "stdio", command: "/bin/canonical" },
+      duplicate: { type: "stdio", command: "/bin/canonical", mode: "optional" },
       remote: {
         type: "http",
         url: "https://old.invalid",
@@ -180,9 +180,12 @@ it("merges canonical and legacy global servers with session HTTP precedence in a
       env: {},
     });
     expect(settings.mcpServers.duplicate.command).toBe("/bin/canonical");
+    expect(settings.mcpServers.duplicate.mode).toBe("optional");
     expect(settings.mcpServers["security-tools"].type).toBe("stdio");
+    expect(settings.mcpServers["security-tools"].mode).toBe("required");
     expect(settings.mcpServers.remote).toEqual({
       type: "http",
+      mode: "required",
       url: "https://new.invalid/mcp?key=dummy-key",
       headers: { Authorization: "Bearer dummy-secret" },
     });

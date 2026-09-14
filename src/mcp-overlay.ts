@@ -124,6 +124,12 @@ export function createMuseMcpOverlay(
     const injected = museMcpServers(mcpServers);
     if (executionConfig) {
       delete settings.mcp_servers;
+      // ACP supplied these tools for the session. Muse 1.2.1 silently tolerates
+      // startup failures when mode is omitted; require them explicitly, while
+      // preserving the user's posture for servers inherited from settings.
+      for (const [name, server] of Object.entries(injected)) {
+        injected[name] = { ...(server as Record<string, unknown>), mode: "required" };
+      }
     } else {
       for (const [name, value] of Object.entries(injected)) {
         const { type, ...fields } = value as Record<string, unknown>;

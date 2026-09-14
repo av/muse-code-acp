@@ -92,6 +92,23 @@ test("idle expiry closes host and releases its overlay callback", async () => {
   expect(() => process.kill(f.pid(), 0)).toThrow();
 });
 
+test("saved auto-review profiles fail with an actionable host limitation without replay", async () => {
+  const f = fixture("autoReviewUnavailable");
+  const turn = spawnMuseSdkTurn({ ...f.options, hostOwner: f.owner });
+  await expect(turn.done).rejects.toThrow(
+    "This Muse host cannot resume a saved session using the :auto-review permission profile",
+  );
+  await expect(turn.done).rejects.toThrow("start a new ACP session");
+  await expect(turn.done).rejects.not.toThrow("internal error: compose");
+  expect(f.requests().filter((r) => r.method === "session/resume")).toHaveLength(1);
+  expect(
+    f
+      .requests()
+      .some((r) => ["session/start", "turn/start", "session/setApprovalMode"].includes(r.method)),
+  ).toBe(false);
+  expect(f.owner.closed).toBe(true);
+});
+
 test("retention expiry closes a host with active native goal work and releases resources once", async () => {
   const f = fixture("nativeGoal", 30, 32, true);
   await expect(spawnMuseSdkTurn({ ...f.options, hostOwner: f.owner }).done).resolves.toEqual({

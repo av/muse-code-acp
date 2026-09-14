@@ -1,4 +1,5 @@
 import { startLoopbackProvider } from "./loopback-provider.js";
+import { expectLegacyContinuation } from "./acp-real-host-helpers.js";
 import { CAT_IMAGE_BASE64 } from "./fixtures/cat-image.js";
 import { methods } from "@agentclientprotocol/sdk";
 import { spawnSync } from "node:child_process";
@@ -170,9 +171,9 @@ describe.skipIf(!available)("SDK live host (no external API)", () => {
         cwd,
         mcpServers: [],
       });
-      await expect(
+      await expectLegacyContinuation(
         loaded.request(methods.agent.session.prompt, { sessionId: old.sessionId, prompt }),
-      ).resolves.toEqual({ stopReason: "end_turn" });
+      );
     } finally {
       await Promise.all([first.agent.dispose(), second.agent.dispose(), legacy.agent.dispose()]);
       server.closeAllConnections();

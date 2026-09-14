@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { museCliPath } from "../muse-cli.js";
 import { agentEntrypoint } from "./acp-wire-helpers.js";
-import { spawnAcpAgent } from "./acp-real-host-helpers.js";
+import { expectLegacyContinuation, spawnAcpAgent } from "./acp-real-host-helpers.js";
 import { connectTestClient, initialized, museAvailable } from "./helpers.js";
 import { ALTERNATE_MODEL_ID, startLoopbackProvider } from "./loopback-provider.js";
 
@@ -166,12 +166,12 @@ describe("ACP process restart continuity (real Muse host)", () => {
               cwd,
               mcpServers: [],
             });
-            await expect(
+            await expectLegacyContinuation(
               agent3.ctx.request(methods.agent.session.prompt, {
                 sessionId: old.sessionId,
                 prompt: [{ type: "text", text: "continue legacy" }],
               }),
-            ).resolves.toEqual({ stopReason: "end_turn" });
+            );
           } finally {
             await agent3.dispose();
           }

@@ -336,9 +336,10 @@ A divergence stays advisory, matching the SDK's own rule.
 
 Verified on 1.2.1-R2847.1 with the loopback provider: two-stage and three-stage
 commands ask once per unresolved stage and write every file; denying the second
-stage writes nothing and still returns `end_turn`. The 1.1.1 baseline could not be
-re-tested locally because the Muse launcher removes superseded binaries and offers
-no pin; CI's 1.1.1 lane covers it.
+stage writes nothing and still returns `end_turn`. The complete 28-case loopback
+suite also passes locally on the CI-pinned public 1.1.1-R2514.1 macOS artifact.
+The launcher cache is not a durable pin; the direct artifact and checksum in CI
+allow a separately retained binary.
 
 ## Standalone packaging (m24)
 
@@ -368,7 +369,23 @@ shell/generated/child attribution or launch an audit model turn. See [bounds and
 
 SDK listing uses public, lease-free pages with workspace-bound cursors. Metadata updates preserve deterministic first-prompt title fallback and negotiated fork provenance; full export replay remains intact. Native indexing is eventually consistent. See [discovery and history limits](session-discovery.md).
 
-Adapter 0.4.0 does not support Muse 1.2.1-R2847.1. Set
-`MUSE_CODE_EXECUTABLE` to the verified 1.1.1-R2514.1 host; see the
-[release compatibility note](../README.md#legacy-exec-backend-rollback) for
-legacy-session permission and HTTP MCP failures found during release testing.
+## Muse 1.2.1 verification (w2/m2)
+
+The supported baseline remains 1.1.1-R2514.1. On 1.2.1-R2847.1, the development
+adapter verifies SDK-created session continuity, staged approvals, and HTTP MCP
+success and failure cases. ACP-provided MCP servers set `mode: "required"` in
+the private settings overlay; omitting this field lets failed startup resolve a
+successful turn on this host. User-configured servers retain their chosen mode.
+
+The remaining host limitation is resuming **legacy-created** sessions whose
+saved permission profile is `:auto-review`. Public `session/read` succeeds, but
+`session/resume` rejects before loading, and `session/setApprovalMode` then
+rejects because the session is not loaded. No public profile override exists.
+The error now names that limitation and suggests a new ACP session or continuing
+in Muse with reviewer support. Approval and sandbox defaults are unchanged.
+
+Three live tests assert this exact actionable failure on 1.2.1-R2847.1 and still
+require successful legacy continuation on 1.1.1. Their SDK-created session paths
+always require successful continuation. Passing these tests does not imply that
+the legacy host defect is fixed. See [compatibility](../README.md#requirements-and-compatibility)
+and [MCP diagnostics](mcp-passthrough.md#diagnostics). These changes are Unreleased.

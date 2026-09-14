@@ -29,6 +29,7 @@ The SDK overlay maps it to Muse's canonical settings:
   "mcpServers": {
     "remote-tools": {
       "type": "http",
+      "mode": "required",
       "url": "https://example.com/mcp",
       "headers": { "Authorization": "Bearer YOUR_TOKEN" }
     }
@@ -64,8 +65,11 @@ This historical observation is cleared on the next execution attempt or session
 resume. Unreadable/malformed settings produce a separate configuration error.
 Raw host errors, endpoints and credentials are never copied into this report.
 
-A required server that fails startup fails the prompt; no automatic prompt replay
-occurs. Correct its settings and start a new prompt when ready. No success is
+ACP-provided servers explicitly use `mode: "required"` in the SDK overlay, so a
+server that fails startup fails the prompt; no automatic prompt replay occurs.
+This is verified on both 1.1.1-R2514.1 and 1.2.1-R2847.1. The latter silently
+continues after failed startup when the mode is omitted. Servers inherited from
+user settings retain their configured mode, including `optional`. Correct its settings and start a new prompt when ready. No success is
 inferred from the existence of settings or an HTTP URL.
 
 ## Overlay lifecycle

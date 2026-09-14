@@ -17,19 +17,25 @@ Zed or VS Code with an ACP extension. Available features depend on the client.
   `MUSE_CODE_EXECUTABLE`.
 - Muse authentication through browser login or `META_API_KEY`.
 
-**Muse 1.2.1-R2847.1 is not supported by this release.** Release testing found
-six failures across 23 real-host tests: legacy exec session continuation failed
-because its saved `:auto-review` permission profile was unavailable in `serve`,
-and unauthorized, malformed or unreachable HTTP MCP endpoints no longer failed
-the prompt as required by the adapter's diagnostic contract. Pin the verified
-host; disabling approvals or sandboxing is not a workaround.
+**The supported baseline remains Muse 1.1.1-R2514.1.** The current development
+adapter also verifies SDK-created session load/resume, multi-stage allow/deny,
+and HTTP MCP tool calls and startup failures on **1.2.1-R2847.1**. ACP-provided
+MCP servers explicitly use required startup mode; authentication, malformed
+responses and unreachable endpoints fail the prompt.
 
-One 1.2.1 defect is now fixed: a compound shell command needing approval for more
-than one stage used to hang forever on the SDK backend. That host continues such
-an approval by refreshing it rather than by asking again, and the adapter now
-follows either form. Multi-stage allow, deny and three-stage cases are verified
-on 1.2.1-R2847.1. The remaining 1.2.1 failures above are unchanged, so the
-supported host is still 1.1.1-R2514.1.
+One host limitation remains on 1.2.1: legacy `muse exec` sessions saved with
+`:auto-review` cannot be resumed in `muse serve`, whose automated reviewer is
+unavailable. This affects the legacy-continuation portion of three live tests;
+SDK-created session continuation passes. The adapter reports an actionable error
+and does not replay the prompt or change the saved permission profile. Start a
+new ACP session or continue the old one in Muse with reviewer support.
+
+The launcher updates and removes superseded binaries, so pointing
+`MUSE_CODE_EXECUTABLE` at an old launcher cache is not a durable pin. CI's public
+1.1.1 artifacts remain downloadable; the exact macOS ARM64 and Linux download
+URLs and SHA-256 checks are in [CI](.github/workflows/ci.yml). Keep the verified
+binary at a separate path. The fixes described here are **Unreleased** until the
+next npm publication.
 
 The npm adapter and its pinned `@muse-code/sdk@0.1.1` dependency do not include
 the Muse executable. Native execution, model access, persistence and sandboxing

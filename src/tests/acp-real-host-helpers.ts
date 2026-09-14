@@ -9,9 +9,26 @@ import {
   PROTOCOL_VERSION,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
-import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
+import { expect } from "vitest";
+import { museCliPath } from "../muse-cli.js";
 import { Readable, Writable } from "node:stream";
 import { agentEntrypoint } from "./acp-wire-helpers.js";
+
+/** w2/m2: this exact host cannot compose legacy :auto-review profiles in serve. */
+export async function expectLegacyContinuation(prompt: Promise<unknown>): Promise<void> {
+  const version = spawnSync(museCliPath(), ["--version"], { encoding: "utf8" }).stdout ?? "";
+  if (version.includes("(1.2.1-R2847.1)")) {
+    await expect(prompt).rejects.toMatchObject({
+      code: -32603,
+      message: expect.stringContaining(
+        "This Muse host cannot resume a saved session using the :auto-review permission profile",
+      ),
+    });
+  } else {
+    await expect(prompt).resolves.toEqual({ stopReason: "end_turn" });
+  }
+}
 
 export interface RealHostAgent {
   ctx: ClientContext;

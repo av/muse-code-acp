@@ -349,6 +349,13 @@ rl.on("line", async (line) => {
       reply({session: {sessionId: params.sessionId, workspaceRoot: process.cwd(), modelId: "muse-spark-1.2", activeTurnId: null}, pendingRequests: []});
       break;
     case "session/resume":
+      if (mode === "autoReviewUnavailable") {
+        write({ id, error: { code: -32603,
+          message: "internal error: compose session permission profile: permission profile ':auto-review' cannot be used: the automated reviewer is unavailable on this host",
+          data: { kind: "internal" },
+        } });
+        break;
+      }
       if (mode === "busy" || mode === "wrongWorkspace") {
         reply({ session: {
           sessionId: params.sessionId, modelId: "muse-spark-1.2",
