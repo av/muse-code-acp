@@ -1,8 +1,29 @@
-# w1 — project workstream (worker1)
+# w1 — future Muse SDK/host enablement and completed history
 
-**Worker:** worker1. This is a general-purpose muse-code-acp workstream. It may take work anywhere in the project; the milestones below are scheduled work and historical records, not a permanent purpose, specialty, or ownership boundary.
+**Worker:** worker1. Current scheduling policy, set by the user on 2026-09-14:
+all presently implementable work and unresolved current feasibility investigations
+execute in w2. w1 retains only evidence-backed future public SDK/host watches.
+This is a queue policy, not a permanent component ownership boundary.
 
-## Milestones
+## Future enablement watches
+
+No current implementation milestones remain here. Each note has a concrete public
+support trigger, evidence boundary and acceptance after enablement. On support,
+move implementation into w2; do not create a duplicate queue or auto-poll unchanged APIs.
+
+- [Revisit public goal control support](002.md)
+- [Revisit host-owned MCP status support](003.md)
+- [004 — Future: Durable native compaction](004.md)
+- [005 — Future: Accessible native child sessions and isolated child controls](005.md)
+- [006 — Future: Observable native scheduled retries](006.md)
+- [007 — Future: Native rich media and output retrieval](007.md)
+- [008 — Future: Independently authorized additional workspace roots](008.md)
+- [009 — Future: Correlated URL elicitation](009.md)
+- [010 — Future: Native service tiers and per-model effort capability metadata](010.md)
+- [011 — Future: Authoritative account quota and rate limits](011.md)
+- [012 — Future: Native root-session deletion](012.md)
+
+## Completed milestones
 
 - [x] **m1** — Walking skeleton: scaffold + ACP shell + echo-provider turn (8 tasks) ← from claude-agent-acp porting research (2026-08-25)
 - [x] **m2** — Real turn translation: tool calls, modes, cancellation, continuity (9 tasks) ← from claude-agent-acp porting research (2026-08-25)
@@ -12,28 +33,26 @@
 - [x] **m6** — Session continuity and SDK default cutover (11 tasks) ← from SDK migration + codex-acp test review (2026-09-11)
 - [x] **m7** — Session lifecycle and prompt-content follow-ups (7 tasks) ← from post-merge PR review (2026-09-12)
 - [x] **m8** — Embedded editor context and runtime model discovery (7 tasks) ← from codex-acp capability comparison (2026-09-12)
-- [ ] **m9** — Usage, context management and live run visibility (9 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [x] **m10** — Reusable SDK hosts and mid-turn steering (8 tasks) ← from codex-acp capability comparison (2026-09-12)
-- [ ] **m11** — Delegated worker lifecycle and native child sessions (8 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [x] **m12** — Session branching through public Muse fork support (6 tasks) ← from codex-acp capability comparison (2026-09-12)
 - [x] **m13** — Accurate file diffs and per-turn change reports (7 tasks) ← from codex-acp capability comparison (2026-09-12)
-- [ ] **m14** — Structured failures, retry progress and truthful authentication state (8 tasks) ← from second codex-acp comparison (2026-09-12)
-- [ ] **m15** — Background command lifecycle and targeted controls (7 tasks) ← from second codex-acp comparison (2026-09-12)
 - [x] **m16** — Remote MCP transport and connection diagnostics (6 tasks) ← from second codex-acp comparison (2026-09-12)
-- [ ] **m17** — Rich tool results and output artifacts (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [x] **m18** — Session goal state and verified goal controls (6 tasks) ← from second codex-acp comparison (2026-09-12)
 - [x] **m19** — Paginated session discovery and live metadata (6 tasks) ← from second codex-acp comparison (2026-09-12)
-- [ ] **m20** — Remaining prompt context and elicitation parity (7 tasks) ← from ADR003 parity handoff (2026-09-12)
-- [ ] **m21** — Provider configuration, recommendations and account limits (8 tasks) ← from ADR003 parity handoff (2026-09-12)
 - [x] **m22** — Plan mode, review workflows and permission presentation (7 tasks) ← from ADR003 parity handoff (2026-09-12)
-- [ ] **m23** — Session commands and remaining editor presentation contracts (8 tasks) ← from ADR003 parity handoff (2026-09-12)
 - [x] **m24** — Portable packaging and reference distribution assessment (6 tasks) ← from ADR003 parity handoff (2026-09-12)
 
-- [ ] **m25** — Verified SDK approval policies and sandbox configuration (8 tasks) ← from ADR003 follow-up research (2026-09-12)
+## Transferred and split
 
-## Inbox
+- **m9** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m9.md). No task marked done by migration.
+- **m11** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m11.md). No task marked done by migration.
+- **m14** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m14.md). No task marked done by migration.
+- **m15** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m15.md). No task marked done by migration.
+- **m17** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m17.md). No task marked done by migration.
+- **m20** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m20.md). No task marked done by migration.
+- **m21** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m21.md). No task marked done by migration.
+- **m23** — superseded by current w2 tasks and distinct future notes; [original scope](evidence/2026-09-14-superseded/m23.md). No task marked done by migration.
+- **m25** — transferred to [w2/m4](../w2/m4/README.md), with complete source and ID migration map.
+- **001** — current documentation reconciliation moved to [w2/011](../w2/011.md).
 
-- [001 — Reconcile ADR003 with the complete w1 parity handoff](001.md) — coverage map and 30m documentation follow-up.
-
-- [002 — Revisit public goal control support](002.md) — 30m reassessment on a published API/host change.
-- [003 — Revisit host-owned MCP status support](003.md) — 30m reassessment on a public status surface.
+[Exact task allocation and evidence](../ownership-2026-09-14.md) is authoritative.

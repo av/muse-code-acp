@@ -29,7 +29,7 @@ Estimated total: 3h 45m across 6 tasks. Only listed dependencies are prerequisit
 
 ## Source + Goal linkage
 
-- **Source:** User handoff of [ADR003 parity work](../../../docs/ADR003-codex-acp-parity.md) on 2026-09-12. The earlier m9–m19 handoffs retain their existing scope. See [handoff coverage](../001.md).
+- **Source:** User handoff of [ADR003 parity work](../../../../docs/ADR003-codex-acp-parity.md) on 2026-09-12. The earlier m9–m19 handoffs retain their existing scope. See [handoff coverage](../../../w2/011.md).
 - **Goal linkage:** Close the named remaining editor/runtime integration gaps while preserving truthful, reliable Muse ACP behavior.
 - **Expected outcome:** Choose a supportable packaging approach based on platform, licensing and runtime availability. Implement standalone adapter packaging for verified supported targets. Make supported installation paths reviewable and document remaining distribution-policy choices.
 - **Why now:** npm installation works, but reference standalone binaries and bundled compatible runtime reduce setup friction; feasibility and release policy need explicit treatment.

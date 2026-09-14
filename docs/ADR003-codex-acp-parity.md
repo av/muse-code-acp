@@ -117,9 +117,9 @@ workspace, mode, or MCP changes can require replacement. See
 | Token usage                                    | Supported                                           | Missing                          | Raw Muse usage has been observed, but ACP forwarding remains m9 work.                                                                          |
 | Context usage/pressure                         | Context-window and compaction reporting             | Missing                          | m9; preserve unknown values and do not derive unsupported counters.                                                                            |
 | Explicit compaction and lifecycle              | `/compact` and compaction events                    | Blocked                          | Muse durable `session/compact` rejects admission on the tested host; see blocker below.                                                        |
-| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence).       |
-| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence).       |
-| Worker controls                                | Reference supports delegated-agent operations       | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/m11/README.md#validation-evidence).       |
+| Worker/workflow lifecycle cards                | Native and legacy fallback presentation             | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/evidence/2026-09-14-superseded/m11.md).   |
+| Native child sessions, histories and approvals | Negotiated child sessions and root-routed approvals | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/evidence/2026-09-14-superseded/m11.md).   |
+| Worker controls                                | Reference supports delegated-agent operations       | Blocked                          | m11 host worker launch is unavailable and child read/resume fails; see [recorded evidence](../.pm/w1/evidence/2026-09-14-superseded/m11.md).   |
 | Background commands beyond prompt completion   | Negotiated async tasks, status and targeted stop    | Missing                          | m15; m9 live output and m11 workers do not cover background command ownership.                                                                 |
 | Persistent goal snapshots                      | Goal extension                                      | Supported (SDK)                  | m18 forwards negotiated public goal observations, restores history and preserves explicit clearing. See [contract](goal-extension.md).         |
 | Goal set/pause/resume/clear                    | Advertised goal actions and `/goal`                 | Controls unavailable             | Read-only `/goal` is supported; no verified public MSP control API, so controls remain unadvertised.                                           |
@@ -135,7 +135,7 @@ and Codex reference documents for
 
 ### Recorded durable-compaction blocker
 
-The [m9 validation record](../.pm/w1/m9/README.md#validation-evidence) reports two
+The [m9 validation record](../.pm/w1/evidence/2026-09-14-superseded/m9.md) reports two
 isolated loopback reproductions on Muse Code `1.1.1-R2514.1`, SDK `0.1.1`, macOS.
 After a completed durable turn, public `session/compact` returned MSP `-32030`
 with `compaction_unavailable`, including with experimental API negotiation.

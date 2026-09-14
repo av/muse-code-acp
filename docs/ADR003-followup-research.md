@@ -4,6 +4,10 @@ Date: 2026-09-12. Scope: SDK safety modes, goal controls, MCP diagnostics and
 dependencies preventing independent parity work. This is research and PM handoff,
 not production implementation. Existing concurrent workflow edits were not changed.
 
+## Ownership update (2026-09-14)
+
+The user moved the approval/sandbox corrective work to [w2/m4](../.pm/w2/m4/README.md). The original w1/m25 plan and evidence are [preserved](../.pm/w2/m4/sources.md); its tasks were superseded, not completed. [Fresh feasibility research](../.pm/w2/evidence/capability-feasibility.md) records newer host results and the w2/m5–m6 settings/capability follow-ups. Historical findings below retain their original date and scope.
+
 ## Sources and evidence
 
 - Installed Muse Code: `1.1.1-R2514.1`; SDK: `@muse-code/sdk@0.1.1`.
@@ -17,7 +21,7 @@ not production implementation. Existing concurrent workflow edits were not chang
   probe described below. Online official repository inspection supplemented local
   evidence; the documentation-site URL could not be opened by the browser tool.
 
-Subsequent execution probes are recorded in [m25 enforcement evidence](../.pm/w1/m25/README.md#enforcement-blocker-2026-09-12). They confirmed selection acknowledgements but did not establish the expected policy distinctions for the tested shell action. m25 remains open; the initial proposal below is research, not a claim of delivered enforcement.
+Subsequent execution probes are recorded in [m25 enforcement evidence](../.pm/w2/m4/sources.md). They confirmed selection acknowledgements but did not establish the expected policy distinctions for the tested shell action. m25 remains open; the initial proposal below is research, not a claim of delivered enforcement.
 
 ## 1. SDK approval and sandbox configuration is actionable
 
@@ -131,3 +135,7 @@ acceptance criterion or required feature is removed, and no task is marked done.
 
 This is a dependency correction, not permission to claim all milestones
 actionable or complete. Host-feature probes may uncover their own blockers.
+
+## Current execution ownership after cleanup
+
+The user subsequently requested w1 contain only future SDK/host enablement. [The exact cleanup ledger](../.pm/ownership-2026-09-14.md) supersedes the historical w1 execution assignments above. Current work is scheduled in w2/m4–m10 and w2/011; future watches are w1/002–012. No historical blocked feature was marked delivered by moving its independent parts.

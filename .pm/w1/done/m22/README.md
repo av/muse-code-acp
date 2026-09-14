@@ -32,7 +32,7 @@ Estimated total: 4h 30m across 7 tasks. Only listed dependencies are prerequisit
 
 ## Source + Goal linkage
 
-- **Source:** User handoff of [ADR003 parity work](../../../docs/ADR003-codex-acp-parity.md) on 2026-09-12. The earlier m9–m19 handoffs retain their existing scope. See [handoff coverage](../001.md).
+- **Source:** User handoff of [ADR003 parity work](../../../../docs/ADR003-codex-acp-parity.md) on 2026-09-12. The earlier m9–m19 handoffs retain their existing scope. See [handoff coverage](../../../w2/011.md).
 - **Goal linkage:** Close the named remaining editor/runtime integration gaps while preserving truthful, reliable Muse ACP behavior.
 - **Expected outcome:** Define which reference workflow semantics can be backed by public Muse host behavior. Expose verified planning behavior and /plan with explicit transition into implementation. Support working-tree, branch and commit reviews with precise target selection. Forward verified permission scope/reviewer states while retaining genuine host gating.
 - **Why now:** Todo plans and file-change reports do not provide deliberate plan/review workflows or the reference's richer permission lifecycle.
