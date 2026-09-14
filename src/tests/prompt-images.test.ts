@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { decodeImage, IMAGE_EXTENSIONS } from "../prompt-images.js";
 import { capturingLogger, connectTestClient, fakeMuseBinary, newTestSession } from "./helpers.js";
 
 type MuseCapture = {
@@ -228,5 +229,45 @@ describe("ACP prompt content", () => {
       throw new Error("spawn diagnostics did not include the staged image path");
     }
     expect(existsSync(dirname(imagePath))).toBe(false);
+  });
+});
+
+describe("IMAGE_EXTENSIONS", () => {
+  it("maps the supported MIME types to file extensions", () => {
+    expect([...IMAGE_EXTENSIONS.entries()].sort()).toEqual([
+      ["image/gif", "gif"],
+      ["image/jpeg", "jpg"],
+      ["image/png", "png"],
+      ["image/webp", "webp"],
+    ]);
+  });
+});
+
+describe("decodeImage", () => {
+  it("round-trips valid base64 data", () => {
+    const decoded = decodeImage(Buffer.from("hello-png").toString("base64"));
+    expect(decoded.toString()).toBe("hello-png");
+  });
+
+  it("ignores whitespace in the payload", () => {
+    const encoded = Buffer.from("hello-png").toString("base64");
+    const spaced = `${encoded.slice(0, 4)} \n ${encoded.slice(4)}`;
+    expect(decodeImage(spaced).toString()).toBe("hello-png");
+  });
+
+  it("rejects empty data", () => {
+    expect(() => decodeImage("")).toThrow(/unsupported ACP prompt content: image.*invalid base64/);
+  });
+
+  it("rejects lengths that cannot be base64", () => {
+    expect(() => decodeImage("a")).toThrow(/invalid base64/);
+  });
+
+  it("rejects non-base64 characters", () => {
+    expect(() => decodeImage("!!!")).toThrow(/invalid base64/);
+  });
+
+  it("rejects payloads that do not round-trip canonically", () => {
+    expect(() => decodeImage("ab")).toThrow(/invalid base64/);
   });
 });
