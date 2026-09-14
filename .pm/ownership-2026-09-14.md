@@ -23,14 +23,14 @@ User-authorized scheduling cleanup: w1 contains completed history and future pub
 | w1/m9/t007            | [w2/m7 closing tasks](w2/done/m7/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m9.md#original-t007)  |
 | w1/m9/t008            | [w2/m7 closing tasks](w2/done/m7/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m9.md#original-t008)  |
 | w1/m9/t009            | [w2/m7 closing tasks](w2/done/m7/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m9.md#original-t009)  |
-| w1/m11/t001           | [w2/m9/t002](w2/m9/t002.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t001) |
+| w1/m11/t001           | [w2/m9/t002](w2/done/m9/done/t002.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t001) |
 | w1/m11/t002           | [w1/005](w1/005.md)                                                                            | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t002) |
 | w1/m11/t003           | [w1/005](w1/005.md)                                                                            | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t003) |
 | w1/m11/t004           | [w1/005](w1/005.md)                                                                            | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t004) |
-| w1/m11/t005           | [w2/m9/t004](w2/m9/t004.md); [w1/005](w1/005.md)                                               | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t005) |
-| w1/m11/t006           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t006) |
-| w1/m11/t007           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t007) |
-| w1/m11/t008           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t008) |
+| w1/m11/t005           | [w2/m9/t004](w2/done/m9/done/t004.md); [w1/005](w1/005.md)                                     | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t005) |
+| w1/m11/t006           | [w2/m9 closing tasks](w2/done/m9/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t006) |
+| w1/m11/t007           | [w2/m9 closing tasks](w2/done/m9/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t007) |
+| w1/m11/t008           | [w2/m9 closing tasks](w2/done/m9/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m11.md#original-t008) |
 | w1/m14/t001           | [w2/m8/t001](w2/done/m8/done/t001.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t001) |
 | w1/m14/t002           | [w2/m8/t002](w2/done/m8/done/t002.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t002) |
 | w1/m14/t003           | [w1/006](w1/006.md)                                                                            | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t003) |
@@ -39,16 +39,16 @@ User-authorized scheduling cleanup: w1 contains completed history and future pub
 | w1/m14/t006           | [w2/m8 closing tasks](w2/done/m8/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t006) |
 | w1/m14/t007           | [w2/m8 closing tasks](w2/done/m8/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t007) |
 | w1/m14/t008           | [w2/m8 closing tasks](w2/done/m8/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m14.md#original-t008) |
-| w1/m15/t001           | [w2/m9/t001](w2/m9/t001.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t001) |
-| w1/m15/t002           | [w2/m9/t003](w2/m9/t003.md); [w1/005](w1/005.md)                                               | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t002) |
-| w1/m15/t003           | [w2/m9/t004](w2/m9/t004.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t003) |
-| w1/m15/t004           | [w2/m9/t005](w2/m9/t005.md)                                                                    | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t004) |
-| w1/m15/t005           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t005) |
-| w1/m15/t006           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t006) |
-| w1/m15/t007           | [w2/m9 closing tasks](w2/m9/README.md); future promotion closing criteria for this source      | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t007) |
+| w1/m15/t001           | [w2/m9/t001](w2/done/m9/done/t001.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t001) |
+| w1/m15/t002           | [w2/m9/t003](w2/done/m9/done/t003.md); [w1/005](w1/005.md)                                     | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t002) |
+| w1/m15/t003           | [w2/m9/t004](w2/done/m9/done/t004.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t003) |
+| w1/m15/t004           | [w2/m9/t005](w2/done/m9/done/t005.md)                                                          | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t004) |
+| w1/m15/t005           | [w2/m9 closing tasks](w2/done/m9/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t005) |
+| w1/m15/t006           | [w2/m9 closing tasks](w2/done/m9/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t006) |
+| w1/m15/t007           | [w2/m9 closing tasks](w2/done/m9/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m15.md#original-t007) |
 | w1/m17/t001           | [w2/m7/t004](w2/done/m7/done/t004.md); [w1/007](w1/007.md)                                     | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t001) |
 | w1/m17/t002           | [w2/m7/t004](w2/done/m7/done/t004.md); [w1/007](w1/007.md)                                     | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t002) |
-| w1/m17/t003           | [w2/m7/t004](w2/done/m7/done/t004.md); [w1/007](w1/007.md)                                     | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t003) |
+| w1/m17/t003           | [w2/m7/t004](w2/done/m7/done/t004.md); [w2/m11](w2/m11/README.md); [w1/007](w1/007.md)         | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t003) |
 | w1/m17/t004           | [w2/m7 closing tasks](w2/done/m7/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t004) |
 | w1/m17/t005           | [w2/m7 closing tasks](w2/done/m7/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t005) |
 | w1/m17/t006           | [w2/m7 closing tasks](w2/done/m7/README.md); future promotion closing criteria for this source | [source](w1/evidence/2026-09-14-superseded/m17.md#original-t006) |
@@ -107,3 +107,10 @@ the 61 superseded task rows has an explicit destination; every original acceptan
 bullet was checked against the preserved source. All local Markdown links resolve
 and changed Markdown formatting/diff whitespace checks passed. No implementation
 or historical completion status was changed by this cleanup.
+
+## Host-schema correction during w2/m9
+
+The 1.2.1 host exports public methods absent from SDK 0.1.1. Real item/readOutput
+returned bounded stored shell bytes; retrieval is promoted to w2/m11, with only
+missing rich-media preservation left in w1/007. Native session/rename accepts
+slug names (free-text spaces reject); w2/m10 retains ownership of user titles.

@@ -1,3 +1,4 @@
+import { ASYNC_TASKS, workerKinds, workerText } from "./async-tasks.js";
 import { SessionNotification, ToolCall } from "@agentclientprotocol/sdk";
 import type { FoldedItem } from "@muse-code/sdk";
 import type { FileChangeEvidence } from "./file-change-evidence.js";
@@ -21,6 +22,38 @@ export class MuseSdkTranslator {
   private readonly emittedText = new Map<string, string>();
   private readonly output = new Map<string, string>();
   private readonly notices = new Set<string>();
+  private workerContext?: { generation: string; cancel: boolean; negotiated: boolean };
+  configureWorkers(generation: string, cancel: boolean, negotiated: boolean) {
+    this.workerContext = { generation, cancel, negotiated };
+  }
+  lostWork(): SessionNotification[] {
+    return [...this.items.values()]
+      .filter(
+        (i) =>
+          i.status === "inProgress" &&
+          (workerKinds.has(String(i.kind)) || i.kind === "toolCall" || i.kind === "userShell"),
+      )
+      .map((i) => ({
+        sessionId: this.sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: i.callId ?? i.itemId,
+          status: "failed",
+          content: [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: "Observation ended with the host; this task outcome is unknown. Reload to inspect saved state.",
+              },
+            },
+          ],
+          ...(this.workerContext?.negotiated
+            ? { _meta: { [ASYNC_TASKS]: { outcome: "unknown", actions: [] } } }
+            : {}),
+        },
+      }));
+  }
   constructor(
     private readonly sessionId: string,
     private readonly logger: Logger,
@@ -64,8 +97,7 @@ export class MuseSdkTranslator {
     const previous = this.items.get(item.itemId);
     if (previous && previous.revision >= item.revision) return [];
     this.items.set(item.itemId, item);
-    if (["userMessage", "subagent", "workflow", "reminderChild"].includes(String(item.kind)))
-      return [];
+    if (item.kind === "userMessage") return [];
     if (item.kind === "agentMessage")
       return [
         ...this.snapshot(item.itemId, item.text ?? "", false),
@@ -80,6 +112,7 @@ export class MuseSdkTranslator {
       return [...updates, ...this.truncated(item, true)];
     }
     const text =
+      (workerKinds.has(String(item.kind)) ? workerText(item) : undefined) ??
       item.visibleOutput ??
       this.output.get(item.itemId) ??
       item.failureReason ??
@@ -152,6 +185,28 @@ export class MuseSdkTranslator {
     const call: ToolCall = {
       toolCallId: item.callId ?? item.itemId,
       name: tool,
+      ...(this.workerContext?.negotiated &&
+      (workerKinds.has(String(item.kind)) || item.kind === "toolCall" || item.kind === "userShell")
+        ? {
+            _meta: {
+              [ASYNC_TASKS]: {
+                kind: item.kind,
+                target: `${this.workerContext.generation}:${item.itemId}`,
+                actions:
+                  item.kind === "workflow" &&
+                  item.status === "inProgress" &&
+                  item.workflowRunId &&
+                  this.workerContext.cancel
+                    ? ["cancel"]
+                    : [],
+                observedStatus: item.status,
+                ...(item.childSessionId
+                  ? { childSessionId: item.childSessionId, childHistory: "unavailable" }
+                  : {}),
+              },
+            },
+          }
+        : {}),
       title:
         typeof title === "string"
           ? title.slice(0, 1024)

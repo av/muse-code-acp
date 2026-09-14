@@ -14,6 +14,7 @@ const DUMMY_API_KEY = "test-dummy-key";
 export interface LoopbackProviderOptions {
   statusCode?: number;
   publicSummary?: string;
+  holdMsForRequest?: (request: Record<string, unknown>) => number;
   /** Substrings that must all appear in the request body to script a bash tool call. */
   scriptedToolCallWhen: readonly string[];
   scriptedToolCallCommand: string;
@@ -235,12 +236,15 @@ export async function startLoopbackProvider(
 
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.write(head);
-      const hold = setTimeout(() => {
-        holds.delete(hold);
-        if (!response.writableEnded) {
-          response.end(completionTail(responseId));
-        }
-      }, holdMs);
+      const hold = setTimeout(
+        () => {
+          holds.delete(hold);
+          if (!response.writableEnded) {
+            response.end(completionTail(responseId));
+          }
+        },
+        options.holdMsForRequest?.(parsed) ?? holdMs,
+      );
       holds.add(hold);
     });
     request.on("error", () => {});

@@ -229,6 +229,9 @@ selected Muse executable. Logout does not unset an exported `META_API_KEY`.
 See [failure and authentication observations](docs/failures.md) for structured SDK
 errors, credential configuration and session-scoped recovery state.
 
+See [workflow and background tasks](docs/async-tasks.md) for retained progress
+and negotiated targeted workflow cancellation.
+
 ## Development and verification
 
 From a repository checkout:

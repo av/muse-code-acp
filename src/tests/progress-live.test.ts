@@ -200,7 +200,9 @@ it("streams correlated shell output before completion with a bounded final snaps
     await done;
     const tools = client.updates.flatMap((n) =>
       n.update.sessionUpdate === "tool_call" || n.update.sessionUpdate === "tool_call_update"
-        ? [n.update]
+        ? n.update.name === "bash"
+          ? [n.update]
+          : []
         : [],
     );
     expect(new Set(tools.map((t) => t.toolCallId)).size).toBe(1);

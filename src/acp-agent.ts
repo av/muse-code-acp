@@ -1,3 +1,4 @@
+import { ASYNC_TASKS, TASK_METHOD, parseTaskRequest, restoredTaskUpdates } from "./async-tasks.js";
 import { observedFailure, type FailureObservation } from "./turn-failure.js";
 import { SessionProgress, USAGE_EXTENSION, type ProgressFacts } from "./session-progress.js";
 import { requireAvailable, requireSingleWorkspace, unavailable } from "./availability.js";
@@ -445,6 +446,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && this.clientCapabilities._meta?.[ASYNC_TASKS] === 1
+          ? { [ASYNC_TASKS]: { version: 1, method: TASK_METHOD, actionsPerTask: true } }
+          : {}),
         ...(this.clientCapabilities._meta?.[AUTH_EXTENSION] === 1
           ? { [AUTH_EXTENSION]: { version: 1, ...this.authStatus() } }
           : {}),
@@ -782,6 +786,7 @@ export class MuseAcpAgent {
     let savedMode: MuseModeId = "default";
     let info: SessionInfo | undefined;
     let progress: ProgressFacts = {};
+    let tasks: import("@muse-code/sdk").FoldedItem[] = [];
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -792,8 +797,10 @@ export class MuseAcpAgent {
         checkHost: !this.options.skipSdkHostCheck,
         readGoal: true,
         readProgress: true,
+        readTasks: true,
       });
       progress = saved.progress ?? {};
+      tasks = saved.tasks ?? [];
       goal = saved.goal ?? goal;
       info = saved.info;
       config.model = saved.modelId ?? config.model;
@@ -830,6 +837,8 @@ export class MuseAcpAgent {
       await this.publishGoal(params.sessionId, bound, goal);
       if (this.backend === "sdk")
         await this.progressFor(params.sessionId, bound).observe(progress, true);
+      for (const update of restoredTaskUpdates(params.sessionId, tasks))
+        await this.client.sessionUpdate(update);
       if (info)
         await this.client.sessionUpdate(sessionInfoNotification(info, this.clientCapabilities));
       for (const notification of exportToUpdates(params.sessionId, doc, this.logger)) {
@@ -1485,6 +1494,14 @@ export class MuseAcpAgent {
             logger: this.logger,
             checkHost: !this.options.skipSdkHostCheck,
             onClose: () => overlay.cleanup(),
+            onTaskUpdate: async (notification) => {
+              if (
+                !this.disposed &&
+                this.sessions.get(params.sessionId) === session &&
+                session.sdkHost?.owner === owner
+              )
+                await this.client.sessionUpdate(notification);
+            },
             onGoal: (goal) => this.publishGoal(params.sessionId, session, goal),
             onProgress: async (facts) => {
               if (session.sdkHost?.owner === owner)
@@ -1688,6 +1705,15 @@ export class MuseAcpAgent {
     );
   }
 
+  async controlTask({ sessionId, target }: ReturnType<typeof parseTaskRequest>) {
+    this.assertRunning();
+    if (this.backend !== "sdk" || this.clientCapabilities._meta?.[ASYNC_TASKS] !== 1)
+      throw RequestError.invalidRequest(undefined, "muse/asyncTasks must be negotiated");
+    const owner = this.sessions.get(sessionId)?.sdkHost?.owner;
+    if (!owner) throw RequestError.invalidRequest(undefined, "Task host is no longer available");
+    return owner.controlTask(target);
+  }
+
   async cancel(params: CancelNotification): Promise<void> {
     const session = this.sessions.get(params.sessionId);
     if (!session) {
@@ -1784,6 +1810,7 @@ export function createAgentConnection(
     .onRequest(methods.agent.session.setConfigOption, (ctx) =>
       agent.setSessionConfigOption(ctx.params),
     )
+    .onRequest(TASK_METHOD, parseTaskRequest, (ctx) => agent.controlTask(ctx.params))
     .onRequest(STEER_METHOD, parseSteeringRequest, (ctx) => agent.steer(ctx.params))
     .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
     .onNotification(methods.agent.session.cancel, (ctx) => agent.cancel(ctx.params))

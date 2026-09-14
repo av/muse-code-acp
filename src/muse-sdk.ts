@@ -1,3 +1,4 @@
+import { ASYNC_TASKS, readTaskItems } from "./async-tasks.js";
 import { sdkTerminalResponse, sdkThrownError, failureError } from "./turn-failure.js";
 import { readProgress, type ProgressFacts } from "./session-progress.js";
 import {
@@ -89,10 +90,11 @@ export async function readMuseSdkSession(
   options: Pick<
     MuseSdkOptions,
     "sessionId" | "cwd" | "env" | "museBinary" | "logger" | "checkHost"
-  > & { readGoal?: boolean; readProgress?: boolean; allowActive?: boolean },
+  > & { readGoal?: boolean; readProgress?: boolean; readTasks?: boolean; allowActive?: boolean },
 ): Promise<{
   modelId: string | null;
   progress?: ProgressFacts;
+  tasks?: FoldedItem[];
   providerId?: string;
   goal?: GoalObservation;
   info?: SessionInfo;
@@ -150,6 +152,9 @@ export async function readMuseSdkSession(
       modelId: session.modelId,
       ...(typeof session.providerId === "string" ? { providerId: session.providerId } : {}),
       info: optionalSessionInfo(result.session),
+      ...(options.readTasks
+        ? { tasks: await readTaskItems(host.connection, options.sessionId) }
+        : {}),
       ...(options.readProgress
         ? { progress: await readProgress(host.connection, options.sessionId).catch(() => ({})) }
         : {}),
@@ -247,6 +252,11 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   const done = (async (): Promise<PromptResponse> => {
     try {
       const lease = await owner.acquire(options, failTurn);
+      translator.configureWorkers(
+        owner.generation,
+        owner.workflowCancellationSupported,
+        options.clientCapabilities?._meta?.[ASYNC_TASKS] === 1,
+      );
       acquired = true;
       connection = lease.host.connection;
       const session = lease.session;
@@ -690,6 +700,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       await owner.observeSessionState();
       const response = sdkTerminalResponse(outcome, options.env);
       successful = response.stopReason === "end_turn";
+      if (successful && turnId) owner.retainProgress(turnId, translator);
       const goal = parseGoalObservation(session.fold.sessionState.get("session/goalChanged")?.goal);
       if (
         successful &&

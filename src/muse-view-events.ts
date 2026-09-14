@@ -65,8 +65,9 @@ export const ITEM_KIND_CONSUMERS: Readonly<Record<string, string>> = {
     "muse-sdk-events.ts streams public summary parts; private reasoning is never requested.",
   userShell:
     "muse-sdk-events.ts renders generic shell output; background lifecycle/control: w2/m9.",
-  subagent: "Observed worker lifecycle: w2/m9; separate native child controls: w1/005.",
-  workflow: "Observed workflow lifecycle: w2/m9; 1.2.1 launch positive, 1.1.1 limited.",
-  reminderChild: "Observed child attribution: w2/m9; child history remains w1/005.",
+  subagent: "Handled by retained MuseSdkTranslator worker cards; native child controls: w1/005.",
+  workflow:
+    "Handled by retained worker cards; negotiated 1.2.1 workflow cancellation; 1.1.1 workflow lifecycle/control unverified.",
+  reminderChild: "Handled child attribution cards; child history remains w1/005.",
   compaction: "Native durable compaction rejects on 1.1.1/1.2.1; future w1/004.",
 };

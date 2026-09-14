@@ -64,3 +64,12 @@ Rerun both host matrices after an SDK/host upgrade, a capability advertisement
 change or a modified adapter route. For each newly positive host finding, retain
 a provider/filesystem or native lifecycle assertion, assign one current w2 owner,
 and retire only the exact former blocker. Do not relabel all neighboring features.
+
+## m9 host-schema correction
+
+The m6 table above is historical. Public host schema export, rather than only the
+pinned SDK method union, shows that Muse 1.2.1 additionally serves rename, standing
+effort, view subscribe and item/readOutput. Bounded real shell-output reads now
+have positive evidence and are assigned to [w2/m11](../.pm/w2/m11/README.md).
+Workflow cancellation is delivered by [w2/m9](../.pm/w2/done/m9/README.md) using the
+public conformance contract even though SDK 0.1.1 omits its declaration.

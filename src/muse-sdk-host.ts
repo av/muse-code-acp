@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { RequestError, type SessionNotification } from "@agentclientprotocol/sdk";
+import { cancelWorkflow } from "./async-tasks.js";
+import type { MuseSdkTranslator } from "./muse-sdk-events.js";
 import { foldedProgress, type ProgressFacts } from "./session-progress.js";
 import {
   MuseClient,
@@ -40,6 +44,7 @@ type HostOptions = Pick<
   onGoal?: (goal: GoalObservation) => void | Promise<void>;
   initialGoal?: GoalObservation;
   onProgress?: (facts: ProgressFacts) => Promise<void>;
+  onTaskUpdate?: (notification: SessionNotification) => Promise<void>;
   onSessionState?: (state: SessionStateObservation) => Promise<void>;
 };
 type InitializedHost = Awaited<ReturnType<ReturnType<typeof spawnMspConnection>["initialize"]>>;
@@ -51,6 +56,62 @@ interface HostLease {
 
 /** A single ACP session owns this process and its spawn-time configuration. */
 export class MuseSdkHost {
+  readonly generation = randomUUID();
+  private retained = new Map<string, MuseSdkTranslator>();
+  private taskDelivery = Promise.resolve();
+  get workflowCancellationSupported() {
+    return this.lease?.host.initializeResult.serverInfo?.version === "1.2.1";
+  }
+  retainProgress(turnId: string, translator: MuseSdkTranslator) {
+    this.retained.set(turnId, translator);
+  }
+  async controlTask(target: string) {
+    if (
+      this.stopped ||
+      !target.startsWith(`${this.generation}:`) ||
+      !this.lease ||
+      !this.workflowCancellationSupported
+    )
+      throw RequestError.invalidRequest(
+        undefined,
+        "Task target is stale or workflow cancellation is unavailable on this host",
+      );
+    const item = this.lease.session.fold.items.get(target.slice(this.generation.length + 1));
+    if (
+      !this.lease.session.fold.current ||
+      item?.kind !== "workflow" ||
+      item.status !== "inProgress" ||
+      !item.workflowRunId
+    )
+      throw RequestError.invalidRequest(undefined, "Task is not a current running workflow");
+    return cancelWorkflow(this.lease.host.connection, this.options.sessionId, item.workflowRunId);
+  }
+  private observeTasks() {
+    if (!this.lease?.session.fold.current || this.stopped) return;
+    const store = this.lease.session.fold.items;
+    const updates = store.list().flatMap((item) => {
+      const translator = this.retained.get(item.turnId ?? "");
+      if (!translator) return [];
+      return [
+        ...translator.fromItem(item),
+        ...store
+          .accumulatedFields(item.itemId)
+          .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }))
+          .flatMap((field) =>
+            translator.fromAccumulated(
+              item.itemId,
+              field,
+              store.accumulated(item.itemId, field) ?? "",
+            ),
+          ),
+      ];
+    });
+    this.taskDelivery = this.taskDelivery
+      .then(async () => {
+        for (const update of updates) if (!this.stopped) await this.options.onTaskUpdate?.(update);
+      })
+      .catch(() => this.options.logger.log("Background task observation delivery failed"));
+  }
   private handshake?: ReturnType<typeof spawnMspConnection>;
   private initialized?: Promise<HostLease>;
   private lease?: HostLease;
@@ -100,6 +161,7 @@ export class MuseSdkHost {
     if (this.lease) {
       await this.stateObserver?.poll(this.lease.session.fold, this.lease.host.connection);
       await this.options.onProgress?.(foldedProgress(this.lease.session.fold));
+      this.observeTasks();
     }
   }
   get closed(): boolean {
@@ -169,7 +231,15 @@ export class MuseSdkHost {
       ((!fold.activeTurnId &&
         fold.pendingApprovals().length === 0 &&
         fold.pendingUserInputs().length === 0) ||
-        (!!this.options.onGoal && goal?.status === "known" && goal.goal?.status === "active"));
+        (!!this.options.onGoal && goal?.status === "known" && goal.goal?.status === "active") ||
+        (!!this.options.onTaskUpdate &&
+          fold.items
+            .list()
+            .some(
+              (i) =>
+                i.status === "inProgress" &&
+                ["toolCall", "workflow", "subagent", "userShell"].includes(String(i.kind)),
+            )));
     if (
       !keepAlive ||
       !safeToReuse ||
@@ -197,6 +267,10 @@ export class MuseSdkHost {
           else await this.handshake?.close().catch(() => {});
           await this.initialized?.catch(() => {});
           await this.goalDelivery;
+          await this.taskDelivery;
+          for (const translator of this.retained.values())
+            for (const update of translator.lostWork()) await this.options.onTaskUpdate?.(update);
+          this.retained.clear();
         } finally {
           this.failActive = undefined;
           this.finalStderr = this.stderr;
@@ -345,7 +419,7 @@ export class MuseSdkHost {
       throw new Error("Muse SDK host closed during startup");
     }
     this.lease = { host, client, session };
-    if (options.onGoal || this.stateObserver || options.onProgress) {
+    if (options.onGoal || this.stateObserver || options.onProgress || options.onTaskUpdate) {
       this.goalTimer = setInterval(() => {
         if (options.onGoal) this.observeGoal();
         void this.observeSessionState().catch(() =>

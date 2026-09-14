@@ -579,3 +579,9 @@ SDK errors preserve host categories and retryability with explicit recovery hint
 The adapter never replays an ambiguous turn. Negotiated `muse/authStatus`
 distinguishes configuration from native rejection and successful-turn evidence;
 identity remains unknown. See [the contract](failures.md).
+
+## Workflow and background tasks
+
+Public worker cards and background output survive foreground completion while
+the host is retained. Negotiated `muse/asyncTasks` exposes only per-task verified
+actions, including Muse 1.2.1 workflow cancellation. See [contract](async-tasks.md).
