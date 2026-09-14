@@ -10,7 +10,6 @@
 
 ## Inbox
 
-- [008 — Report the SDK's unrouted `approval/updated` upstream](008.md) — 30m; no repository change.
 
 ## Done
 
@@ -32,3 +31,5 @@ adopters still need the exec workaround for the multi-stage hang. Release item 0
 - [x] [006 — Observe host session state](done/006.md) — negotiated reporting, idle model/mode changes and durable policy-persistence outcomes; 377 unit and 29 live tests passed on both host versions.
 
 - [x] [007 — Notification observation recommendation](done/007.md) — retain SDK routing and narrow public reads; alternatives and engineering costs recorded.
+
+- [x] [008 — Report SDK approval routing defect](done/008.md) — filed [upstream #10](https://github.com/meta-models/muse-code-sdk/issues/10) with a fresh SDK-only reproduction.
