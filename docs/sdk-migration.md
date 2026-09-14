@@ -302,6 +302,20 @@ approval by REFRESHING it — `approval/decide` answers `terminal: false` and an
 (`facade/session.js` documents the omission), so a router-driven client answers
 the first stage and then waits forever. This is the w2/m1 defect.
 
+Stage presentation (w2/m3) is part of ordinary ACP `toolCall.title`: for example,
+`Stage 1 of 4: echo one`, then `Stage 3 of 4: echo two`. Arguments, position and
+total come from the host's stage matching `currentRequirementId`; the total
+includes known-safe stages. The adapter does not split or parse the shell command.
+Arguments containing whitespace or special characters are quoted as display text.
+Host argv can omit redirections, so the full command stays in `rawInput`.
+Single-stage approvals, a sole decision among known-safe stages, and missing
+stage evidence retain the original title. Unknown resolution kinds are preserved.
+Clients negotiating `muse/approval` still get the same metadata and choices.
+
+This resolves identical prompts for one compound command. Repeated Allow once
+prompts for genuinely separate operations remain expected, as recorded in
+[w2/003](../.pm/w2/done/003.md); that earlier triage is not reopened.
+
 The adapter therefore decides approvals from the fold rather than from the
 router, the way pending user input was already handled:
 

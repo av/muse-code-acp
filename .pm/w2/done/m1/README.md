@@ -180,7 +180,7 @@ Bex's GUI could not be driven automatically: its CLI only opens windows and file
 send a prompt. The verification therefore covers the artifact, command, Node binary and wire
 Bex uses, not a human clicking in the app.
 
-One finding, recorded as w2/005 and since promoted to [w2/m3](../../m3/README.md): both permission frames are identical in every
+One finding, recorded as w2/005 and since promoted to [w2/m3](../m3/README.md): both permission frames are identical in every
 field a client without the `muse/approval` extension renders, so the user cannot tell the stages
 apart. The protocol behavior is correct; the presentation is a separate gap.
 

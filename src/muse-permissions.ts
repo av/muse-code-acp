@@ -18,6 +18,7 @@ export interface MuseApprovalChoice {
 }
 
 interface ApprovalStage {
+  argv?: readonly string[];
   position: number;
   totalStages: number;
   requirementId: { approvalId: string; sourceIndex: number };
@@ -93,13 +94,50 @@ export function currentApprovalView(pending: MusePendingApproval): MuseApprovalR
   };
 }
 
+/** Match the host's requirement identity; position is presentation, never a key. */
+function currentApprovalStage(request: MuseApprovalRequest): ApprovalStage | undefined {
+  return request.subject?.stages?.find(
+    (stage) =>
+      stage.requirementId.approvalId === request.currentRequirementId.approvalId &&
+      stage.requirementId.sourceIndex === request.currentRequirementId.sourceIndex,
+  );
+}
+
+function stagedApprovalTitle(request: MuseApprovalRequest): string | undefined {
+  const stages = request.subject?.stages ?? [];
+  // Already decided stages still count after a refresh. Only exclude stages
+  // explicitly published as known-safe; preserve unknown resolution kinds.
+  if (
+    stages.filter((stage) => !["knownSafe", "known_safe"].includes(stage.resolution.kind)).length <=
+    1
+  )
+    return;
+  const stage = currentApprovalStage(request);
+  if (
+    !stage ||
+    !Number.isInteger(stage.position) ||
+    !Number.isInteger(stage.totalStages) ||
+    stage.totalStages <= 1 ||
+    stage.position < 1 ||
+    stage.position > stage.totalStages ||
+    !Array.isArray(stage.argv) ||
+    !stage.argv.length ||
+    !stage.argv.every((arg) => typeof arg === "string")
+  )
+    return;
+  // Render host-parsed arguments, quoting ambiguous tokens as display text.
+  // argv can omit redirections; rawInput still contains the complete command.
+  const command = stage.argv
+    .map((arg) => (/^[\w./:@%+=,-]+$/.test(arg) ? arg : JSON.stringify(arg)))
+    .join(" ");
+  return `Stage ${stage.position} of ${stage.totalStages}: ${command}`;
+}
+
 /** Human-readable state of an approval that is not progressing, for diagnostics. */
 export function approvalStallDetail(pending: MusePendingApproval): string {
   const view = currentApprovalView(pending);
   const stages = view.subject?.stages ?? [];
-  const position = stages.find(
-    (stage) => stage.requirementId.sourceIndex === view.currentRequirementId.sourceIndex,
-  );
+  const position = currentApprovalStage(view);
   const resolutions = stages.map((stage) => stage.resolution.kind).join(", ");
   return (
     `Muse approval ${view.approvalId} is still pending at requirement ` +
@@ -166,6 +204,7 @@ export function approvalToPermissionRequest(
     rawInput = { arguments: request.rawArgs };
   }
   const title =
+    stagedApprovalTitle(request) ||
     (typeof rawInput?.description === "string" && rawInput.description) ||
     (typeof rawInput?.command === "string" && rawInput.command) ||
     (typeof rawInput?.path === "string" && rawInput.path) ||

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Distinguish multi-stage permission prompts in every ACP client: titles show the host's current stage arguments and position, while the full command remains in raw input. Single-stage titles, offered choices and negotiated approval metadata are preserved.
+
 - Require startup of ACP-provided MCP servers explicitly on the SDK backend, restoring prompt failures for unauthorized, malformed and unreachable HTTP endpoints on Muse 1.2.1. Preserve user-configured server modes.
 - Explain the Muse 1.2.1 host limitation when resuming a saved `:auto-review` session. SDK-created continuity passes; affected legacy sessions need a new ACP session or Muse with reviewer support. No saved profile is rewritten.
 - Verify the complete loopback suite against the directly downloaded, checksum-pinned Muse 1.1.1 macOS artifact; document durable pinning separately from the launcher's replaceable cache.

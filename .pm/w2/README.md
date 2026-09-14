@@ -6,7 +6,7 @@
 
 - [x] **m1** — Multi-stage approval reconciliation and silent-stall guardrails (9 tasks) ← from w2/004 triage (2026-09-13)
 - [x] **m2** — Muse 1.2.1 host support: resolve or record the six real-host failures (7 tasks) ← from m1 real-host verification (2026-09-14)
-- [ ] **m3** — Distinguishable staged permission prompts (6 tasks) ← from w2/005 (2026-09-14)
+- [x] **m3** — Distinguishable staged permission prompts (6 tasks) ← from w2/005 (2026-09-14)
 
 ## Inbox
 
@@ -23,8 +23,10 @@
 
 - [x] [m1 — Multi-stage approval reconciliation and silent-stall guardrails](done/m1/README.md) — consumed inbox note 004; multi-stage shell approvals now complete on the SDK backend and stalled host requests fail with diagnostics. Verified on Muse 1.2.1-R2847.1.
 
-The 001 and 002 fixes are on `origin/main` and remain unreleased on npm. The m1 fix is verified for shipment;
-until it is released, an adopter on npm still hits the multi-stage hang and needs the
-`MUSE_CODE_ACP_BACKEND=exec` workaround.
+The 001 and 002 fixes shipped in `d9f509f`; m1 shipped in `a82cc2f` and m2 in
+`39fc8a5`. These fixes and m3 remain Unreleased on npm. Until publication, npm
+adopters still need the exec workaround for the multi-stage hang. A release remains separate from this milestone loop.
 
 - [x] [m2](done/m2/README.md) — HTTP MCP startup failures restored; legacy-profile host limitation reproduced and explained.
+
+- [x] [m3](done/m3/README.md) — Permission titles distinguish host stages in plain ACP clients; verified through Bex and both host versions.

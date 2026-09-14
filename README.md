@@ -139,7 +139,11 @@ into stages and asks about each one that is not already known-safe. The adapter
 decides every stage from the host's latest published requirement, so one tool
 call produces one permission request per unresolved stage and runs only after the
 last decision. Denying any stage cancels the whole command. Only choices the host
-offered are ever submitted.
+offered are ever submitted. Each multi-stage prompt shows the current stage's
+host-published arguments and position, such as `Stage 3 of 4: echo two`, even
+without a Muse extension. The total includes known-safe stages, not just dialogs.
+The full command remains available in the request; the adapter does not parse
+shell text to invent a stage. Single-stage prompts keep their existing titles.
 
 If the host stops making progress on a request the adapter owes it an answer to,
 the turn fails after `MUSE_CODE_ACP_STALL_MS` with the approval, requirement and

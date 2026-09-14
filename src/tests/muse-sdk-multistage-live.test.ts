@@ -66,6 +66,7 @@ const SCENARIOS: Record<"two" | "three", Scenario> = {
 async function runScenario(
   scenario: Scenario,
   decide: (request: RequestPermissionRequest, index: number) => string,
+  extended = false,
 ) {
   const provider = await startLoopbackProvider({
     scriptedToolCallWhen: ["a.txt", `"bash"`],
@@ -93,7 +94,7 @@ async function runScenario(
       asked.push(stageOf(request));
       return { outcome: { outcome: "selected", optionId: decide(request, index) } };
     });
-    const ctx = await initialized(client, { _meta: { "muse/approval": 1 } });
+    const ctx = await initialized(client, extended ? { _meta: { "muse/approval": 1 } } : {});
     const { sessionId } = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
     const response = await ctx.request(methods.agent.session.prompt, {
       sessionId,
@@ -131,6 +132,11 @@ describe("SDK live multi-stage approvals (real Muse host)", () => {
     // Distinct requirements, in source order: never the same stage twice.
     expect(result.asked[0]).toBeLessThan(result.asked[1]);
     expect(result.exists).toEqual([true, true]);
+    expect(result.requests.map((r) => r.toolCall.title)).toEqual([
+      "Stage 1 of 4: echo one",
+      "Stage 3 of 4: echo two",
+    ]);
+    expect(result.requests.every((r) => r._meta?.["muse/approval"] === undefined)).toBe(true);
     expect(result.toolCalls).toBe(1);
   }, 120_000);
 
@@ -144,6 +150,12 @@ describe("SDK live multi-stage approvals (real Muse host)", () => {
     expect([...result.asked].sort((a, b) => a - b)).toEqual(result.asked);
     expect(new Set(result.asked).size).toBe(3);
     expect(result.exists).toEqual([true, true, true]);
+    expect(result.requests.map((r) => r.toolCall.title)).toEqual([
+      "Stage 1 of 3: echo one",
+      "Stage 2 of 3: echo two",
+      "Stage 3 of 3: echo three",
+    ]);
+    expect(new Set(result.requests.map((r) => r.toolCall.title)).size).toBe(3);
   }, 120_000);
 
   it("denies a later stage through a host-offered choice and writes nothing", async () => {
@@ -159,8 +171,10 @@ describe("SDK live multi-stage approvals (real Muse host)", () => {
 
   it("reports each stage's refreshed evidence to a negotiating client", async () => {
     expect(museReady).toBe(true);
-    const result = await runScenario(SCENARIOS.two, (request) =>
-      optionOfKind(request, "allow_once"),
+    const result = await runScenario(
+      SCENARIOS.two,
+      (request) => optionOfKind(request, "allow_once"),
+      true,
     );
     const stages = result.requests.map(
       (request) =>

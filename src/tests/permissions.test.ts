@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   choicesToPermissionOptions,
   approvalStageMetadata,
+  approvalToPermissionRequest,
+  type MuseApprovalRequest,
   PermissionLifecycle,
   resolvePermissionChoice,
 } from "../muse-permissions.js";
@@ -38,6 +40,50 @@ function sdkClient(mode = "approval", script?: string) {
 }
 
 describe("permission mapping", () => {
+  it("renders only matching host stage evidence and preserves single-stage and incomplete fallbacks", () => {
+    const request: MuseApprovalRequest = {
+      approvalId: "a",
+      availableChoices: [{ choiceId: "yes", label: "Allow", decision: "approved", scope: "once" }],
+      currentRequirementId: { approvalId: "a", sourceIndex: 42 },
+      itemId: "i",
+      toolCallId: "c",
+      toolName: "bash",
+      turnId: "t",
+      rawArgs: JSON.stringify({
+        command: "not parsed; even > here",
+        description: "Original title",
+      }),
+    };
+    const stage = {
+      argv: ["echo", "two words", "", "semi;colon"],
+      position: 2,
+      totalStages: 3,
+      requirementId: request.currentRequirementId,
+      resolution: { kind: "futureReviewerState" },
+    };
+    const earlier = { ...stage, position: 1, requirementId: { approvalId: "a", sourceIndex: 7 } };
+    const baseline = approvalToPermissionRequest("s", request);
+    const staged = { ...request, subject: { kind: "shell", stages: [earlier, stage] } };
+    const shown = approvalToPermissionRequest("s", staged);
+    expect(shown).toEqual({
+      ...baseline,
+      toolCall: { ...baseline.toolCall, title: 'Stage 2 of 3: echo "two words" "" "semi;colon"' },
+    });
+    for (const stages of [
+      [{ ...stage, position: 1, totalStages: 1 }],
+      [{ ...earlier, resolution: { kind: "knownSafe" } }, stage],
+      [{ ...earlier, resolution: { kind: "known_safe" } }, stage],
+      [earlier, { ...stage, argv: undefined }],
+      [earlier, { ...stage, argv: [] }],
+      [earlier, { ...stage, position: 0 }],
+      [earlier, { ...stage, requirementId: { approvalId: "other", sourceIndex: 42 } }],
+    ]) {
+      expect(
+        approvalToPermissionRequest("s", { ...request, subject: { kind: "shell", stages } }),
+      ).toEqual(baseline);
+    }
+  });
+
   it("uses host choice IDs and only offers scopes the host listed", () => {
     const options = choicesToPermissionOptions([
       { choiceId: "a1", label: "Allow", decision: "approved", scope: "once" },
@@ -109,6 +155,7 @@ describe("SDK approvals over ACP", () => {
     expect(client.requests().some((r) => r.method === "approval/decide")).toBe(false);
     const request = client.permissionRequests[0];
     expect(request.toolCall.toolCallId).toBe("call1");
+    expect(request.toolCall.title).toBe("Show directory");
     expect(request.options.map((o) => o.optionId)).toEqual(["allow-once", "deny-once"]);
     release({ outcome: { outcome: "selected", optionId: "allow-once" } });
     await expect(prompt).resolves.toEqual({ stopReason: "end_turn" });
@@ -180,28 +227,60 @@ describe("multi-stage SDK approvals", () => {
     return client.requests().filter((r) => r.method === "approval/decide");
   }
 
-  it("asks once per unresolved stage and runs the tool only after the last one", async () => {
-    const client = sdkClient("complete", "two-stage");
-    const seen = stagedResponder(client, () => "allow_once");
-    const { ctx, sessionId } = await newTestSession(client, { _meta: { "muse/approval": 1 } });
-    await expect(
-      ctx.request(methods.agent.session.prompt, {
-        sessionId,
-        prompt: [{ type: "text", text: "compound command" }],
-      }),
-    ).resolves.toEqual({ stopReason: "end_turn" });
+  it.each([false, true])(
+    "renders each stage and preserves decisions (extended: %s)",
+    async (extended) => {
+      const client = sdkClient("complete", "two-stage");
+      const seen = stagedResponder(client, () => "allow_once");
+      const { ctx, sessionId } = await newTestSession(
+        client,
+        extended ? { _meta: { "muse/approval": 1 } } : {},
+      );
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "compound command" }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
 
-    expect(seen.map((s) => s.stage)).toEqual([0, 2]);
-    expect(decides(client).map((d) => d.params.requirementId.sourceIndex)).toEqual([0, 2]);
-    expect(
-      client.updates.map((u) => u.update).find((u) => u.sessionUpdate === "tool_call"),
-    ).toMatchObject({ toolCallId: "call1" });
-    const tool = client.updates
-      .map((u) => u.update)
-      .filter((u) => u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update")
-      .at(-1);
-    expect(tool).toMatchObject({ status: "completed" });
-  });
+      expect(seen.map((s) => s.stage)).toEqual([0, 2]);
+      expect(client.permissionRequests.map((r) => r.toolCall.title)).toEqual([
+        "Stage 1 of 4: echo one",
+        "Stage 3 of 4: echo two",
+      ]);
+      for (const request of client.permissionRequests) {
+        expect(request.toolCall.rawInput).toEqual({
+          command: "echo one > a.txt; ls .; echo two > b.txt; cat a.txt",
+          description: "Run the compound command",
+        });
+        expect(request._meta?.["muse/approval"] !== undefined).toBe(extended);
+      }
+      if (extended) {
+        expect(client.permissionRequests[1]._meta?.["muse/approval"]).toEqual({
+          judgeEscalated: false,
+          protectedWrite: false,
+          subjectKind: "shellCommand",
+          stages: ["allow_once", "known_safe", "unresolved", "known_safe"].map(
+            (resolutionKind, i) => ({
+              position: i + 1,
+              totalStages: 4,
+              requirementId: { approvalId: "apr-staged", sourceIndex: i },
+              resolutionKind,
+            }),
+          ),
+        });
+      }
+      expect(decides(client).map((d) => d.params.requirementId.sourceIndex)).toEqual([0, 2]);
+      expect(
+        client.updates.map((u) => u.update).find((u) => u.sessionUpdate === "tool_call"),
+      ).toMatchObject({ toolCallId: "call1" });
+      const tool = client.updates
+        .map((u) => u.update)
+        .filter((u) => u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update")
+        .at(-1);
+      expect(tool).toMatchObject({ status: "completed" });
+    },
+  );
 
   it("carries the refreshed stage evidence of the requirement being decided", async () => {
     const client = sdkClient("complete", "two-stage");
@@ -232,6 +311,12 @@ describe("multi-stage SDK approvals", () => {
       }),
     ).resolves.toEqual({ stopReason: "end_turn" });
     expect(seen.map((s) => s.stage)).toEqual([0, 2, 3]);
+    expect(client.permissionRequests.map((r) => r.toolCall.title)).toEqual([
+      "Stage 1 of 4: echo one",
+      "Stage 3 of 4: echo two",
+      "Stage 4 of 4: cat a.txt",
+    ]);
+    expect(new Set(client.permissionRequests.map((r) => r.toolCall.title)).size).toBe(3);
     expect(decides(client)).toHaveLength(3);
   });
 
