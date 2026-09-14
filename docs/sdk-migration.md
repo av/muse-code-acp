@@ -385,8 +385,8 @@ SDK listing uses public, lease-free pages with workspace-bound cursors. Metadata
 
 ## Muse 1.2.1 verification (w2/m2)
 
-The supported baseline remains 1.1.1-R2514.1. On 1.2.1-R2847.1, the development
-adapter verifies SDK-created session continuity, staged approvals, and HTTP MCP
+The supported baseline remains 1.1.1-R2514.1. On 1.2.1-R2847.1, adapter 0.5.0
+verifies SDK-created session continuity, staged approvals, and HTTP MCP
 success and failure cases. ACP-provided MCP servers set `mode: "required"` in
 the private settings overlay; omitting this field lets failed startup resolve a
 successful turn on this host. User-configured servers retain their chosen mode.
@@ -402,7 +402,7 @@ Three live tests assert this exact actionable failure on 1.2.1-R2847.1 and still
 require successful legacy continuation on 1.1.1. Their SDK-created session paths
 always require successful continuation. Passing these tests does not imply that
 the legacy host defect is fixed. See [compatibility](../README.md#requirements-and-compatibility)
-and [MCP diagnostics](mcp-passthrough.md#diagnostics). These changes are Unreleased.
+and [MCP diagnostics](mcp-passthrough.md#diagnostics). These changes are included in 0.5.0.
 
 ## Observed session state (w2/006)
 

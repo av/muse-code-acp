@@ -12,13 +12,13 @@ Zed or VS Code with an ACP extension. Available features depend on the client.
 
 - **Node.js 22+** for the npm installation.
 - **Muse Code 1.1.1-R2514.1**, installed separately, with `muse serve`.
-  This is the verified host for adapter **0.4.x**; the latest Muse installer
+  This is the verified host for adapter **0.5.x**; the latest Muse installer
   may install a different version. Select the verified binary with
   `MUSE_CODE_EXECUTABLE`.
 - Muse authentication through browser login or `META_API_KEY`.
 
-**The supported baseline remains Muse 1.1.1-R2514.1.** The current development
-adapter also verifies SDK-created session load/resume, multi-stage allow/deny,
+**The supported baseline remains Muse 1.1.1-R2514.1.** Adapter **0.5.0** also
+verifies SDK-created session load/resume, multi-stage allow/deny,
 and HTTP MCP tool calls and startup failures on **1.2.1-R2847.1**. ACP-provided
 MCP servers explicitly use required startup mode; authentication, malformed
 responses and unreachable endpoints fail the prompt.
@@ -34,8 +34,7 @@ The launcher updates and removes superseded binaries, so pointing
 `MUSE_CODE_EXECUTABLE` at an old launcher cache is not a durable pin. CI's public
 1.1.1 artifacts remain downloadable; the exact macOS ARM64 and Linux download
 URLs and SHA-256 checks are in [CI](.github/workflows/ci.yml). Keep the verified
-binary at a separate path. The fixes described here are **Unreleased** until the
-next npm publication.
+binary at a separate path. These fixes are included in **0.5.0**.
 
 The npm adapter and its pinned `@muse-code/sdk@0.1.1` dependency do not include
 the Muse executable. Native execution, model access, persistence and sandboxing

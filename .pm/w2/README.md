@@ -10,6 +10,7 @@
 
 ## Inbox
 
+- [009 — Release a new version after the existing w2 fixes](009.md) — after m3 and inbox items 006–008 are resolved.
 
 ## Done
 

@@ -2,26 +2,29 @@
 
 ## Unreleased
 
-- Add opt-in `muse/sessionState` observations for host-selected model and approval-mode changes, including idle retained hosts. Persistent-rule choices remain explicitly unverified until a public host report establishes success or failure; observation never changes policy or retries a turn.
+## [0.5.0](https://github.com/bex-co/muse-code-acp/compare/v0.4.1...v0.5.0) (2026-09-14)
 
-- Distinguish multi-stage permission prompts in every ACP client: titles show the host's current stage arguments and position, while the full command remains in raw input. Single-stage titles, offered choices and negotiated approval metadata are preserved.
+### Features
 
-- Require startup of ACP-provided MCP servers explicitly on the SDK backend, restoring prompt failures for unauthorized, malformed and unreachable HTTP endpoints on Muse 1.2.1. Preserve user-configured server modes.
-- Explain the Muse 1.2.1 host limitation when resuming a saved `:auto-review` session. SDK-created continuity passes; affected legacy sessions need a new ACP session or Muse with reviewer support. No saved profile is rewritten.
-- Verify the complete loopback suite against the directly downloaded, checksum-pinned Muse 1.1.1 macOS artifact; document durable pinning separately from the launcher's replaceable cache.
+- Report observed host model and approval-mode changes through opt-in `muse/sessionState` metadata, including idle sessions. Host-offered persistent-rule choices remain explicitly unverified until a public host report establishes success or failure. Observation never changes policy or retries a turn.
+- Expose synchronized ACP mode config options with the same validation and persistence as `set_mode`, including updates after model, effort and `/plan` changes. SDK clients cannot select exec-only bypass modes.
+- Publish advisory `muse/hostCompatibility` metadata with the detected host version and pinned/served schema fingerprints.
 
-- Complete multi-stage shell approvals on the SDK backend. Muse splits a compound command into stages; on 1.2.1 the host advances the approval with `approval/updated` and never re-issues `approval/requested`, which the pinned SDK does not route, so the turn hung with no error. Approvals are now decided from the session fold, asking once per unresolved stage and submitting only host-offered choices.
-- Bound every wait on a pending host request: an approval or user input with no outstanding client call and no host progress for `MUSE_CODE_ACP_STALL_MS` (default 10s) now fails the prompt with the requirement and stage evidence instead of waiting indefinitely.
-- Stop re-asking a user input that was already answered but never settled by the host.
-- Publish `muse/hostCompatibility` on `session_info_update` once per host, with pinned and served schema fingerprints and the detected host version. A mismatch stays advisory.
+### Fixes
 
-- Expose session modes through ACP config options, using the same validation and persistence as `set_mode`; synchronize config updates after mode, model, effort and `/plan` changes.
-- Centralize backend mode availability so SDK clients cannot select exec-only approval bypass modes through either interface. Native automatic approval remains unverified; this does not resolve unattended execution.
+- Complete multi-stage shell approvals on the SDK backend when Muse advances a requirement through `approval/updated` without re-issuing a request. Ask once per unresolved stage and submit only host-offered choices. Permission titles show current stage arguments and position in plain ACP clients.
+- Bound pending host requests with no outstanding client call or host progress using `MUSE_CODE_ACP_STALL_MS` (default 10 seconds). Stalled approvals and user input fail with diagnostics; already-answered user input is not requested again.
+- Require startup of ACP-provided MCP servers explicitly, restoring prompt failures for unauthorized, malformed and unreachable HTTP endpoints on Muse 1.2.1. User-configured server modes are preserved.
+- Execute `/goal <task>` once with an explicit persistence limitation. Recognize slash commands across prompt text blocks and preserve attached text, resources and images through planning and review.
+- Add review focus/default Git targets, local goal-status guidance, and bare `/plan` mode selection. Mixed requests containing planning remain planning-only.
 
-- Recognize SDK slash commands across top-level prompt text blocks and preserve attached text, resources and images through planning and review.
-- Execute `/goal <task>` once with an explicit persistence limitation; keep status queries and unavailable goal controls local.
-- Add review focus instructions and default Git targets; bare `/plan` enables planning without starting a model turn. Mixed requests containing planning remain planning-only.
-- Add conversational command guidance, argument hints and regression coverage for context, mode enforcement, cancellation and real-host denied writes.
+### Compatibility and upgrading
+
+Requires Node.js 22+ and pinned `@muse-code/sdk@0.1.1`. Muse **1.1.1-R2514.1** remains the supported baseline. The complete 29-test loopback suite also passes on **1.2.1-R2847.1**, with three legacy-continuation paths asserting the documented host limitation: saved `:auto-review` exec sessions cannot resume in `muse serve`. SDK-created continuity passes. Affected legacy sessions receive an actionable error and need a new ACP session or Muse with reviewer support; no saved profile is rewritten.
+
+The multi-stage approval workaround is now included on npm; SDK users no longer need the exec workaround for that hang. The underlying SDK routing defect is tracked in [upstream issue #10](https://github.com/meta-models/muse-code-sdk/issues/10). Native automatic approval remains unverified; default sandboxing and real host permission gates remain enabled.
+
+Pin the Muse binary outside the launcher's replaceable cache. Direct artifact URLs and SHA-256 checks are recorded in CI. The opt-in session-state extension reports observations only; it does not synchronize ACP settings. Policy-persistence failure recovery is covered by public-wire fixtures; no induced real-host policy-write failure is claimed.
 
 ## [0.4.1](https://github.com/bex-co/muse-code-acp/compare/v0.4.0...v0.4.1) (2026-09-13)
 
