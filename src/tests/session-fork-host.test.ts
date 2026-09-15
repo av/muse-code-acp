@@ -75,3 +75,30 @@ it.each(["identity", "model", "provenance", "boundary"])(
     expect(mocks.close).toHaveBeenCalledOnce();
   },
 );
+it("preserves fork timeout certainty and never retries a possibly created branch", async () => {
+  vi.useFakeTimers();
+  try {
+    mocks.command.mockImplementation(async (method) =>
+      method === "session/read" ? { session: source, pendingRequests: [] } : new Promise(() => {}),
+    );
+    const pending = forkMuseSession(options);
+    const assertion = expect(pending).rejects.toMatchObject({
+      data: {
+        failure: {
+          kind: "deadlineExceeded",
+          phase: "forking",
+          execution: "notSubmitted",
+          mutation: "possiblyApplied",
+          outcome: "unknown",
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(20001);
+    await assertion;
+    expect(mocks.command.mock.calls.filter(([method]) => method === "session/fork")).toHaveLength(
+      1,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});

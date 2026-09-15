@@ -24,11 +24,13 @@
 
 - [x] [**m11** — Verified stored-output retrieval](done/m11/README.md) (6 tasks) ← real host output-read evidence during m9 (2026-09-14)
 
+- [x] [**m12** — Reliable SDK startup and truthful lifecycle failures](done/m12/README.md) (8 tasks) ← promoted from w2/012 after confirmed startup-timeout triage.
+
 ## Inbox
 
 - [011 — Reconcile ADR003 and current capability ownership](011.md) — transferred from w1/001; 30m documentation reconciliation.
 
-Note 010 was promoted into m4 with its complete source preserved.
+Note 010 was promoted into m4 with its complete source preserved. Note 012 was promoted into [m12](done/m12/README.md), with its [original report](done/m12/source-012.md) and [captured evidence](evidence/012-startup-timeout.md) preserved.
 
 ## Done
 

@@ -1,10 +1,9 @@
-import { MspError, spawnMspConnection } from "@muse-code/sdk";
+import { withSdkControlHost } from "./sdk-control-host.js";
+import { MspError } from "@muse-code/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { realpathSync } from "node:fs";
-import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport } from "./muse-host.js";
 import type { Logger } from "./logger.js";
-import packageJson from "../package.json" with { type: "json" };
 
 interface ForkSessionMetadata {
   sessionId: string;
@@ -28,74 +27,63 @@ export async function forkMuseSession(options: {
   museBinary?: string;
   checkHost: boolean;
   logger: Logger;
+  signal?: AbortSignal;
 }): Promise<ForkResult> {
   if (options.checkHost) assertSdkHostSupport(options.env, options.museBinary);
-  const host = spawnMspConnection({
-    command: options.museBinary ?? museCliPath(options.env),
-    args: ["serve"],
-    cwd: options.cwd,
-    env: options.env as Record<string, string>,
-    shutdownTimeoutMs: 1000,
-    onStderr: (chunk) => options.logger.log(`muse-sdk fork: ${chunk.trimEnd()}`),
-  });
-  const timer = setTimeout(() => void host.close().catch(() => {}), 20_000);
-  try {
-    const { connection } = await host.initialize({
-      clientInfo: { name: "muse_code_acp", version: packageJson.version },
-    });
-    const saved = await connection.command("session/read", {
-      sessionId: options.sessionId,
-      excludeItems: true,
-    });
-    const source = saved.session as ForkResult["session"] | undefined;
-    if (
-      !source ||
-      source.sessionId !== options.sessionId ||
-      !source.workspaceRoot ||
-      realpathSync(source.workspaceRoot) !== realpathSync(options.cwd)
-    )
-      throw RequestError.invalidParams(undefined, "Fork source belongs to a different workspace");
-    if (
-      source.activeTurnId !== null ||
-      source.status === "running" ||
-      (Array.isArray(saved.pendingRequests) && saved.pendingRequests.length)
-    )
-      throw RequestError.invalidRequest(
-        undefined,
-        "Cannot fork an active session or pending interaction",
-      );
-    const result = (await connection.command("session/fork", {
-      sessionId: options.sessionId,
-      excludeItems: true,
-      ...(options.lastTurnId ? { cutPoint: { lastTurnId: options.lastTurnId } } : {}),
-    })) as unknown as ForkResult;
-    const fork = result.session;
-    if (
-      !fork ||
-      typeof fork.sessionId !== "string" ||
-      !fork.sessionId ||
-      fork.sessionId === options.sessionId ||
-      !fork.workspaceRoot ||
-      realpathSync(fork.workspaceRoot) !== realpathSync(options.cwd) ||
-      fork.forkedFrom?.sessionId !== options.sessionId ||
-      fork.activeTurnId !== null ||
-      typeof fork.forkedFrom.cutCursor !== "string" ||
-      fork.forkedFrom.cutExplicit !== !!options.lastTurnId ||
-      (fork.modelId !== null && typeof fork.modelId !== "string")
-    )
-      throw new Error("Muse returned invalid fork metadata");
-    if (fork.modelId !== source.modelId)
-      throw new Error("Muse fork did not preserve the authoritative source model");
-    return result;
-  } catch (error) {
-    if (error instanceof MspError) {
-      if (["sessionNotFound", "notFound", "forkBoundaryInvalid"].includes(error.kind))
-        throw RequestError.invalidParams(undefined, `Muse fork rejected: ${error.kind}`);
-      throw RequestError.invalidRequest(undefined, `Muse fork unavailable (MSP ${error.code})`);
+  return withSdkControlHost(options, async ({ connection }, operation) => {
+    try {
+      const saved = await connection.command("session/read", {
+        sessionId: options.sessionId,
+        excludeItems: true,
+      });
+      const source = saved.session as ForkResult["session"] | undefined;
+      if (
+        !source ||
+        source.sessionId !== options.sessionId ||
+        !source.workspaceRoot ||
+        realpathSync(source.workspaceRoot) !== realpathSync(options.cwd)
+      )
+        throw RequestError.invalidParams(undefined, "Fork source belongs to a different workspace");
+      if (
+        source.activeTurnId !== null ||
+        source.status === "running" ||
+        (Array.isArray(saved.pendingRequests) && saved.pendingRequests.length)
+      )
+        throw RequestError.invalidRequest(
+          undefined,
+          "Cannot fork an active session or pending interaction",
+        );
+      operation.enter("forking", 20_000);
+      const result = (await connection.command("session/fork", {
+        sessionId: options.sessionId,
+        excludeItems: true,
+        ...(options.lastTurnId ? { cutPoint: { lastTurnId: options.lastTurnId } } : {}),
+      })) as unknown as ForkResult;
+      const fork = result.session;
+      if (
+        !fork ||
+        typeof fork.sessionId !== "string" ||
+        !fork.sessionId ||
+        fork.sessionId === options.sessionId ||
+        !fork.workspaceRoot ||
+        realpathSync(fork.workspaceRoot) !== realpathSync(options.cwd) ||
+        fork.forkedFrom?.sessionId !== options.sessionId ||
+        fork.activeTurnId !== null ||
+        typeof fork.forkedFrom.cutCursor !== "string" ||
+        fork.forkedFrom.cutExplicit !== !!options.lastTurnId ||
+        (fork.modelId !== null && typeof fork.modelId !== "string")
+      )
+        throw new Error("Muse returned invalid fork metadata");
+      if (fork.modelId !== source.modelId)
+        throw new Error("Muse fork did not preserve the authoritative source model");
+      return result;
+    } catch (error) {
+      if (error instanceof MspError) {
+        if (["sessionNotFound", "notFound", "forkBoundaryInvalid"].includes(error.kind))
+          throw RequestError.invalidParams(undefined, `Muse fork rejected: ${error.kind}`);
+        throw RequestError.invalidRequest(undefined, `Muse fork unavailable (MSP ${error.code})`);
+      }
+      throw error;
     }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-    await host.close();
-  }
+  });
 }

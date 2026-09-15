@@ -1,3 +1,5 @@
+import { withSdkControlHost } from "./sdk-control-host.js";
+import { SdkOperation, SdkCancelled, sdkDeadline } from "./sdk-operation.js";
 import {
   OUTPUT_EXTENSION,
   supportsStoredOutput,
@@ -6,7 +8,7 @@ import {
   type OutputPage,
 } from "./stored-output.js";
 import { ASYNC_TASKS, readLatestItems, taskItems } from "./async-tasks.js";
-import { sdkTerminalResponse, sdkThrownError, failureError } from "./turn-failure.js";
+import { sdkTerminalResponse } from "./turn-failure.js";
 import { readProgress, type ProgressFacts } from "./session-progress.js";
 import {
   ClientCapabilities,
@@ -14,8 +16,7 @@ import {
   RequestError,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
-import { Connection, MspError, spawnMspConnection, type FoldedItem } from "@muse-code/sdk";
-import packageJson from "../package.json" with { type: "json" };
+import { Connection, MspError, type FoldedItem } from "@muse-code/sdk";
 import { realpathSync } from "node:fs";
 import type { AcpClient } from "./acp-agent.js";
 import { sessionInfo, sessionInfoNotification } from "./session-discovery.js";
@@ -23,7 +24,6 @@ import type { SessionInfo } from "@agentclientprotocol/sdk";
 import { FileChangeEvidence } from "./file-change-evidence.js";
 import { Logger } from "./logger.js";
 import { isReasoningEffort, type MuseReasoningEffort } from "./config-options.js";
-import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import {
   approvalSignature,
@@ -104,6 +104,7 @@ export async function readMuseSdkSession(
     readOutputReferences?: boolean;
     outputRequest?: OutputRequest;
     allowActive?: boolean;
+    signal?: AbortSignal;
   },
 ): Promise<{
   modelId: string | null;
@@ -116,21 +117,7 @@ export async function readMuseSdkSession(
   info?: SessionInfo;
 }> {
   if (options.checkHost !== false) assertSdkHostSupport(options.env, options.museBinary);
-  const handshake = spawnMspConnection({
-    command: options.museBinary ?? museCliPath(options.env),
-    args: ["serve"],
-    cwd: options.cwd,
-    env: options.env as Record<string, string>,
-    shutdownTimeoutMs: 1000,
-    onStderr: (chunk) => options.logger.log(`muse-sdk read: ${chunk.trimEnd()}`),
-  });
-  const timer = setTimeout(() => {
-    void handshake.close().catch(() => {});
-  }, 20_000);
-  try {
-    const host = await handshake.initialize({
-      clientInfo: { name: "muse_code_acp", version: packageJson.version },
-    });
+  return withSdkControlHost(options, async (host) => {
     const result = await host.connection.command("session/read", {
       sessionId: options.sessionId,
       excludeItems: true,
@@ -192,10 +179,7 @@ export async function readMuseSdkSession(
         ? { goal: await readGoalFromConnection(host.connection, options.sessionId, result) }
         : {}),
     };
-  } finally {
-    clearTimeout(timer);
-    await handshake.close();
-  }
+  });
 }
 
 /**
@@ -235,6 +219,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   let turnId: string | undefined;
   let generation = 0;
   let cancelled = false;
+  let cancellationWon = false;
   let finished = false;
   let settled = false;
   let stopInteractions!: () => void;
@@ -242,11 +227,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
     stopInteractions = () => resolve(null);
   });
   let cancelTimer: ReturnType<typeof setTimeout> | undefined;
-  let failTurn!: (error: unknown) => void;
-  const turnFailure = new Promise<never>((_, reject) => {
-    failTurn = reject;
-  });
-  void turnFailure.catch(() => {});
+  const startupMs = sdkDeadline(options.env, "STARTUP");
+  const submitMs = sdkDeadline(options.env, "SUBMIT");
 
   const close = async () => {
     permissions.disposeAll();
@@ -254,16 +236,22 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
     await owner.close();
   };
 
-  const startupTimer = setTimeout(() => {
-    failTurn(new Error("Muse SDK startup timed out"));
-    void close();
-  }, 20_000);
+  const operation = new SdkOperation(
+    () => {
+      void close().catch(() => {});
+    },
+    (text) => options.logger.log(text),
+  );
+  const failTurn = operation.fail;
+  operation.enter("initializing", startupMs);
 
   function kill(): void {
     if (cancelled || finished) {
       return;
     }
+    cancellationWon = !operation.failure;
     cancelled = true;
+    if (!connection || !turnId) operation.fail(new SdkCancelled("Muse SDK startup cancelled"));
     stopInteractions();
     if (turnId) {
       permissions.disposeTurn(turnId);
@@ -281,7 +269,9 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
 
   const done = (async (): Promise<PromptResponse> => {
     try {
-      const lease = await owner.acquire(options, failTurn);
+      const lease = await operation.wait(
+        owner.acquire(options, failTurn, () => operation.enter("preparing", startupMs)),
+      );
       translator.configureWorkers(
         owner.generation,
         owner.workflowCancellationSupported,
@@ -321,12 +311,15 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         return { stopReason: "cancelled" };
       }
 
-      const turn = await session.sendUserTurn({
-        input: options.input,
-        ...(sdkReasoningEffort(options.reasoningEffort)
-          ? { reasoningEffort: sdkReasoningEffort(options.reasoningEffort)! }
-          : {}),
-      });
+      operation.enter("submitting", submitMs);
+      const turn = await operation.wait(
+        session.sendUserTurn({
+          input: options.input,
+          ...(sdkReasoningEffort(options.reasoningEffort)
+            ? { reasoningEffort: sdkReasoningEffort(options.reasoningEffort)! }
+            : {}),
+        }),
+      );
       adoptTurn(turn.turnId);
       acceptedTurn = true;
       if (options.steering)
@@ -337,7 +330,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
             _meta: { "muse/activeTurnId": turn.turnId },
           },
         });
-      clearTimeout(startupTimer);
+      operation.enter("running");
       // Advisory, emitted once per host: a client that later reports a stall
       // should be able to name the host and schema it was talking to.
       const compatibility = owner.takeCompatibilityAnnouncement();
@@ -719,7 +712,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       void pumpDeltas.catch(failTurn);
       void pumpUserInput.catch(failTurn);
 
-      const outcome = await Promise.race([turn.completed, turnFailure]);
+      const outcome = await operation.wait(turn.completed);
       settled = true;
       watchdog.reset();
       stopInteractions();
@@ -767,17 +760,19 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       }
       return response;
     } catch (error) {
-      if (cancelled || options.isCancelled?.()) {
+      if (
+        (cancelled || options.isCancelled?.()) &&
+        (cancellationWon || !operation.failure || operation.failure instanceof SdkCancelled)
+      ) {
         return { stopReason: "cancelled" };
       }
       const diagnostic = sdkHostExitMessage(owner.stderr);
-      throw diagnostic
-        ? failureError("environmentError", diagnostic, false, options.env)
-        : sdkThrownError(error, options.env);
+      operation.fail(error);
+      throw operation.error(error, options.env, diagnostic);
     } finally {
       finished = true;
       stopInteractions();
-      clearTimeout(startupTimer);
+      operation.dispose();
       clearTimeout(cancelTimer);
       if (turnId) {
         permissions.disposeTurn(turnId);
@@ -785,15 +780,21 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       }
       permissions.disposeAll();
       userInputs.disposeAll();
-      if (acquired)
-        await owner.release(
-          !!options.hostOwner &&
-            successful &&
-            !cancelled &&
-            !metadataTimedOut &&
-            pendingSteers === 0,
+      const cleanup = acquired
+        ? owner.release(
+            !!options.hostOwner &&
+              successful &&
+              !cancelled &&
+              !metadataTimedOut &&
+              pendingSteers === 0,
+          )
+        : owner.close();
+      await cleanup.catch((cleanupError: unknown) => {
+        if (!operation.failure && !cancelled) throw cleanupError;
+        options.logger.log(
+          "Muse SDK cleanup failed after termination; retaining the initiating cause",
         );
-      else await owner.close();
+      });
       if (options.steering)
         updates.push({
           sessionId: options.sessionId,

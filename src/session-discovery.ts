@@ -1,4 +1,5 @@
-import { MspError, spawnMspConnection } from "@muse-code/sdk";
+import { withSdkControlHost } from "./sdk-control-host.js";
+import { MspError } from "@muse-code/sdk";
 import {
   RequestError,
   type ListSessionsResponse,
@@ -8,11 +9,9 @@ import {
 } from "@agentclientprotocol/sdk";
 import { FORK_METADATA } from "./session-fork.js";
 import { realpathSync } from "node:fs";
-import { museCliPath } from "./muse-cli.js";
 import { assertSdkHostSupport } from "./muse-host.js";
 import { listStoredSessions, storedSessionTitle } from "./session-store.js";
 import type { Logger } from "./logger.js";
-import packageJson from "../package.json" with { type: "json" };
 
 const PAGE_SIZE = 50;
 type Options = {
@@ -114,55 +113,38 @@ export async function discoverSessions(options: Options): Promise<ListSessionsRe
     };
   }
   if (options.checkHost) assertSdkHostSupport(options.env, options.museBinary);
-  const host = spawnMspConnection({
-    command: options.museBinary ?? museCliPath(options.env),
-    args: ["serve"],
-    cwd: cwd ?? process.cwd(),
-    env: options.env as Record<string, string>,
-    shutdownTimeoutMs: 1000,
+  return withSdkControlHost({ ...options, cwd: cwd ?? process.cwd() }, async ({ connection }) => {
+    try {
+      const page = await connection.request("session/list", {
+        limit: PAGE_SIZE,
+        ...(cwd ? { workspaceRoot: cwd } : {}),
+        ...(cursor ? { cursor: cursor as string } : {}),
+      });
+      if (
+        !Array.isArray(page.sessions) ||
+        page.sessions.length > PAGE_SIZE ||
+        (page.nextCursor !== null &&
+          (typeof page.nextCursor !== "string" ||
+            !page.nextCursor ||
+            page.nextCursor.length > 2048 ||
+            page.nextCursor === cursor))
+      )
+        throw new Error("Muse returned invalid session page");
+      return {
+        sessions: page.sessions.map(sessionInfo),
+        ...(page.nextCursor
+          ? { nextCursor: encodeCursor(page.nextCursor, options.backend, cwd) }
+          : {}),
+      };
+    } catch (error) {
+      if (error instanceof MspError && error.code === -32602)
+        throw RequestError.invalidParams(
+          undefined,
+          "Muse rejected the session cursor or listing parameters",
+        );
+      throw error;
+    }
   });
-  const abort = () => {
-    void host.close().catch(() => {});
-  };
-  options.signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => void host.close().catch(() => {}), 20_000);
-  try {
-    const { connection } = await host.initialize({
-      clientInfo: { name: "muse_code_acp", version: packageJson.version },
-    });
-    const page = await connection.request("session/list", {
-      limit: PAGE_SIZE,
-      ...(cwd ? { workspaceRoot: cwd } : {}),
-      ...(cursor ? { cursor: cursor as string } : {}),
-    });
-    if (
-      !Array.isArray(page.sessions) ||
-      page.sessions.length > PAGE_SIZE ||
-      (page.nextCursor !== null &&
-        (typeof page.nextCursor !== "string" ||
-          !page.nextCursor ||
-          page.nextCursor.length > 2048 ||
-          page.nextCursor === cursor))
-    )
-      throw new Error("Muse returned invalid session page");
-    return {
-      sessions: page.sessions.map(sessionInfo),
-      ...(page.nextCursor
-        ? { nextCursor: encodeCursor(page.nextCursor, options.backend, cwd) }
-        : {}),
-    };
-  } catch (error) {
-    if (error instanceof MspError && error.code === -32602)
-      throw RequestError.invalidParams(
-        undefined,
-        "Muse rejected the session cursor or listing parameters",
-      );
-    throw error;
-  } finally {
-    options.signal?.removeEventListener("abort", abort);
-    clearTimeout(timer);
-    await host.close();
-  }
 }
 
 export function sessionInfoNotification(

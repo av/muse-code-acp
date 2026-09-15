@@ -597,7 +597,7 @@ export class MuseAcpAgent {
     if (!session.goal || session.goal.status === "unknown") {
       let goal: GoalObservation;
       try {
-        const saved = await readMuseSdkSession({
+        const saved = await this.readSavedSession({
           sessionId: session.museSessionId,
           cwd: session.cwd,
           env: this.options.env ?? process.env,
@@ -716,6 +716,21 @@ export class MuseAcpAgent {
     void task.finally(() => this.backgroundTasks.delete(task));
   }
 
+  private trackRead<T>(operation: Promise<T>): Promise<T> {
+    const tracked = operation.then(
+      () => {},
+      () => {},
+    );
+    this.backgroundTasks.add(tracked);
+    void tracked.finally(() => this.backgroundTasks.delete(tracked));
+    return operation;
+  }
+
+  private readSavedSession(options: Parameters<typeof readMuseSdkSession>[0]) {
+    this.assertRunning();
+    return this.trackRead(readMuseSdkSession({ ...options, signal: this.discoveryAbort.signal }));
+  }
+
   async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
     this.assertRunning();
     const operation = discoverSessions({
@@ -728,13 +743,7 @@ export class MuseAcpAgent {
       checkHost: !this.options.skipSdkHostCheck,
       logger: this.logger,
     });
-    const tracked = operation.then(
-      () => {},
-      () => {},
-    );
-    this.backgroundTasks.add(tracked);
-    void tracked.finally(() => this.backgroundTasks.delete(tracked));
-    const page = await operation;
+    const page = await this.trackRead(operation);
     this.assertRunning();
     if (this.clientCapabilities._meta?.[FORK_METADATA] !== 1)
       for (const entry of page.sessions) delete entry._meta;
@@ -827,7 +836,7 @@ export class MuseAcpAgent {
     let tasks: import("@muse-code/sdk").FoldedItem[] = [];
     let outputItems: import("@muse-code/sdk").FoldedItem[] = [];
     if (this.backend === "sdk") {
-      const saved = await readMuseSdkSession({
+      const saved = await this.readSavedSession({
         sessionId: params.sessionId,
         cwd,
         env,
@@ -945,7 +954,7 @@ export class MuseAcpAgent {
       await source?.sdkHost?.owner.close();
       if (source) source.sdkHost = undefined;
       this.assertRunning();
-      const saved = await readMuseSdkSession({
+      const saved = await this.readSavedSession({
         sessionId: params.sessionId,
         cwd,
         env,
@@ -970,15 +979,18 @@ export class MuseAcpAgent {
       const overlay = createMuseMcpOverlay([], env, config);
       let result;
       try {
-        result = await forkMuseSession({
-          sessionId: params.sessionId,
-          cwd,
-          lastTurnId,
-          env: overlay.env,
-          museBinary: this.options.museBinary,
-          checkHost: !this.options.skipSdkHostCheck,
-          logger: this.logger,
-        });
+        result = await this.trackRead(
+          forkMuseSession({
+            signal: this.discoveryAbort.signal,
+            sessionId: params.sessionId,
+            cwd,
+            lastTurnId,
+            env: overlay.env,
+            museBinary: this.options.museBinary,
+            checkHost: !this.options.skipSdkHostCheck,
+            logger: this.logger,
+          }),
+        );
       } finally {
         overlay.cleanup();
       }
@@ -1097,7 +1109,7 @@ export class MuseAcpAgent {
     let progress: ProgressFacts = {};
     if (this.backend === "sdk") {
       const env = this.providerEnv(params.sessionId);
-      const saved = await readMuseSdkSession({
+      const saved = await this.readSavedSession({
         sessionId: params.sessionId,
         cwd: storedCwd,
         env,
@@ -1827,7 +1839,7 @@ export class MuseAcpAgent {
         "muse/output must be negotiated on the SDK backend",
       );
     const session = this.requireSession(params.sessionId);
-    const saved = await readMuseSdkSession({
+    const saved = await this.readSavedSession({
       sessionId: params.sessionId,
       cwd: session.cwd,
       env: this.providerEnv(params.sessionId),
@@ -1837,7 +1849,11 @@ export class MuseAcpAgent {
       allowActive: true,
       outputRequest: params,
     }).catch((error: unknown) => {
-      if (error instanceof RequestError) throw error;
+      if (error instanceof RequestError) {
+        if (observedFailure(error)?.kind === "sessionNotFound")
+          throw RequestError.invalidRequest(error.data, error.message);
+        throw error;
+      }
       throw RequestError.invalidRequest(
         undefined,
         "Stored output is unavailable from the public Muse host; no turn was replayed",

@@ -273,3 +273,5 @@ Apache-2.0. Portions derived from
 (Zed Industries) — see [NOTICE](https://github.com/bex-co/muse-code-acp/blob/main/NOTICE).
 
 Stored full tool output on Muse 1.2.1 is available to negotiated clients through [bounded public output reads](docs/stored-output.md), including after session load.
+
+For slow SDK startup, configure the [startup and submission deadlines](docs/failures.md#startup-phases-and-deadlines). Failure responses distinguish operations that submitted no model turn from submissions with an unknown outcome.

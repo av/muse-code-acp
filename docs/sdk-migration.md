@@ -594,3 +594,5 @@ compatible active-turn steering and public search titles are documented in
 steering that starts a new turn are not advertised.
 
 See [stored output](stored-output.md) for negotiated byte-range reads on verified Muse 1.2.1, reference lifetime and baseline fallbacks.
+
+SDK initialization and session preparation now have separate configurable budgets; turn acknowledgement and bounded reads have distinct deadlines. See [startup phases and recovery](failures.md#startup-phases-and-deadlines) for environment settings, cancellation and execution certainty.

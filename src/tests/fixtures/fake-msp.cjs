@@ -324,6 +324,8 @@ rl.on("line", async (line) => {
   }
   const { id, method, params = {} } = request;
   const reply = (result) => write({ id, result });
+  if (method === process.env.FAKE_MSP_EXIT_METHOD) process.exit(1);
+  if (method === process.env.FAKE_MSP_DELAY_METHOD) await sleep(Number(process.env.FAKE_MSP_DELAY_MS ?? 1000));
   switch (method) {
     case "initialize":
       if (barrier === "handshake") {
@@ -416,6 +418,7 @@ rl.on("line", async (line) => {
       }
       turnId = params.commandId;
       if (barrier === "ack") {
+        notify("turn/started", { turnId, commandId: params.commandId, sourceRange: { start: 0, end: 0 } });
         await sleep(60_000);
       }
       const item = { itemId: `message-${turnId}`, turnId, kind: "agentMessage", revision: 1, status: "inProgress", text: "" };

@@ -2,7 +2,10 @@ import { RequestError, type PromptResponse } from "@agentclientprotocol/sdk";
 import { MspError, type TurnOutcome } from "@muse-code/sdk";
 
 export interface FailureObservation {
-  source: "host" | "provider" | "transport";
+  source: "host" | "provider" | "transport" | "adapter";
+  phase?: string;
+  mutation?: "possiblyApplied";
+  execution?: "notSubmitted" | "possiblySubmitted";
   kind: string;
   retryable?: boolean;
   recovery: string;

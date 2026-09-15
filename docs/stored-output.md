@@ -39,7 +39,7 @@ a UTF-8 character; the adapter does not invent replacement bytes.
 The session must be known to this adapter. Each read verifies the workspace and
 exact session/item/reference association against bounded public history (at most
 20 pages of 100 events), then fetches the requested range using a separate
-read-only host with a 20-second lifetime bound. It acquires no execution lease,
+read-only host with the configurable startup budget followed by a 20-second read budget. It acquires no execution lease,
 changes no model/configuration and sends no provider turn. Wrong references,
 arbitrary URIs, out-of-range offsets and unavailable references fail. References
 outside the history budget are explicitly not found rather than guessed.

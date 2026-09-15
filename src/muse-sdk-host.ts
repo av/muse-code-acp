@@ -174,7 +174,11 @@ export class MuseSdkHost {
     return this.handshake?.child.stderrTail.join("\n").trim() ?? this.finalStderr;
   }
 
-  async acquire(options: MuseSdkOptions, fail: (error: unknown) => void): Promise<HostLease> {
+  async acquire(
+    options: MuseSdkOptions,
+    fail: (error: unknown) => void,
+    preparing: () => void = () => {},
+  ): Promise<HostLease> {
     if (!this.reusable) throw new Error("Muse SDK host is closed or already serving a turn");
     if (
       options.sessionId !== this.options.sessionId ||
@@ -192,10 +196,11 @@ export class MuseSdkHost {
     this.failActive = fail;
     clearTimeout(this.idleTimer);
     const reusing = !!this.initialized;
-    this.initialized ??= this.open();
+    this.initialized ??= this.open(preparing);
     const lease = await this.initialized;
     if (this.stopped) throw new Error("Muse SDK host closed during startup");
     if (reusing) {
+      preparing();
       if (
         lease.session.fold.activeTurnId ||
         lease.session.fold.pendingApprovals().length ||
@@ -260,8 +265,7 @@ export class MuseSdkHost {
       clearTimeout(this.idleTimer);
       clearInterval(this.goalTimer);
       this.stateObserver?.stop();
-      this.failActive?.(new Error("Muse SDK host closed during the turn"));
-      this.closing = (async () => {
+      this.closing = Promise.resolve().then(async () => {
         try {
           if (this.lease) await this.lease.client.close().catch(() => {});
           else await this.handshake?.close().catch(() => {});
@@ -279,12 +283,17 @@ export class MuseSdkHost {
           this.handshake = undefined;
           await this.options.onClose?.();
         }
-      })();
+      });
+      this.failActive?.(new Error("Muse SDK host closed during the turn"));
     }
     return this.closing;
   }
 
-  private async open(): Promise<HostLease> {
+  private ensureOpen() {
+    if (this.stopped) throw new Error("Muse SDK host closed during startup");
+  }
+
+  private async open(preparing: () => void): Promise<HostLease> {
     const options = this.options;
     if (options.profileId != null)
       throw new Error(
@@ -323,6 +332,8 @@ export class MuseSdkHost {
     const host = await handshake.initialize({
       clientInfo: { name: "muse_code_acp", version: packageJson.version },
     });
+    this.ensureOpen();
+    preparing();
     if (host.fingerprintWarning) options.logger.log(`muse-sdk: ${host.fingerprintWarning.message}`);
     this.compatibility = hostCompatibility({
       hostVersion,
@@ -353,6 +364,7 @@ export class MuseSdkHost {
           { cause: error },
         );
       }
+      this.ensureOpen();
       if (!(error instanceof MspError) || error.code !== -32020) throw error;
       session = await client.startSession({
         sessionId: options.sessionId,
@@ -362,6 +374,7 @@ export class MuseSdkHost {
         approvalMode: requestedPolicy,
       });
     }
+    this.ensureOpen();
     const opening = session.opening;
     const saved =
       opening?.verb === "session/resume"
@@ -380,6 +393,7 @@ export class MuseSdkHost {
         "The saved Muse session has an unfinished turn or pending input; resolve it in Muse before continuing",
       );
     await this.applyPolicy(host);
+    this.ensureOpen();
     // Resume metadata can reflect startup settings while execution still uses
     // the previous model. An explicit public setter is required even if equal.
     {
@@ -399,6 +413,7 @@ export class MuseSdkHost {
           { cause: error },
         );
       }
+      this.ensureOpen();
       const observed = await host.connection.request("session/read", {
         sessionId: options.sessionId,
         includeTurns: false,
@@ -443,6 +458,7 @@ export class MuseSdkHost {
     options.logger.log(
       `muse-sdk approval policy: requested=${requestedPolicy} effective=${JSON.stringify(policy.effectiveMode)}`,
     );
+    this.ensureOpen();
     const effective = policy.effectiveMode;
     if (
       effective &&
