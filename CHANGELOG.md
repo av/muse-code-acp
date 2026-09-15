@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## [0.6.0](https://github.com/bex-co/muse-code-acp/compare/v0.5.0...v0.6.0) (2026-09-15)
+
+### Features
+
+- Expose verified SDK approval policies with independent sandbox controls, provider-aware model selection, requested reasoning effort, and client gateway settings.
+- Report live session progress, bounded stored output, structured failures, observed authentication, and asynchronous task state through negotiated capabilities.
+- Support embedded prompt bytes and independent session commands while retaining explicit limits for unsupported host features.
+
+### Fixes
+
+- Create and restore sessions without starting a catalog-only host. Model choices update when an execution host becomes ready; `/models` explicitly refreshes choices before a turn. Clients must accept deferred configuration updates and must not treat the initial model menu as a complete catalog.
+- Preserve the initiating SDK failure, startup deadline, cancellation, and whether a turn may have been submitted. Startup deadlines cover the full operation rather than restarting at each phase.
+- Keep workflow cancellation targeted and preserve verified task visibility without automatically replaying uncertain requests.
+
+### Compatibility and upgrading
+
+Requires Node.js 22+ and `@muse-code/sdk@0.1.1`. Muse 1.1.1 remains the pinned baseline; the expanded 62-test real-host loopback suite also passes on 1.2.1. A targeted populated-history startup regression was additionally checked on 1.3.0; this is not a claim of full 1.3.0 compatibility.
+
+Long-lived native history can still slow host initialization, especially under concurrency. This release removes unnecessary catalog hosts; it does not fix Muse's native history traversal. See [startup measurements and limitations](docs/muse-startup-latency.md). Applications that scope history to a scan must retain that data directory for subsequent session restoration.
+
 ## [0.5.0](https://github.com/bex-co/muse-code-acp/compare/v0.4.1...v0.5.0) (2026-09-14)
 
 ### Features
