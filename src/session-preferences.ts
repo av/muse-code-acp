@@ -18,6 +18,7 @@ function preferencePath(sessionId: string, env: Record<string, string | undefine
 
 type Preferences = {
   schemaVersion: 1;
+  userTitle?: { text: string; updatedAt: string };
   reasoningEffort?: string;
   modeId?: "default" | "readOnly" | "plan" | "bypassApprovals" | "rejectApprovals";
   safety?: SafetySettings;
@@ -38,6 +39,13 @@ export function readSessionPreferences(
   if (
     !doc ||
     doc.schemaVersion !== 1 ||
+    (doc.userTitle !== undefined &&
+      (!doc.userTitle ||
+        typeof doc.userTitle.text !== "string" ||
+        !doc.userTitle.text.trim() ||
+        doc.userTitle.text.length > 512 ||
+        typeof doc.userTitle.updatedAt !== "string" ||
+        !Number.isFinite(Date.parse(doc.userTitle.updatedAt)))) ||
     (doc.modelSelection !== undefined &&
       (!doc.modelSelection ||
         typeof doc.modelSelection !== "object" ||
@@ -67,7 +75,7 @@ export function writeSessionPreferences(
   sessionId: string,
   change: Pick<
     Preferences,
-    "reasoningEffort" | "modeId" | "safety" | "providerBinding" | "modelSelection"
+    "reasoningEffort" | "modeId" | "safety" | "providerBinding" | "modelSelection" | "userTitle"
   >,
   env: Record<string, string | undefined>,
 ): void {

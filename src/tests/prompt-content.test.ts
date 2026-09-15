@@ -56,3 +56,25 @@ describe("prompt content conversion", () => {
     );
   });
 });
+
+it("bounds binary input and distinguishes encoded bytes from semantic document decoding", () => {
+  for (const [mimeType, blob] of [
+    ["application/pdf", "YQ=="],
+    ["application/octet-stream", "!bad"],
+    ["application/octet-stream", "YQ==".repeat(20000)],
+    ["image/png", "A".repeat(13 * 1024 * 1024)],
+  ]) {
+    const result = convertPromptContent([
+      { type: "resource", resource: { uri: "file:///input", mimeType, blob } },
+    ]);
+    expect(result.ok).toBe(false);
+  }
+  const result = convertPromptContent([
+    {
+      type: "resource",
+      resource: { uri: "file:///input", mimeType: "application/octet-stream", blob: "AP8B" },
+    },
+  ]);
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.text).toContain("not decoded document content");
+});

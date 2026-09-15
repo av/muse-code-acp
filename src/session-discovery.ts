@@ -76,7 +76,9 @@ export function sessionInfo(value: unknown): SessionInfo {
   const title =
     typeof s.title === "string" && s.title.trim()
       ? s.title.slice(0, 512)
-      : (storedSessionTitle(s.path, s.sessionId) ?? "(no prompt)");
+      : typeof s.name === "string" && s.name.trim()
+        ? s.name.slice(0, 512)
+        : (storedSessionTitle(s.path, s.sessionId) ?? "(no prompt)");
   return {
     sessionId: s.sessionId,
     cwd: s.workspaceRoot,

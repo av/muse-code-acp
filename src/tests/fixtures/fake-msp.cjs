@@ -4,6 +4,7 @@ const { createInterface } = require("node:readline");
 const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
+if (process.argv.includes("logout")) { process.exit(0); }
 if (process.argv.includes("skills")) {
   console.log(JSON.stringify({ skills: [] }));
   process.exit(0);

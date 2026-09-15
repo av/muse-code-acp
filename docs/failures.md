@@ -29,8 +29,8 @@ SDK turns also emit `session_info_update._meta["muse/authStatus"]` with:
 `authenticate` checks configuration and does not contact a provider. Expired
 credentials can therefore be configured with verification unknown until a real
 turn rejects them. `muse logout` cannot unset an inherited `META_API_KEY`; logout
-still reports that environment key as configured and unverified. Client gateway
-sessions are closed and their transient credentials removed by logout.
+still reports that environment key as configured and unverified. All adapter sessions and retained hosts are closed by logout; client gateway
+credentials are removed from adapter memory.
 
 Baseline clients receive standard errors and can use SDK `/status` for local
 configuration/observation text. Exec supports configuration reporting but has no

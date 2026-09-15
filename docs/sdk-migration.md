@@ -585,3 +585,10 @@ identity remains unknown. See [the contract](failures.md).
 Public worker cards and background output survive foreground completion while
 the host is retained. Negotiated `muse/asyncTasks` exposes only per-task verified
 actions, including Muse 1.2.1 workflow cancellation. See [contract](async-tasks.md).
+
+## Input and independent commands
+
+Attributed embedded image/byte resources, local skills/logout/title commands,
+compatible active-turn steering and public search titles are documented in
+[the command contract](session-commands.md). Semantic document decoding and idle
+steering that starts a new turn are not advertised.

@@ -1,3 +1,9 @@
+import {
+  COMPAT_STEER_METHOD,
+  supportsCompatibleSteering,
+  parseCompatibleSteering,
+} from "./steering-protocol.js";
+import { applySessionTitle, applyTitleUpdate, renameSession } from "./session-title.js";
 import { ASYNC_TASKS, TASK_METHOD, parseTaskRequest, restoredTaskUpdates } from "./async-tasks.js";
 import { observedFailure, type FailureObservation } from "./turn-failure.js";
 import { SessionProgress, USAGE_EXTENSION, type ProgressFacts } from "./session-progress.js";
@@ -245,6 +251,12 @@ export class MuseAcpAgent {
     readonly logger: Logger = console,
     readonly options: MuseAgentOptions = {},
   ) {
+    this.client = {
+      sessionUpdate: (n) =>
+        client.sessionUpdate(applyTitleUpdate(n, this.options.env ?? process.env)),
+      requestPermission: (p) => client.requestPermission(p),
+      createElicitation: (p) => client.createElicitation(p),
+    };
     const backend = options.backend ?? (options.env ?? process.env).MUSE_CODE_ACP_BACKEND ?? "sdk";
     if (backend !== "exec" && backend !== "sdk") {
       throw new Error(`unknown MUSE_CODE_ACP_BACKEND: ${backend}; expected exec or sdk`);
@@ -446,6 +458,9 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" && supportsCompatibleSteering(this.clientCapabilities)
+          ? { steering: { supported: true, idle: "reject", targeting: "active-at-admission" } }
+          : {}),
         ...(this.backend === "sdk" && this.clientCapabilities._meta?.[ASYNC_TASKS] === 1
           ? { [ASYNC_TASKS]: { version: 1, method: TASK_METHOD, actionsPerTask: true } }
           : {}),
@@ -522,8 +537,7 @@ export class MuseAcpAgent {
   }
 
   async logout(_params: LogoutRequest): Promise<LogoutResponse> {
-    for (const sessionId of [...this.providers.keys()])
-      if (this.sessions.has(sessionId)) await this.closeSession({ sessionId });
+    for (const sessionId of [...this.sessions.keys()]) await this.closeSession({ sessionId });
     await runMuseLogout(this.options.env ?? process.env, this.options.museBinary, this.logger);
     for (const [sessionId, session] of this.sessions) {
       session.authObservation = "unknown";
@@ -705,7 +719,12 @@ export class MuseAcpAgent {
     this.assertRunning();
     if (this.clientCapabilities._meta?.[FORK_METADATA] !== 1)
       for (const entry of page.sessions) delete entry._meta;
-    return page;
+    return {
+      ...page,
+      sessions: page.sessions.map((info) =>
+        applySessionTitle(info, this.options.env ?? process.env),
+      ),
+    };
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -1278,6 +1297,24 @@ export class MuseAcpAgent {
     }
   }
 
+  async compatibleSteer(
+    params: ReturnType<typeof parseCompatibleSteering>,
+  ): Promise<{ outcome: "injected" }> {
+    if (!supportsCompatibleSteering(this.clientCapabilities))
+      throw RequestError.invalidRequest(undefined, "Compatible steering was not negotiated");
+    const handle = this.requireSession(params.sessionId).activeTurn;
+    const expectedTurnId =
+      params.expectedTurnId ??
+      (handle && "activeTurnId" in handle ? handle.activeTurnId : undefined);
+    if (!expectedTurnId)
+      throw RequestError.invalidRequest(
+        undefined,
+        "No active turn; compatible steering never starts a new turn",
+      );
+    await this.steer({ ...params, expectedTurnId });
+    return { outcome: "injected" };
+  }
+
   async steer(
     params: ReturnType<typeof parseSteeringRequest>,
   ): Promise<{ turnId: string; status: string }> {
@@ -1318,7 +1355,8 @@ export class MuseAcpAgent {
 
     const command = this.backend === "sdk" ? parseSlashCommand(params.prompt) : undefined;
     const workflow = command?.workflow;
-    if (workflow || session.modeId === "plan") this.assertWorkflowTools(session);
+    if (!command?.local && (workflow || session.modeId === "plan"))
+      this.assertWorkflowTools(session);
     if (workflow && session.sdkHost?.owner.hasActiveTurn)
       throw RequestError.invalidRequest(
         undefined,
@@ -1332,6 +1370,58 @@ export class MuseAcpAgent {
     });
     if (!converted.ok) throw converted.error;
     const parts = converted.parts;
+
+    if (command?.local) {
+      session.safetyChanging = true;
+      try {
+        let text: string;
+        if (command.local.kind === "rename") {
+          const title = renameSession(
+            params.sessionId,
+            command.local.argument,
+            this.options.env ?? process.env,
+          );
+          await this.client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: "session_info_update",
+              title: title.text,
+              updatedAt: title.updatedAt,
+            },
+          });
+          text = `Session title saved by this adapter: ${title.text}`;
+        } else if (command.local.kind === "skills") {
+          const skills = await listMuseSkills(
+            session.cwd,
+            this.providerEnv(params.sessionId),
+            this.options.museBinary,
+            this.logger,
+          );
+          this.assertRunning();
+          if (this.sessions.get(params.sessionId) !== session)
+            throw RequestError.invalidRequest(undefined, "Session closed while listing skills");
+          text =
+            skills
+              .slice(0, 200)
+              .map((s) => `${s.id} [${s.activation}, ${s.scope}] — ${s.description.slice(0, 300)}`)
+              .join("\n") || "No Muse skills were reported.";
+        } else {
+          await this.logout({});
+          text = `Stored Muse logout completed. ${this.authStatus().configured ? "Credentials remain configured (including any exported META_API_KEY); verification is unknown." : "No credentials are configured."} Adapter sessions were closed.`;
+        }
+        if (
+          !this.disposed &&
+          (!this.sessions.has(params.sessionId) || this.sessions.get(params.sessionId) === session)
+        )
+          await this.client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+          });
+        return { stopReason: "end_turn" };
+      } finally {
+        session.safetyChanging = false;
+      }
+    }
 
     const finished = Promise.withResolvers<void>();
     session.turnFinished = finished.promise;
@@ -1811,6 +1901,9 @@ export function createAgentConnection(
       agent.setSessionConfigOption(ctx.params),
     )
     .onRequest(TASK_METHOD, parseTaskRequest, (ctx) => agent.controlTask(ctx.params))
+    .onRequest(COMPAT_STEER_METHOD, parseCompatibleSteering, (ctx) =>
+      agent.compatibleSteer(ctx.params),
+    )
     .onRequest(STEER_METHOD, parseSteeringRequest, (ctx) => agent.steer(ctx.params))
     .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
     .onNotification(methods.agent.session.cancel, (ctx) => agent.cancel(ctx.params))

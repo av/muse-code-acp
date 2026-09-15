@@ -2,6 +2,17 @@ import type { AvailableCommand, PromptRequest } from "@agentclientprotocol/sdk";
 import type { WorkflowCommand } from "./review-prompt.js";
 
 export const BUILTIN_COMMANDS: AvailableCommand[] = [
+  { name: "skills", description: "List available Muse skills without a model request" },
+  {
+    name: "logout",
+    description:
+      "Log out stored Muse credentials and close adapter sessions; exported keys remain configured",
+  },
+  {
+    name: "rename",
+    description: "Set a persistent adapter-owned session title",
+    input: { hint: "title" },
+  },
   {
     name: "status",
     description: "Inspect requested settings and observed usage/context without a model request",
@@ -40,6 +51,7 @@ export const BUILTIN_COMMANDS: AvailableCommand[] = [
 const names = new Set(BUILTIN_COMMANDS.map((command) => command.name));
 type Blocks = PromptRequest["prompt"];
 export interface SlashCommand {
+  local?: { kind: "skills" | "logout" | "rename"; argument: string };
   blocks: Blocks;
   index: number;
   workflow?: WorkflowCommand;
@@ -84,6 +96,16 @@ export function parseSlashCommand(prompt: Blocks): SlashCommand | undefined {
   );
   const attachments = blocks.some((block) => block.type !== "text");
   const args = selected.args;
+  if (selected.name === "skills" || selected.name === "logout" || selected.name === "rename") {
+    if (extraText || attachments || (selected.name !== "rename" && args))
+      return {
+        ...result,
+        stop: true,
+        notice:
+          "Send this local command alone; accompanying instructions and attachments were not executed.",
+      };
+    return { ...result, stop: true, local: { kind: selected.name, argument: args } };
+  }
   if (selected.name === "status")
     return {
       ...result,

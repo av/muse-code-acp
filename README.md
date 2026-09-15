@@ -232,6 +232,9 @@ errors, credential configuration and session-scoped recovery state.
 See [workflow and background tasks](docs/async-tasks.md) for retained progress
 and negotiated targeted workflow cancellation.
 
+See [embedded input and local session commands](docs/session-commands.md) for
+byte handling, persistent titles, logout and compatible active-turn steering.
+
 ## Development and verification
 
 From a repository checkout:

@@ -11,7 +11,8 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   write_file: "edit",
   edit_file: "edit",
   read_file: "read",
-  web_search: "fetch",
+  web_search: "search",
+  search: "search",
   web_fetch: "fetch",
 };
 

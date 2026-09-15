@@ -181,7 +181,12 @@ export class MuseSdkTranslator {
       );
     const display = bounded([output, ...notices].filter(Boolean).join("\n"));
     const fileContent = regular ? this.fileChanges?.present(item) : undefined;
-    const title = args?.description ?? args?.command ?? args?.path ?? item.commandText;
+    const candidateQuery =
+      tool === "search" ? args?.pattern : tool === "web_search" ? args?.query : undefined;
+    const searchQuery = typeof candidateQuery === "string" ? candidateQuery : undefined;
+    const title = searchQuery
+      ? `${tool}: ${searchQuery}`
+      : (args?.description ?? args?.command ?? args?.path ?? item.commandText);
     const call: ToolCall = {
       toolCallId: item.callId ?? item.itemId,
       name: tool,

@@ -28,6 +28,7 @@ export function formatResourceLink(
 
 /** Bound the total serialized embedded context, including metadata, per prompt. */
 export const MAX_EMBEDDED_CONTEXT_BYTES = 64 * 1024;
+export const MAX_IMAGE_INPUT_BYTES = 6 * 1024 * 1024;
 
 /** JSON framing prevents resource text or URI newlines from spoofing boundaries. */
 export function formatEmbeddedTextResource(
@@ -68,7 +69,7 @@ export type PromptConversion =
 
 /**
  * Convert ACP prompt content into Muse turn input and a legacy exec string.
- * Baseline ACP requires text + resource_link; images use inline MSP parts; embedded text uses attributed JSON; audio and binary resources are rejected.
+ * Baseline ACP requires text + resource_link; images use inline MSP parts; embedded text uses attributed JSON; embedded blobs use attributed image parts or explicitly encoded bytes; audio and semantic document decoding are unavailable.
  */
 export function convertPromptContent(
   blocks: PromptRequest["prompt"],
@@ -83,6 +84,7 @@ export function convertPromptContent(
 
   const parts: MuseInputPart[] = [];
   let embeddedBytes = 0;
+  let imageBytes = 0;
   for (const block of blocks) {
     switch (block.type) {
       case "text":
@@ -102,11 +104,19 @@ export function convertPromptContent(
             ),
           };
         try {
-          parts.push({
-            type: "image",
-            mediaType,
-            base64Data: decodeImage(block.data).toString("base64"),
-          });
+          if (block.data.length > MAX_IMAGE_INPUT_BYTES * 2)
+            throw RequestError.invalidParams(
+              undefined,
+              "Image input exceeds the 6 MiB prompt limit",
+            );
+          const bytes = decodeImage(block.data);
+          imageBytes += bytes.length;
+          if (imageBytes > MAX_IMAGE_INPUT_BYTES)
+            throw RequestError.invalidParams(
+              undefined,
+              "Image input exceeds the 6 MiB prompt limit",
+            );
+          parts.push({ type: "image", mediaType, base64Data: bytes.toString("base64") });
         } catch (error) {
           return { ok: false, error: error as RequestError };
         }
@@ -114,7 +124,50 @@ export function convertPromptContent(
       }
       case "resource": {
         try {
-          const text = formatEmbeddedTextResource(block);
+          const resource = block.resource;
+          if (!resource || typeof resource !== "object")
+            throw RequestError.invalidParams(undefined, "Embedded resource must be an object");
+          let text: string;
+          let image: MuseInputPart | undefined;
+          if ("blob" in resource) {
+            if (
+              "text" in resource ||
+              typeof resource.uri !== "string" ||
+              !resource.uri.trim() ||
+              typeof resource.blob !== "string" ||
+              typeof resource.mimeType !== "string"
+            )
+              throw RequestError.invalidParams(
+                undefined,
+                "Binary resources require a URI, MIME type and base64 blob only",
+              );
+            const mimeType = resource.mimeType.trim().toLowerCase();
+            const isImage = IMAGE_EXTENSIONS.has(mimeType);
+            if (!isImage && !["application/octet-stream", "text/plain"].includes(mimeType))
+              throw RequestError.invalidParams(
+                undefined,
+                "Binary resources support images, text/plain and application/octet-stream; document decoding is unavailable",
+              );
+            if (
+              resource.blob.length >
+              (isImage ? MAX_IMAGE_INPUT_BYTES * 2 : MAX_EMBEDDED_CONTEXT_BYTES)
+            )
+              throw RequestError.invalidParams(
+                undefined,
+                "Embedded binary resource exceeds its input limit",
+              );
+            const bytes = decodeImage(resource.blob);
+            text = `Embedded ${isImage ? "image" : "binary"} resource: ${JSON.stringify({ uri: resource.uri, mimeType, encoding: isImage ? "following image part" : "base64", ...(isImage ? {} : { blob: bytes.toString("base64"), semantics: "Encoded bytes only; not decoded document content" }), annotations: block.annotations, _meta: block._meta, resourceMeta: resource._meta })}`;
+            if (isImage) {
+              imageBytes += bytes.length;
+              if (imageBytes > MAX_IMAGE_INPUT_BYTES)
+                throw RequestError.invalidParams(
+                  undefined,
+                  "Image input exceeds the 6 MiB prompt limit",
+                );
+              image = { type: "image", mediaType: mimeType, base64Data: bytes.toString("base64") };
+            }
+          } else text = formatEmbeddedTextResource(block);
           embeddedBytes += Buffer.byteLength(text, "utf8");
           if (embeddedBytes > MAX_EMBEDDED_CONTEXT_BYTES) {
             throw RequestError.invalidParams(
@@ -123,6 +176,7 @@ export function convertPromptContent(
             );
           }
           parts.push({ type: "text", text });
+          if (image) parts.push(image);
         } catch (error) {
           return { ok: false, error: error as RequestError };
         }

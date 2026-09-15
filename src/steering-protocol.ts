@@ -6,10 +6,20 @@ import {
 } from "@agentclientprotocol/sdk";
 import { convertPromptContent } from "./prompt-content.js";
 
+export const COMPAT_STEER_METHOD = "_session/steering";
+export function supportsCompatibleSteering(capabilities: ClientCapabilities): boolean {
+  const value = capabilities._meta?.steering;
+  return (
+    value === true ||
+    (!!value && typeof value === "object" && (value as { supported?: boolean }).supported === true)
+  );
+}
 export const STEER_METHOD = "_muse/steer";
 export const STEERING_CAPABILITY = "muse/steering";
 export function supportsSteering(capabilities: ClientCapabilities): boolean {
-  return capabilities._meta?.[STEERING_CAPABILITY] === 1;
+  return (
+    capabilities._meta?.[STEERING_CAPABILITY] === 1 || supportsCompatibleSteering(capabilities)
+  );
 }
 
 const block = z.discriminatedUnion("type", [
@@ -19,7 +29,10 @@ const block = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("resource"),
-      resource: z.object({ uri: z.string(), text: z.string() }).passthrough(),
+      resource: z.union([
+        z.object({ uri: z.string(), text: z.string() }).passthrough(),
+        z.object({ uri: z.string(), blob: z.string(), mimeType: z.string() }).passthrough(),
+      ]),
     })
     .passthrough(),
 ]);
@@ -39,4 +52,23 @@ export function parseSteeringRequest(raw: unknown) {
   const converted = convertPromptContent(prompt as PromptRequest["prompt"]);
   if (!converted.ok) throw converted.error;
   return { sessionId, expectedTurnId, input: converted.parts };
+}
+
+export function parseCompatibleSteering(raw: unknown) {
+  const parsed = request
+    .omit({ expectedTurnId: true })
+    .extend({ expectedTurnId: z.string().min(1).optional() })
+    .safeParse(raw);
+  if (!parsed.success)
+    throw RequestError.invalidParams(
+      undefined,
+      "steering requires sessionId and supported prompt content",
+    );
+  const converted = convertPromptContent(parsed.data.prompt as PromptRequest["prompt"]);
+  if (!converted.ok) throw converted.error;
+  return {
+    sessionId: parsed.data.sessionId,
+    expectedTurnId: parsed.data.expectedTurnId,
+    input: converted.parts,
+  };
 }
