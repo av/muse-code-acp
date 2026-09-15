@@ -592,3 +592,5 @@ Attributed embedded image/byte resources, local skills/logout/title commands,
 compatible active-turn steering and public search titles are documented in
 [the command contract](session-commands.md). Semantic document decoding and idle
 steering that starts a new turn are not advertised.
+
+See [stored output](stored-output.md) for negotiated byte-range reads on verified Muse 1.2.1, reference lifetime and baseline fallbacks.

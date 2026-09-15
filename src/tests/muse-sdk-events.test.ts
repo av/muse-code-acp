@@ -150,7 +150,7 @@ it("keeps interleaved live tool output and inaccessible references correlated", 
     ],
   });
   expect(JSON.stringify(final)).toContain("binary data unavailable");
-  expect(JSON.stringify(final)).toContain("retrieval is unavailable");
+  expect(JSON.stringify(final)).toContain("retrieval is not enabled");
   expect(JSON.stringify(final)).not.toContain("/private/image");
   expect(
     t.fromItem({

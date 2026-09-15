@@ -49,8 +49,9 @@ Tool `output` deltas update their original call ID before completion. Final
 snapshots replace the tool content, and absent final text preserves already
 observed output. Public unknown item kinds display kind/status/fallback text;
 worker-specific lifecycle/control remains separate. Text is bounded to 64 KiB
-per surface with explicit truncation notices. Metadata-only media and stored
-output references get an explicit unavailable explanation. The adapter neither
+per surface with explicit truncation notices. Metadata-only media keeps an explicit unavailable explanation. Stored output
+references can be read through the negotiated [output interface](stored-output.md)
+on verified Muse 1.2.1; other clients/hosts retain explicit fallback notices. The adapter neither
 fetches an invented output endpoint nor treats descriptive image text as bytes.
 Observed file-change reports keep their content and these notices.
 

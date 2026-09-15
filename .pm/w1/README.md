@@ -16,7 +16,7 @@ move implementation into w2; do not create a duplicate queue or auto-poll unchan
 - [004 — Future: Durable native compaction](004.md)
 - [005 — Future: Accessible native child sessions and isolated child controls](005.md)
 - [006 — Future: Observable native scheduled retries](006.md)
-- [007 — Future: Native rich media and output retrieval](007.md)
+- [007 — Future: Native rich media preservation](007.md)
 - [008 — Future: Independently authorized additional workspace roots](008.md)
 - [009 — Future: Correlated URL elicitation](009.md)
 - [010 — Future: Native service tiers and per-model effort capability metadata](010.md)

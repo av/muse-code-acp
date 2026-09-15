@@ -126,7 +126,7 @@ workspace, mode, or MCP changes can require replacement. See
 | Background commands beyond prompt completion   | Negotiated async tasks, status and targeted stop    | Supported with limits            | w2/m9 retains output and actual terminal updates; host loss is unknown. Direct shell stop is not a served MSP action.                          |
 | Persistent goal snapshots                      | Goal extension                                      | Supported (SDK)                  | m18 forwards negotiated public goal observations, restores history and preserves explicit clearing. See [contract](goal-extension.md).         |
 | Goal set/pause/resume/clear                    | Advertised goal actions and `/goal`                 | Controls unavailable             | Read-only `/goal` is supported; no verified public MSP control API, so controls remain unadvertised.                                           |
-| Unknown item kinds / truncation visibility     | Rich event handling and fallbacks                   | Partial                          | w2/m7 renders public unknown kinds and explicit truncation/reference/media fallbacks.                                                          |
+| Unknown item kinds / truncation visibility     | Rich event handling and fallbacks                   | Partial                          | w2/m7 renders public unknown kinds and truncation/media fallbacks; w2/m11 adds verified bounded stored-output reads on 1.2.1.                  |
 
 Evidence: [SDK translator](../src/muse-sdk-events.ts),
 [tool presentation](../src/tool-calls.ts), [turn handling](../src/muse-sdk.ts),

@@ -22,7 +22,7 @@
 
 - [x] [**m10** — Embedded input and independent session commands](done/m10/README.md) (9 tasks) ← w1 cleanup and explicit scope allocation (2026-09-14)
 
-- [ ] [**m11** — Verified stored-output retrieval](m11/README.md) (6 tasks) ← real host output-read evidence during m9 (2026-09-14)
+- [x] [**m11** — Verified stored-output retrieval](done/m11/README.md) (6 tasks) ← real host output-read evidence during m9 (2026-09-14)
 
 ## Inbox
 

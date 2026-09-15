@@ -1,4 +1,12 @@
 import {
+  OUTPUT_EXTENSION,
+  OUTPUT_METHOD,
+  MAX_OUTPUT_READ,
+  supportsStoredOutput,
+  parseOutputRequest,
+  restoredOutputUpdates,
+} from "./stored-output.js";
+import {
   COMPAT_STEER_METHOD,
   supportsCompatibleSteering,
   parseCompatibleSteering,
@@ -458,6 +466,17 @@ export class MuseAcpAgent {
         version: packageJson.version,
       },
       _meta: {
+        ...(this.backend === "sdk" &&
+        this.clientCapabilities._meta?.[OUTPUT_EXTENSION] === 1 &&
+        supportsStoredOutput(probeSdkHost(this.options.env, this.options.museBinary).version)
+          ? {
+              [OUTPUT_EXTENSION]: {
+                version: 1,
+                method: OUTPUT_METHOD,
+                maxLengthBytes: MAX_OUTPUT_READ,
+              },
+            }
+          : {}),
         ...(this.backend === "sdk" && supportsCompatibleSteering(this.clientCapabilities)
           ? { steering: { supported: true, idle: "reject", targeting: "active-at-admission" } }
           : {}),
@@ -806,6 +825,7 @@ export class MuseAcpAgent {
     let info: SessionInfo | undefined;
     let progress: ProgressFacts = {};
     let tasks: import("@muse-code/sdk").FoldedItem[] = [];
+    let outputItems: import("@muse-code/sdk").FoldedItem[] = [];
     if (this.backend === "sdk") {
       const saved = await readMuseSdkSession({
         sessionId: params.sessionId,
@@ -817,9 +837,11 @@ export class MuseAcpAgent {
         readGoal: true,
         readProgress: true,
         readTasks: true,
+        readOutputReferences: this.clientCapabilities._meta?.[OUTPUT_EXTENSION] === 1,
       });
       progress = saved.progress ?? {};
       tasks = saved.tasks ?? [];
+      outputItems = saved.outputItems ?? [];
       goal = saved.goal ?? goal;
       info = saved.info;
       config.model = saved.modelId ?? config.model;
@@ -864,6 +886,8 @@ export class MuseAcpAgent {
         this.assertRunning();
         await this.client.sessionUpdate(notification);
       }
+      for (const notification of restoredOutputUpdates(params.sessionId, outputItems))
+        await this.client.sessionUpdate(notification);
       this.assertRunning();
     } catch (error) {
       this.sessions.delete(params.sessionId);
@@ -1795,6 +1819,36 @@ export class MuseAcpAgent {
     );
   }
 
+  async readOutput(params: ReturnType<typeof parseOutputRequest>) {
+    this.assertRunning();
+    if (this.backend !== "sdk" || this.clientCapabilities._meta?.[OUTPUT_EXTENSION] !== 1)
+      throw RequestError.invalidRequest(
+        undefined,
+        "muse/output must be negotiated on the SDK backend",
+      );
+    const session = this.requireSession(params.sessionId);
+    const saved = await readMuseSdkSession({
+      sessionId: params.sessionId,
+      cwd: session.cwd,
+      env: this.providerEnv(params.sessionId),
+      museBinary: this.options.museBinary,
+      logger: this.logger,
+      checkHost: !this.options.skipSdkHostCheck,
+      allowActive: true,
+      outputRequest: params,
+    }).catch((error: unknown) => {
+      if (error instanceof RequestError) throw error;
+      throw RequestError.invalidRequest(
+        undefined,
+        "Stored output is unavailable from the public Muse host; no turn was replayed",
+      );
+    });
+    this.assertRunning();
+    if (this.sessions.get(params.sessionId) !== session)
+      throw RequestError.invalidRequest(undefined, "Session closed during output read");
+    return saved.output!;
+  }
+
   async controlTask({ sessionId, target }: ReturnType<typeof parseTaskRequest>) {
     this.assertRunning();
     if (this.backend !== "sdk" || this.clientCapabilities._meta?.[ASYNC_TASKS] !== 1)
@@ -1900,6 +1954,7 @@ export function createAgentConnection(
     .onRequest(methods.agent.session.setConfigOption, (ctx) =>
       agent.setSessionConfigOption(ctx.params),
     )
+    .onRequest(OUTPUT_METHOD, parseOutputRequest, (ctx) => agent.readOutput(ctx.params))
     .onRequest(TASK_METHOD, parseTaskRequest, (ctx) => agent.controlTask(ctx.params))
     .onRequest(COMPAT_STEER_METHOD, parseCompatibleSteering, (ctx) =>
       agent.compatibleSteer(ctx.params),

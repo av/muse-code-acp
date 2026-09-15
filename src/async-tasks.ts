@@ -63,7 +63,7 @@ export function workerText(item: FoldedItem): string {
     .slice(0, 65536);
 }
 
-export async function readTaskItems(
+export async function readLatestItems(
   connection: Connection,
   sessionId: string,
 ): Promise<FoldedItem[]> {
@@ -88,7 +88,11 @@ export async function readTaskItems(
     cursor = page.nextCursor;
     cursors.add(cursor);
   }
-  return [...latest.values()].filter(
+  return [...latest.values()];
+}
+
+export function taskItems(items: FoldedItem[]) {
+  return items.filter(
     (i) =>
       workerKinds.has(String(i.kind)) ||
       (i.status === "inProgress" && ["toolCall", "userShell"].includes(String(i.kind))),

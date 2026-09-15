@@ -1,3 +1,4 @@
+import { OUTPUT_EXTENSION, outputMetadata } from "./stored-output.js";
 import { ASYNC_TASKS, workerKinds, workerText } from "./async-tasks.js";
 import { SessionNotification, ToolCall } from "@agentclientprotocol/sdk";
 import type { FoldedItem } from "@muse-code/sdk";
@@ -13,7 +14,7 @@ export interface ItemDeltaParams {
 const LIMIT = 64 * 1024;
 const bounded = (text: string) =>
   text.length > LIMIT
-    ? `${text.slice(0, LIMIT)}\n[Output truncated by adapter; full output retrieval is unavailable.]`
+    ? `${text.slice(0, LIMIT)}\n[Output truncated by adapter; full output is not included in this card.]`
     : text;
 
 /** Correlated public text/summary/tool surfaces; never inspect private reasoning. */
@@ -22,6 +23,10 @@ export class MuseSdkTranslator {
   private readonly emittedText = new Map<string, string>();
   private readonly output = new Map<string, string>();
   private readonly notices = new Set<string>();
+  private outputNegotiated = false;
+  configureOutput(enabled: boolean) {
+    this.outputNegotiated = enabled;
+  }
   private workerContext?: { generation: string; cancel: boolean; negotiated: boolean };
   configureWorkers(generation: string, cancel: boolean, negotiated: boolean) {
     this.workerContext = { generation, cancel, negotiated };
@@ -158,7 +163,7 @@ export class MuseSdkTranslator {
     if (!item.truncated || this.notices.has(key)) return [];
     this.notices.add(key);
     return this.textUpdate(
-      "\n[Public output truncated by Muse; full output retrieval is unavailable.]",
+      "\n[Public output truncated by Muse; full output is not included in this card.]",
       thought,
     );
   }
@@ -170,14 +175,14 @@ export class MuseSdkTranslator {
     if (item.failureReason && !output.includes(item.failureReason))
       notices.push(`[Failure: ${bounded(item.failureReason)}]`);
     if (item.truncated)
-      notices.push("[Public output truncated by Muse; full output retrieval is unavailable.]");
+      notices.push("[Public output truncated by Muse; full output is not included in this card.]");
     if (item.outputRef)
       notices.push(
-        `[Stored output ${item.outputRef.availability}; public byte retrieval is unavailable.]`,
+        `[Stored output ${item.outputRef.availability}; ${this.outputNegotiated ? "use the negotiated output-read reference" : "byte retrieval is not enabled for this client/host"}.]`,
       );
     for (const content of (item.modelVisibleContent ?? []).slice(0, 32))
       notices.push(
-        `[${String(content.type).slice(0, 80)} content (${String(content.mediaType).slice(0, 120)}): binary data unavailable through the public host.]`,
+        `[${String(content.type).slice(0, 80)} content (${String(content.mediaType).slice(0, 120)}): binary data unavailable inline in this public item.]`,
       );
     const display = bounded([output, ...notices].filter(Boolean).join("\n"));
     const fileContent = regular ? this.fileChanges?.present(item) : undefined;
@@ -250,6 +255,10 @@ export class MuseSdkTranslator {
         : {}),
       ...(args ? { rawInput: args } : {}),
     };
+    if (this.outputNegotiated) {
+      const metadata = outputMetadata(this.sessionId, item);
+      if (metadata) call._meta = { ...call._meta, [OUTPUT_EXTENSION]: metadata };
+    }
     return [
       {
         sessionId: this.sessionId,

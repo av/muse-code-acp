@@ -1,4 +1,11 @@
-import { ASYNC_TASKS, readTaskItems } from "./async-tasks.js";
+import {
+  OUTPUT_EXTENSION,
+  supportsStoredOutput,
+  readStoredOutput,
+  type OutputRequest,
+  type OutputPage,
+} from "./stored-output.js";
+import { ASYNC_TASKS, readLatestItems, taskItems } from "./async-tasks.js";
 import { sdkTerminalResponse, sdkThrownError, failureError } from "./turn-failure.js";
 import { readProgress, type ProgressFacts } from "./session-progress.js";
 import {
@@ -90,11 +97,20 @@ export async function readMuseSdkSession(
   options: Pick<
     MuseSdkOptions,
     "sessionId" | "cwd" | "env" | "museBinary" | "logger" | "checkHost"
-  > & { readGoal?: boolean; readProgress?: boolean; readTasks?: boolean; allowActive?: boolean },
+  > & {
+    readGoal?: boolean;
+    readProgress?: boolean;
+    readTasks?: boolean;
+    readOutputReferences?: boolean;
+    outputRequest?: OutputRequest;
+    allowActive?: boolean;
+  },
 ): Promise<{
   modelId: string | null;
   progress?: ProgressFacts;
   tasks?: FoldedItem[];
+  outputItems?: FoldedItem[];
+  output?: OutputPage;
   providerId?: string;
   goal?: GoalObservation;
   info?: SessionInfo;
@@ -148,12 +164,26 @@ export async function readMuseSdkSession(
     ) {
       throw new Error("Saved Muse session has an unfinished turn or pending input");
     }
+    const outputSupported = supportsStoredOutput(host.initializeResult.serverInfo?.version);
+    if (options.outputRequest && !outputSupported)
+      throw RequestError.invalidRequest(
+        undefined,
+        "Stored output reads are unavailable on this Muse host",
+      );
+    const items =
+      options.readTasks || (options.readOutputReferences && outputSupported)
+        ? await readLatestItems(host.connection, options.sessionId)
+        : [];
     return {
       modelId: session.modelId,
       ...(typeof session.providerId === "string" ? { providerId: session.providerId } : {}),
       info: optionalSessionInfo(result.session),
-      ...(options.readTasks
-        ? { tasks: await readTaskItems(host.connection, options.sessionId) }
+      ...(options.readTasks ? { tasks: taskItems(items) } : {}),
+      ...(options.readOutputReferences && outputSupported
+        ? { outputItems: items.filter((i) => i.outputRef) }
+        : {}),
+      ...(options.outputRequest
+        ? { output: await readStoredOutput(host.connection, options.outputRequest) }
         : {}),
       ...(options.readProgress
         ? { progress: await readProgress(host.connection, options.sessionId).catch(() => ({})) }
@@ -256,6 +286,10 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         owner.generation,
         owner.workflowCancellationSupported,
         options.clientCapabilities?._meta?.[ASYNC_TASKS] === 1,
+      );
+      translator.configureOutput(
+        supportsStoredOutput(lease.host.initializeResult.serverInfo?.version) &&
+          options.clientCapabilities?._meta?.[OUTPUT_EXTENSION] === 1,
       );
       acquired = true;
       connection = lease.host.connection;

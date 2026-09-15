@@ -271,3 +271,5 @@ validates the exact release commit.
 Apache-2.0. Portions derived from
 [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp)
 (Zed Industries) — see [NOTICE](https://github.com/bex-co/muse-code-acp/blob/main/NOTICE).
+
+Stored full tool output on Muse 1.2.1 is available to negotiated clients through [bounded public output reads](docs/stored-output.md), including after session load.
