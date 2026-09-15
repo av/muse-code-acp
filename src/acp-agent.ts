@@ -103,7 +103,13 @@ import {
 } from "./safety-settings.js";
 import { probeSdkHost, assertSdkSafetySupport } from "./muse-host.js";
 import { Logger } from "./logger.js";
-import { MuseModelDiscovery, type ModelDiscoveryResult } from "./model-discovery.js";
+import { museHostIdentity } from "./host-identity.js";
+import { sdkDeadline } from "./sdk-operation.js";
+import {
+  MuseModelDiscovery,
+  readModelCatalog,
+  type ModelDiscoveryResult,
+} from "./model-discovery.js";
 import { guardContext, modeAvailability, MODES, modeState, MuseModeId } from "./modes.js";
 import { MuseExecHandle, spawnMuseExec } from "./muse-exec.js";
 import { MuseSdkHandle, spawnMuseSdkTurn, readMuseSdkSession, MuseSdkHost } from "./muse-sdk.js";
@@ -195,6 +201,7 @@ export interface SessionState {
   /** Model + reasoning effort applied to every spawn for this session. */
   config: SessionConfig;
   modelDiscovery?: ModelDiscoveryResult;
+  modelRefresh?: { dispose(): Promise<void> };
   /** ACP-provided MCP servers injected into Muse for each turn. */
   mcpServers: McpServer[];
   mcpFailure?: string;
@@ -628,6 +635,40 @@ export class MuseAcpAgent {
     ].join("\n");
   }
 
+  private catalogIdentity(session: SessionState, env: Record<string, string | undefined>): string {
+    return museHostIdentity(session.cwd, env, this.options.museBinary, true).identity;
+  }
+
+  private async publishCatalog(
+    sessionId: string,
+    session: SessionState,
+    identity: string,
+    result: ModelDiscoveryResult,
+    cache = true,
+  ): Promise<boolean> {
+    if (this.disposed || session.cancelRequested || this.sessions.get(sessionId) !== session)
+      return false;
+    const env = this.providerEnv(sessionId);
+    try {
+      if (this.catalogIdentity(session, env) !== identity) return false;
+    } catch {
+      return false;
+    }
+    if (cache) this.modelDiscovery.remember(session.cwd, env, result);
+    const previous = this.sessionConfigOptions(session);
+    session.modelDiscovery = result;
+    const configOptions = this.sessionConfigOptions(session);
+    if (JSON.stringify(previous) === JSON.stringify(configOptions)) return true;
+    await this.client.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions,
+      },
+    });
+    return true;
+  }
+
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     requireSingleWorkspace(params.additionalDirectories);
     this.assertRunning();
@@ -643,7 +684,7 @@ export class MuseAcpAgent {
       );
       const modelDiscovery =
         this.backend === "sdk"
-          ? await this.modelDiscovery.discover(cwd, this.providerEnv(sessionId))
+          ? this.modelDiscovery.peek(cwd, this.providerEnv(sessionId))
           : undefined;
       this.assertRunning();
       this.sessions.set(sessionId, {
@@ -866,7 +907,7 @@ export class MuseAcpAgent {
     }
     const modelDiscovery =
       this.backend === "sdk"
-        ? await this.modelDiscovery.discover(cwd, this.providerEnv(params.sessionId))
+        ? this.modelDiscovery.peek(cwd, this.providerEnv(params.sessionId))
         : undefined;
     this.assertRunning();
     this.sessions.set(params.sessionId, {
@@ -1087,7 +1128,7 @@ export class MuseAcpAgent {
     const mcpServers = params.mcpServers ?? [];
     if (existing) {
       if (params._meta?.[PROVIDER_EXTENSION] !== undefined)
-        existing.modelDiscovery = await this.modelDiscovery.discover(
+        existing.modelDiscovery = this.modelDiscovery.peek(
           storedCwd,
           this.providerEnv(params.sessionId),
         );
@@ -1135,7 +1176,7 @@ export class MuseAcpAgent {
     }
     const modelDiscovery =
       this.backend === "sdk"
-        ? await this.modelDiscovery.discover(storedCwd, this.providerEnv(params.sessionId))
+        ? this.modelDiscovery.peek(storedCwd, this.providerEnv(params.sessionId))
         : undefined;
     this.assertRunning();
     this.sessions.set(params.sessionId, {
@@ -1426,6 +1467,48 @@ export class MuseAcpAgent {
             },
           });
           text = `Session title saved by this adapter: ${title.text}`;
+        } else if (command.local.kind === "models") {
+          session.cancelRequested = false;
+          const env = this.providerEnv(params.sessionId);
+          const identity = this.catalogIdentity(session, env);
+          // An explicit refresh can wait for startup; ordinary session creation never does.
+          const discovery = new MuseModelDiscovery({
+            env,
+            museBinary: this.options.museBinary,
+            logger: this.logger,
+            timeoutMs: sdkDeadline(env, "STARTUP"),
+          });
+          const abort = new AbortController();
+          session.modelRefresh = {
+            dispose: async () => {
+              abort.abort();
+              await discovery.dispose();
+            },
+          };
+          try {
+            const connection = session.sdkHost?.owner.catalogConnection;
+            const result = await this.trackRead(
+              connection
+                ? readModelCatalog(connection, abort.signal)
+                : discovery.discover(session.cwd),
+            );
+            const published = await this.publishCatalog(
+              params.sessionId,
+              session,
+              identity,
+              result,
+              !connection,
+            );
+            if (session.cancelRequested) return { stopReason: "cancelled" };
+            text = !published
+              ? "Configuration changed during refresh. Run /models again for the current choices."
+              : result.status === "available"
+                ? `Model choices refreshed (${result.models.length} reported). Select a model in session settings.`
+                : `Model choices could not be refreshed. The current selection is retained. ${result.reason}`;
+          } finally {
+            await discovery.dispose();
+            session.modelRefresh = undefined;
+          }
         } else if (command.local.kind === "skills") {
           const skills = await listMuseSkills(
             session.cwd,
@@ -1563,17 +1646,20 @@ export class MuseAcpAgent {
             "The SDK backend requires a configured Muse provider; use the exec backend for echo",
           );
         }
-        const { providerId, profileId } = resolvedModel(
+        const { providerId, profileId: discoveredProfileId } = resolvedModel(
           session.config,
           session.modelDiscovery,
           readMuseSettings(baseEnv, this.logger).provider ?? "meta",
         );
+        const profileId = discoveredProfileId ?? null;
         const boundProvider = this.providers.get(params.sessionId)?.provider;
         if (boundProvider && providerId !== boundProvider.providerId)
           throw RequestError.invalidParams(
             undefined,
             "Saved model provider does not match the explicitly configured gateway; no fallback was attempted",
           );
+        // Catalog updates may arrive during a turn. Retain its explicit requested route.
+        session.config = { ...session.config, providerId, profileId: profileId ?? null };
         const identity = sdkHostConfiguration(
           session.cwd,
           session.config,
@@ -1607,6 +1693,7 @@ export class MuseAcpAgent {
               "MCP configuration changed while preparing the planning or review host",
             );
           }
+          const catalogIdentity = this.catalogIdentity(session, baseEnv);
           const owner = new MuseSdkHost({
             sessionId: session.museSessionId,
             cwd: session.cwd,
@@ -1620,6 +1707,20 @@ export class MuseAcpAgent {
             logger: this.logger,
             checkHost: !this.options.skipSdkHostCheck,
             onClose: () => overlay.cleanup(),
+            onCatalogConnection: (connection) => {
+              void this.trackRead(
+                readModelCatalog(connection).then(async (result) => {
+                  if (session.sdkHost?.owner === owner && !owner.closed)
+                    await this.publishCatalog(
+                      params.sessionId,
+                      session,
+                      catalogIdentity,
+                      result,
+                      false,
+                    );
+                }),
+              ).catch(() => this.logger.log("Model catalog update could not be delivered"));
+            },
             onTaskUpdate: async (notification) => {
               if (
                 !this.disposed &&
@@ -1882,6 +1983,7 @@ export class MuseAcpAgent {
     }
     session.cancelRequested = true;
     session.activeTurn?.kill();
+    await session.modelRefresh?.dispose();
   }
 
   async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
@@ -1893,7 +1995,11 @@ export class MuseAcpAgent {
     const finished = Promise.withResolvers<void>();
     this.bindingSessions.set(params.sessionId, finished.promise);
     try {
-      await Promise.all([session.turnFinished, session.sdkHost?.owner.close()]);
+      await Promise.all([
+        session.turnFinished,
+        session.sdkHost?.owner.close(),
+        session.modelRefresh?.dispose(),
+      ]);
     } finally {
       this.providers.get(params.sessionId)?.overlay.cleanup();
       this.providers.delete(params.sessionId);
@@ -1932,6 +2038,7 @@ export class MuseAcpAgent {
     this.disposal = Promise.all([
       ...sessions.map((session) => session.turnFinished),
       ...sessions.map((session) => session.sdkHost?.owner.close()),
+      ...sessions.map((session) => session.modelRefresh?.dispose()),
       ...this.bindingSessions.values(),
       ...this.backgroundTasks,
       this.modelDiscovery.dispose(),

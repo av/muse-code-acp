@@ -26,7 +26,11 @@
 
 - [x] [**m12** — Reliable SDK startup and truthful lifecycle failures](done/m12/README.md) (8 tasks) ← promoted from w2/012 after confirmed startup-timeout triage.
 
+- [x] [**m13** — Nonblocking catalogs and native startup handoff](done/m13/README.md) (7 tasks) ← from w2/013 and experimental diagnosis.
+
 ## Inbox
+
+- [014 — Native startup follow-up](014.md) — history traversal reproduced; [upstream #11](https://github.com/meta-models/muse-code-sdk/issues/11) pending. Adapter mitigation: m13.
 
 - [011 — Reconcile ADR003 and current capability ownership](011.md) — transferred from w1/001; 30m documentation reconciliation.
 

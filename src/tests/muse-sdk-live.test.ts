@@ -173,6 +173,10 @@ describe.skipIf(!available)("SDK live host (no external API)", () => {
         mcpServers: [],
       });
       // Legacy echo history requires an explicit provider migration.
+      await loaded.request(methods.agent.session.prompt, {
+        sessionId: old.sessionId,
+        prompt: [{ type: "text", text: "/models" }],
+      });
       await loaded.request(methods.agent.session.setConfigOption, {
         sessionId: old.sessionId,
         configId: "model",
@@ -268,11 +272,21 @@ describe.skipIf(!available)("SDK discovered capabilities and embedded context", 
     try {
       const ctx = await initialized(client);
       const created = await ctx.request(methods.agent.session.new, { cwd, mcpServers: [] });
+      await ctx.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "/models" }],
+      });
       expect(client.agent.sessions.get(created.sessionId)?.modelDiscovery).toMatchObject({
         status: "available",
         models: expect.arrayContaining([expect.objectContaining({ id: "fake-model" })]),
       });
-      expect(created.configOptions?.find((o) => o.id === "model")).toMatchObject({
+      const update = client.updates.findLast(
+        (n) => n.update.sessionUpdate === "config_option_update",
+      )?.update;
+      expect(
+        update?.sessionUpdate === "config_option_update" &&
+          update.configOptions.find((o) => o.id === "model"),
+      ).toMatchObject({
         description: expect.stringContaining("catalog"),
         options: expect.arrayContaining([
           {

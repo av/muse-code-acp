@@ -237,22 +237,33 @@ and command advertisement before returning.
 
 ## Runtime discovery and editor context
 
-SDK session creation, load and retained-session resume query public `model/list`
-without starting a model turn. ACP model choices retain model, provider and optional profile identity; values with
-provider identity are opaque `muse-model:` choices and labels identify the provider; the
-current configured/restored model is retained even when absent from the catalog.
-The option description identifies the catalog source. An unavailable, malformed
-or unsupported catalog falls back to the current model only and says so explicitly.
-Legacy exec retains its compatibility menu. Explicit custom model selections retain host validation at submission. Ambiguous
-raw IDs and stale qualified catalog choices are rejected; selection preserves effort.
+SDK session creation, load and retained-session resume use an available per-agent
+catalog snapshot without starting or waiting for a catalog host. Before a first
+turn, use `/models` to refresh choices without inference. Otherwise the next
+execution host queries public `model/list` on its existing connection and sends
+`config_option_update`; this optional query does not delay submission.
 
-Discovery uses a per-agent 30-second cache (including failures), with at most four
-entries and four concurrent probes. Identity includes canonical workspace, binary
-identity, environment, settings and auth content hashes. Compatible concurrent
-queries share work. The probe deadline is five seconds plus bounded process
-shutdown; agent disposal closes pending discovery hosts and prevents session
-publication. Catalog changes appear on the next binding after expiry or config
-change; existing live session menus remain their binding snapshot.
+ACP model choices retain model, provider and optional profile identity. Values
+with provider identity are opaque `muse-model:` choices; labels identify the
+provider. The current configured/restored model remains available when absent
+from a catalog. Unavailable, malformed or unsupported results fall back to the
+current model. Legacy exec retains its compatibility menu. Explicit custom IDs
+retain host validation at submission; ambiguous IDs and stale qualified choices
+are rejected. A late catalog never changes the requested execution route.
+
+Standalone `/models` refreshes cache results for 30 seconds, including failures,
+in a bounded per-agent cache. Identity includes workspace, binary, environment,
+settings and auth content hashes. Borrowed execution catalogs remain session-local
+because the execution settings overlay may differ from base configuration.
+A ready execution host is reused for `/models`; otherwise the explicit refresh
+owns a temporary host and uses the existing startup deadline. Cancel, close and
+disposal close owned refresh hosts. Borrowed queries have a five-second deadline
+and never close the execution host. Results from closed/replaced sessions or
+changed configuration are discarded.
+
+Large Muse history directories can still make native initialization slow. The
+adapter removes redundant automatic discovery startup; it does not change the
+native data root or make old sessions disappear. See the [startup reproduction](muse-startup-latency.md).
 
 ACP embedded text resources are encoded as a single ordered text part:
 

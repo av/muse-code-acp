@@ -15,11 +15,12 @@ Other document/audio MIME types and malformed or oversized input are rejected.
 
 SDK local commands:
 
-| Command         | Effect                                                                |
-| --------------- | --------------------------------------------------------------------- |
-| `/skills`       | Lists Muse's public skills catalog, including activation and scope.   |
-| `/rename title` | Persists a free-text title in adapter preferences.                    |
-| `/logout`       | Runs public Muse logout and closes adapter sessions and cached hosts. |
+| Command         | Effect                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------- |
+| `/models`       | Refreshes the model menu without inference; reuses a ready host or explicitly waits for catalog startup. |
+| `/skills`       | Lists Muse's public skills catalog, including activation and scope.                                      |
+| `/rename title` | Persists a free-text title in adapter preferences.                                                       |
+| `/logout`       | Runs public Muse logout and closes adapter sessions and cached hosts.                                    |
 
 These commands do not submit a model turn. Use one command alone; attached
 content and accompanying instructions are not executed. Logout cannot unset an

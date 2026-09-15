@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   chmodSync,
   copyFileSync,
@@ -11,7 +11,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { MuseModelDiscovery } from "../model-discovery.js";
+import { type Connection } from "@muse-code/sdk";
+import { MuseModelDiscovery, readModelCatalog } from "../model-discovery.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -207,4 +208,23 @@ test("retains duplicate model names across distinct provider identities", async 
       { id: "same", providerId: "two" },
     ],
   });
+});
+
+test("borrowed catalog waiters share one request and cancelling one does not close the host", async () => {
+  const gate = Promise.withResolvers<unknown>();
+  const request = vi.fn().mockReturnValue(gate.promise);
+  const close = vi.fn();
+  const connection = { request, close } as unknown as Connection;
+  const abort = new AbortController();
+  const first = readModelCatalog(connection, abort.signal);
+  const second = readModelCatalog(connection);
+  abort.abort();
+  expect(await first).toMatchObject({ status: "fallback", reason: "Model discovery cancelled" });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(close).not.toHaveBeenCalled();
+  gate.resolve({ source: "test", models: [{ modelId: "x", displayLabel: "X" }] });
+  expect(await second).toMatchObject({ status: "available", models: [{ id: "x" }] });
+  await readModelCatalog(connection);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(close).not.toHaveBeenCalled();
 });

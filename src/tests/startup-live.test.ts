@@ -197,3 +197,61 @@ it("completes 16 concurrent independent ACP clients with isolated owned hosts", 
     await f.cleanup();
   }
 }, 180000);
+
+it("returns 16 sessions without catalog hosts against populated history and discovers through execution", async () => {
+  const f = await fixture(0);
+  const data = join(f.p.root, "data", "muse", "sessions", "2026", "09", "14");
+  const historyDirectories =
+    process.env.MUSE_CODE_ACP_TEST_HISTORY_DIRECTORIES === "6000" ? 6000 : 1000;
+  for (let i = 0; i < historyDirectories; i++) {
+    const dir = join(data, String(i).padStart(32, "0"));
+    mkdirSync(join(dir, "tool-outputs"), { recursive: true });
+    writeFileSync(join(dir, "cli-synthetic.log"), "");
+    writeFileSync(join(dir, "session.jsonl"), "");
+    writeFileSync(join(dir, "tool-outputs", "synthetic.txt"), "");
+  }
+  const clients = Array.from({ length: 16 }, () =>
+    connectTestClient({ backend: "sdk", env: f.env }, silentLogger()),
+  );
+  try {
+    const contexts = await Promise.all(clients.map((c) => initialized(c)));
+    const start = Date.now();
+    const sessions = await Promise.all(
+      contexts.map((c) => c.request(methods.agent.session.new, { cwd: f.p.root, mcpServers: [] })),
+    );
+    const newSessionMs = Date.now() - start;
+    expect(f.pids()).toHaveLength(0);
+    expect(newSessionMs).toBeLessThan(5000);
+    await Promise.all(
+      contexts.map((c, i) =>
+        c.request(methods.agent.session.prompt, {
+          sessionId: sessions[i].sessionId,
+          prompt: [{ type: "text", text: `populated-history-${i}` }],
+        }),
+      ),
+    );
+    expect(f.pids()).toHaveLength(16);
+    for (const client of clients)
+      await expect
+        .poll(() =>
+          client.updates.some(
+            (n) =>
+              n.update.sessionUpdate === "config_option_update" &&
+              JSON.stringify(n).includes("Muse model catalog"),
+          ),
+        )
+        .toBe(true);
+    record({
+      probe: "populated-history",
+      version: f.version,
+      historyDirectories,
+      clients: 16,
+      newSessionMs,
+      serveProcesses: f.pids().length,
+      totalMs: Date.now() - start,
+    });
+  } finally {
+    await Promise.all(clients.map((c) => c.agent.dispose()));
+    await f.cleanup();
+  }
+}, 180000);

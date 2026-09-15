@@ -9,6 +9,7 @@ import {
   readSessionDurability,
   spawnMspConnection,
   type Session,
+  type Connection,
 } from "@muse-code/sdk";
 import { DEFAULT_SAFETY, safetyArgs } from "./safety-settings.js";
 import { realpathSync } from "node:fs";
@@ -41,6 +42,7 @@ type HostOptions = Pick<
   idleTimeoutMs?: number;
   maxTurns?: number;
   onClose?: () => void | Promise<void>;
+  onCatalogConnection?: (connection: Connection) => void;
   onGoal?: (goal: GoalObservation) => void | Promise<void>;
   initialGoal?: GoalObservation;
   onProgress?: (facts: ProgressFacts) => Promise<void>;
@@ -142,6 +144,10 @@ export class MuseSdkHost {
 
   get hasActiveTurn(): boolean {
     return !!this.lease?.session.fold.activeTurnId;
+  }
+
+  get catalogConnection(): Connection | undefined {
+    return this.stopped ? undefined : this.lease?.host.connection;
   }
 
   constructor(private readonly options: HostOptions) {
@@ -334,6 +340,7 @@ export class MuseSdkHost {
     });
     this.ensureOpen();
     preparing();
+    options.onCatalogConnection?.(host.connection);
     if (host.fingerprintWarning) options.logger.log(`muse-sdk: ${host.fingerprintWarning.message}`);
     this.compatibility = hostCompatibility({
       hostVersion,

@@ -1,4 +1,4 @@
-import { spawnMspConnection } from "@muse-code/sdk";
+import { spawnMspConnection, type Connection } from "@muse-code/sdk";
 import packageJson from "../package.json" with { type: "json" };
 import type { Logger } from "./logger.js";
 import { museHostIdentity } from "./host-identity.js";
@@ -73,6 +73,52 @@ function parseCatalog(value: unknown): ModelDiscoveryResult {
   return Object.freeze({ status: "available", models: Object.freeze(result), source });
 }
 
+const pendingCatalogs = new WeakMap<Connection, Promise<ModelDiscoveryResult>>();
+
+/** Coalesce on the owned connection; cancelling a waiter never closes that host. */
+export async function readModelCatalog(
+  connection: Connection,
+  signal?: AbortSignal,
+): Promise<ModelDiscoveryResult> {
+  if (signal?.aborted) return fallback("Model discovery cancelled");
+  let pending = pendingCatalogs.get(connection);
+  if (!pending) {
+    pending = queryModelCatalog(connection).finally(() => pendingCatalogs.delete(connection));
+    pendingCatalogs.set(connection, pending);
+  }
+  if (!signal) return pending;
+  let abort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<ModelDiscoveryResult>((resolve) => {
+        abort = () => resolve(fallback("Model discovery cancelled"));
+        signal.addEventListener("abort", abort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (abort) signal.removeEventListener("abort", abort);
+  }
+}
+
+async function queryModelCatalog(connection: Connection): Promise<ModelDiscoveryResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return parseCatalog(
+      await Promise.race([
+        connection.request("model/list", {}),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("catalog deadline")), 5000);
+        }),
+      ]),
+    );
+  } catch {
+    return fallback("Muse model discovery unavailable or malformed");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Per-agent bounded discovery cache. Keys contain only hashes, never credentials. */
 export class MuseModelDiscovery {
   private readonly cache = new Map<string, { until: number; result: ModelDiscoveryResult }>();
@@ -84,6 +130,31 @@ export class MuseModelDiscovery {
 
   constructor(private readonly options: ModelDiscoveryOptions) {
     this.capacity = Math.max(1, Math.min(32, options.maxEntries ?? 4));
+  }
+
+  peek(cwd: string, env = this.options.env): ModelDiscoveryResult {
+    try {
+      const key = museHostIdentity(cwd, env, this.options.museBinary, true).identity;
+      const entry = this.cache.get(key);
+      if (!this.disposed && entry && entry.until > Date.now()) return entry.result;
+    } catch {
+      /* An unresolved context has no usable catalog. */
+    }
+    return fallback("Model catalog not loaded; use /models to refresh before a turn");
+  }
+
+  remember(
+    cwd: string,
+    env: Record<string, string | undefined>,
+    result: ModelDiscoveryResult,
+  ): void {
+    if (this.disposed) return;
+    try {
+      const key = museHostIdentity(cwd, env, this.options.museBinary, true).identity;
+      this.store(key, result);
+    } catch {
+      /* Do not reuse a catalog with an unresolved context. */
+    }
   }
 
   async discover(
@@ -111,11 +182,7 @@ export class MuseModelDiscovery {
         return fallback("Model discovery concurrency limit reached");
       const work = this.query(binary, workspace, env)
         .then((result) => {
-          if (!this.disposed) {
-            while (this.cache.size >= this.capacity)
-              this.cache.delete(this.cache.keys().next().value!);
-            this.cache.set(key, { until: Date.now() + (this.options.ttlMs ?? 30_000), result });
-          }
+          this.store(key, result);
           return result;
         })
         .finally(() => this.pending.delete(key));
@@ -124,6 +191,13 @@ export class MuseModelDiscovery {
     } catch {
       return fallback("Model discovery could not resolve the Muse host or workspace");
     }
+  }
+
+  private store(key: string, result: ModelDiscoveryResult): void {
+    if (this.disposed) return;
+    this.cache.delete(key);
+    while (this.cache.size >= this.capacity) this.cache.delete(this.cache.keys().next().value!);
+    this.cache.set(key, { until: Date.now() + (this.options.ttlMs ?? 30_000), result });
   }
 
   dispose(): Promise<void> {

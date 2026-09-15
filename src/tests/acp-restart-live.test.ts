@@ -181,6 +181,10 @@ describe("ACP process restart continuity (real Muse host)", () => {
               mcpServers: [],
             });
             // Legacy echo history requires an explicit provider migration.
+            await agent3.ctx.request(methods.agent.session.prompt, {
+              sessionId: old.sessionId,
+              prompt: [{ type: "text", text: "/models" }],
+            });
             await agent3.ctx.request(methods.agent.session.setConfigOption, {
               sessionId: old.sessionId,
               configId: "model",

@@ -96,7 +96,7 @@ export function buildConfigOptions(
         backend === "sdk"
           ? discovery?.status === "available"
             ? `Muse model catalog (${discovery.source}); current selection is retained.`
-            : "Model discovery unavailable; showing the current configured or restored model."
+            : "Showing the current configured or restored model. Use /models to refresh choices before a turn; otherwise choices update when an execution host becomes ready."
           : "Legacy exec model choices.",
       options: models.map((model) => ({
         value: modelChoice(model),

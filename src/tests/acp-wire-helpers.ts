@@ -10,7 +10,7 @@ import {
   SessionNotification,
 } from "@agentclientprotocol/sdk";
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -50,7 +50,8 @@ export interface WireOptions {
 export async function createWireFixture(options: WireOptions = {}): Promise<WireFixture> {
   const workspace = mkdtempSync(join(tmpdir(), "muse-acp-wire-"));
   const capture = join(workspace, "msp-requests.jsonl");
-  const fakeMsp = join(fixturesDir, "fake-msp.cjs");
+  const fakeMsp = join(workspace, "fake-msp.cjs");
+  copyFileSync(join(fixturesDir, "fake-msp.cjs"), fakeMsp);
   chmodSync(fakeMsp, 0o755);
 
   const updates: SessionNotification[] = [];

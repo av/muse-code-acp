@@ -2,6 +2,7 @@ import type { AvailableCommand, PromptRequest } from "@agentclientprotocol/sdk";
 import type { WorkflowCommand } from "./review-prompt.js";
 
 export const BUILTIN_COMMANDS: AvailableCommand[] = [
+  { name: "models", description: "Refresh model choices without a model request" },
   { name: "skills", description: "List available Muse skills without a model request" },
   {
     name: "logout",
@@ -51,7 +52,7 @@ export const BUILTIN_COMMANDS: AvailableCommand[] = [
 const names = new Set(BUILTIN_COMMANDS.map((command) => command.name));
 type Blocks = PromptRequest["prompt"];
 export interface SlashCommand {
-  local?: { kind: "skills" | "logout" | "rename"; argument: string };
+  local?: { kind: "models" | "skills" | "logout" | "rename"; argument: string };
   blocks: Blocks;
   index: number;
   workflow?: WorkflowCommand;
@@ -96,7 +97,12 @@ export function parseSlashCommand(prompt: Blocks): SlashCommand | undefined {
   );
   const attachments = blocks.some((block) => block.type !== "text");
   const args = selected.args;
-  if (selected.name === "skills" || selected.name === "logout" || selected.name === "rename") {
+  if (
+    selected.name === "models" ||
+    selected.name === "skills" ||
+    selected.name === "logout" ||
+    selected.name === "rename"
+  ) {
     if (extraText || attachments || (selected.name !== "rename" && args))
       return {
         ...result,
