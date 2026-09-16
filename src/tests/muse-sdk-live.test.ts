@@ -291,7 +291,9 @@ describe.skipIf(!available)("SDK discovered capabilities and embedded context", 
         options: expect.arrayContaining([
           {
             value: modelChoice({ id: "fake-model", name: "fake-model", providerId: "meta" }),
-            name: "fake-model (meta)",
+            // The loopback catalog has no second `fake-model`, so the provider
+            // is dropped from the display name as redundant.
+            name: "fake-model",
           },
         ]),
       });

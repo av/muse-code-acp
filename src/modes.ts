@@ -55,7 +55,7 @@ export const MODES: Record<MuseModeId, ModeDef> = {
   },
   bypassApprovals: {
     id: "bypassApprovals",
-    name: "Bypass approvals",
+    name: "Auto-approve",
     description:
       "Skip muse's approval prompts; the OS sandbox stays on. Applies from the next prompt. Exec backend only.",
     flags: ["--disable-approval"],
@@ -63,14 +63,14 @@ export const MODES: Record<MuseModeId, ModeDef> = {
   },
   rejectApprovals: {
     id: "rejectApprovals",
-    name: "Reject approval requests",
+    name: "Reject prompts",
     description:
       "Reject genuine pending prompts using host-offered denial choices. Known-safe tools may still run. Applies from the next prompt.",
     flags: [],
   },
   yolo: {
     id: "yolo",
-    name: "Yolo (no approval, no sandbox)",
+    name: "No approval, no sandbox",
     description:
       "Disable approval AND the OS sandbox and trust this workspace — muse's own --yolo. " +
       "Only for already-isolated environments. Exec backend only. Applies from the next prompt.",
@@ -146,7 +146,10 @@ export function modeState(
     currentModeId: current,
     availableModes: availableModes(guard, backend).map((mode) => ({
       id: mode.id,
-      name: mode.name,
+      // `muse --approval-mode` calls this posture `on-request`. Only the SDK
+      // backend earns that name: there each approval reaches the client as a
+      // request, whereas exec settles approvals inside muse.
+      name: mode.id === "default" && backend === "sdk" ? "On request" : mode.name,
       description:
         mode.id === "default" && backend === "sdk"
           ? SDK_DEFAULT_DESCRIPTION

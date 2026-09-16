@@ -15,10 +15,15 @@ import { museCliPath } from "../muse-cli.js";
 import { Readable, Writable } from "node:stream";
 import { agentEntrypoint } from "./acp-wire-helpers.js";
 
-/** w2/m2: this exact host cannot compose legacy :auto-review profiles in serve. */
+/**
+ * w2/m2: these exact hosts cannot compose legacy :auto-review profiles in serve.
+ * Builds stay enumerated so an unlisted host is expected to succeed — that is how
+ * 1.3.0-R3057.1 was caught still reproducing the limitation rather than fixing it.
+ */
+const LEGACY_PROFILE_LIMITED = ["(1.2.1-R2847.1)", "(1.3.0-R3057.1)"];
 export async function expectLegacyContinuation(prompt: Promise<unknown>): Promise<void> {
   const version = spawnSync(museCliPath(), ["--version"], { encoding: "utf8" }).stdout ?? "";
-  if (version.includes("(1.2.1-R2847.1)")) {
+  if (LEGACY_PROFILE_LIMITED.some((build) => version.includes(build))) {
     await expect(prompt).rejects.toMatchObject({
       code: -32603,
       message: expect.stringContaining(

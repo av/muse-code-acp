@@ -24,6 +24,33 @@ it("preserves provider identity instead of collapsing overlapping model IDs", ()
     selectModel(config, value, { status: "fallback", models: [], reason: "offline" }),
   ).toThrow(/no longer/);
 });
+it("qualifies a model name with its provider only when a peer shares that name", () => {
+  // Select exactly one catalog entry so no synthetic current-model entry joins
+  // the list and the names below are the catalog's own.
+  const names = (models: { id: string; name: string; providerId?: string }[]) => {
+    const option = buildConfigOptions(
+      { ...config, model: models[0].id, providerId: "first" },
+      "sdk",
+      {
+        status: "available" as const,
+        source: "providerCatalog",
+        models,
+      },
+    ).find((o) => o.id === "model")!;
+    if (option.type !== "select") throw Error("wrong type");
+    return option.options.flatMap((o) => ("name" in o ? [o.name] : []));
+  };
+  // Ambiguous: the provider is the only thing telling the two choices apart.
+  expect(names(discovery.models)).toEqual(["Shared (first)", "Shared (second)"]);
+  // Unambiguous: the provider would only cost chip width.
+  expect(names([{ id: "solo", name: "Solo", providerId: "first" }])).toEqual(["Solo"]);
+  expect(
+    names([
+      { id: "solo", name: "Solo", providerId: "first" },
+      { id: "other", name: "Other", providerId: "second" },
+    ]),
+  ).toEqual(["Solo", "Other"]);
+});
 it("keeps a saved qualified selection while discovery is unavailable", () => {
   const saved = { ...config, providerId: "second" };
   const value = modelChoice({ id: saved.model, name: saved.model, providerId: saved.providerId });

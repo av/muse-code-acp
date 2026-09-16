@@ -100,9 +100,7 @@ export function buildConfigOptions(
           : "Legacy exec model choices.",
       options: models.map((model) => ({
         value: modelChoice(model),
-        name: model.providerId
-          ? `${model.name} (${model.providerId}${model.profileId ? ` / ${model.profileId}` : ""})`
-          : model.name,
+        name: modelOptionName(model, models),
       })),
     },
     {
@@ -114,7 +112,7 @@ export function buildConfigOptions(
       description: effortDescription(backend, hostVersion),
       options: EFFORT_LEVELS.map((effort) => ({
         value: effort,
-        name: effort,
+        name: effort.charAt(0).toUpperCase() + effort.slice(1),
       })),
     },
   ];
@@ -141,6 +139,18 @@ export function applyConfigSelection(
     default:
       throw RequestError.invalidParams(undefined, `unknown config option: ${configId}`);
   }
+}
+
+/**
+ * Clients render the chosen option's name in a narrow chip, so the provider is
+ * only worth its width when it actually distinguishes two choices.
+ */
+function modelOptionName(model: DiscoveredModel, all: readonly DiscoveredModel[]): string {
+  const ambiguous = all.some(
+    (other) => other.name === model.name && modelChoice(other) !== modelChoice(model),
+  );
+  if (!model.providerId || !ambiguous) return model.name;
+  return `${model.name} (${model.providerId}${model.profileId ? ` / ${model.profileId}` : ""})`;
 }
 
 /** Provider/profile-qualified values are opaque ACP choices, never model IDs on MSP. */

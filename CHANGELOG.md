@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changes
+
+- Name modes, models and reasoning efforts for the narrow chips clients render them in, keeping `muse`'s own vocabulary: SDK `default` reads as "On request" after `muse --approval-mode on-request`, `bypassApprovals` as "Auto-approve", `rejectApprovals` as "Reject prompts" because known-safe tools may still run, and exec `yolo` as "No approval, no sandbox" — `muse --yolo` disables both, and the name keeps the pair that `muse`'s own safety section states together. Effort tiers are capitalized, and a model shows its provider only when that distinguishes two catalog entries. Display names only: mode IDs, config option IDs, model choices and effort values are unchanged.
+
 ## [0.6.0](https://github.com/bex-co/muse-code-acp/compare/v0.5.0...v0.6.0) (2026-09-15)
 
 ### Features
