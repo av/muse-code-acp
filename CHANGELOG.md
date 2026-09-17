@@ -2,9 +2,18 @@
 
 ## Unreleased
 
-### Changes
+## [0.6.1](https://github.com/bex-co/muse-code-acp/compare/v0.6.0...v0.6.1) (2026-09-16)
 
-- Name modes, models and reasoning efforts for the narrow chips clients render them in, keeping `muse`'s own vocabulary: SDK `default` reads as "On request" after `muse --approval-mode on-request`, `bypassApprovals` as "Auto-approve", `rejectApprovals` as "Reject prompts" because known-safe tools may still run, and exec `yolo` as "No approval, no sandbox" — `muse --yolo` disables both, and the name keeps the pair that `muse`'s own safety section states together. Effort tiers are capitalized, and a model shows its provider only when that distinguishes two catalog entries. Display names only: mode IDs, config option IDs, model choices and effort values are unchanged.
+### Fixes
+
+- Name modes, models and reasoning efforts for the narrow chips clients render them in, keeping `muse`'s own vocabulary: SDK `default` reads as "On request" after `muse --approval-mode on-request`, `bypassApprovals` as "Auto-approve", `rejectApprovals` as "Reject prompts" because known-safe tools may still run, and exec `yolo` as "No approval, no sandbox" — `muse --yolo` disables both, and the name keeps the pair that `muse`'s own safety section states together. Effort tiers are capitalized, and a model shows its provider only when that distinguishes two catalog entries.
+- Correct a stale live-test version gate that pinned the legacy `:auto-review` resume limitation to 1.2.1-R2847.1, so 1.3.0-R3057.1 was expected to continue successfully. Affected builds stay enumerated, which is how 1.3.0 was caught still reproducing the rejection rather than fixing it. Adapter behavior is unchanged; only the test expectation and its documentation moved.
+
+### Compatibility and upgrading
+
+Display names only: mode IDs, config option IDs, model choices and effort values are unchanged, so stored selections and automated clients keying on IDs are unaffected. A client that matches on the previous display strings should key on the ID instead.
+
+The legacy `:auto-review` resume limitation is now confirmed on 1.3.0-R3057.1 as well as 1.2.1-R2847.1. This is an observation about the Muse host, not a regression in this adapter, and the pinned 1.1.1 baseline is unchanged.
 
 ## [0.6.0](https://github.com/bex-co/muse-code-acp/compare/v0.5.0...v0.6.0) (2026-09-15)
 
