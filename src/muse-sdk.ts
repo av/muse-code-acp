@@ -556,29 +556,20 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
             continue;
           }
           answeredUserInputs.add(request.userInputId);
-          const support = options.clientCapabilities?.elicitation;
-          const formOk = support?.form != null;
-          if (!formOk || !connection) {
+          if (!connection) {
             // Reject the ACP prompt first so turn/completed from cancel cannot
             // win Promise.race and report a successful end_turn.
-            failTurn(
-              new Error(
-                "Muse requested user input but the ACP client did not advertise form elicitation",
-              ),
-            );
-            await connection
-              ?.command(
-                "userInput/cancel",
-                {
-                  sessionId: options.sessionId,
-                  userInputId: request.userInputId,
-                  reason: "client has no form elicitation support",
-                },
-                { maxAttempts: 1 },
-              )
-              .catch(() => {});
+            failTurn(new Error("Muse requested user input but there is no host connection"));
             userInputs.resolve(request.userInputId);
             return;
+          }
+          if (options.clientCapabilities?.elicitation?.form == null) {
+            // Kandev handles elicitation.create without advertising
+            // elicitation.form — attempt it anyway and only fail if the RPC
+            // itself errors (handled below).
+            options.logger.log(
+              "muse-sdk: client did not advertise form elicitation; attempting elicitation anyway",
+            );
           }
           try {
             if (cancelled || options.isCancelled?.()) {

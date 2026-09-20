@@ -215,16 +215,25 @@ describe("SDK user input over ACP elicitation", () => {
     expect(answer.params.answers).toEqual([{ questionId: "q1", selectedLabel: "blue" }]);
   });
 
-  it("cancels when the client has no form elicitation capability", async () => {
+  it("attempts elicitation even when the client did not advertise form support", async () => {
     const client = sdkClient();
+    client.setElicitationResponder(() => ({
+      action: "accept",
+      content: { q1: "blue" },
+    }));
     const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
-    await expect(
-      ctx.request(methods.agent.session.prompt, {
-        sessionId,
-        prompt: [{ type: "text", text: "ask" }],
-      }),
-    ).rejects.toMatchObject({ message: expect.stringMatching(/form elicitation/i) });
-    expect(client.elicitationRequests).toHaveLength(0);
-    expect(client.requests().some((r) => r.method === "userInput/cancel")).toBe(true);
+    try {
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "ask" }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      expect(client.elicitationRequests).toHaveLength(1);
+      const answer = client.requests().find((r) => r.method === "userInput/answer");
+      expect(answer.params.answers).toEqual([{ questionId: "q1", selectedLabel: "blue" }]);
+    } finally {
+      await client.agent.dispose();
+    }
   });
 });
