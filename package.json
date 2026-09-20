@@ -53,8 +53,7 @@
     "test:muse-loopback": "vitest run src/tests/startup-live.test.ts src/tests/stored-output-live.test.ts src/tests/session-commands-live.test.ts src/tests/async-tasks-live.test.ts src/tests/failure-live.test.ts src/tests/progress-live.test.ts src/tests/settings-live.test.ts src/tests/safety-live.test.ts src/tests/muse-sdk-approval-live.test.ts src/tests/muse-sdk-multistage-live.test.ts src/tests/acp-restart-live.test.ts src/tests/muse-sdk-live.test.ts src/tests/mcp-http-live.test.ts src/tests/goal-live.test.ts src/tests/workflows-live.test.ts src/tests/session-fork-live.test.ts src/tests/file-change-live.test.ts src/tests/session-discovery-live.test.ts",
     "test:pack-smoke": "node scripts/pack-smoke.mjs",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build",
-    "prepare": "npm run build"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "muse",

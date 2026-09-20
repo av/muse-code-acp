@@ -1,0 +1,243 @@
+import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MuseLineParser } from "../muse-events.js";
+import { TurnTranslator } from "../translate.js";
+import { fixturesDir } from "./helpers.js";
+import { envelope } from "./translate.test.js";
+/**
+ * Replays the recorded real-provider turn (write_file + bash cat + bash false,
+ * muse 0.2.1) through the translator and returns the emitted updates.
+ */
+function replayFixture() {
+    const envelopes = [];
+    const parser = new MuseLineParser((e) => envelopes.push(e));
+    parser.push(readFileSync(join(fixturesDir, "real-tools.jsonl"), "utf8"));
+    parser.end();
+    const translator = new TurnTranslator("acp-session");
+    return envelopes.flatMap((e) => translator.toUpdates(e).map((n) => n.update));
+}
+describe("tool-call translation (real fixture)", () => {
+    const updates = replayFixture();
+    const toolCalls = updates.filter((u) => u.sessionUpdate === "tool_call");
+    const toolUpdates = updates.filter((u) => u.sessionUpdate === "tool_call_update");
+    it("opens a pending tool_call per tool side-effect intent", () => {
+        const pending = toolCalls.filter((u) => u.status === "pending");
+        expect(pending.map((u) => u.title).sort()).toEqual(["bash", "bash", "write_file"]);
+        const kinds = new Map(pending.map((u) => [u.title, u.kind]));
+        expect(kinds.get("bash")).toBe("execute");
+        expect(kinds.get("write_file")).toBe("edit");
+        for (const call of pending) {
+            expect(call._meta).toEqual({ musePolicyDecision: "allow:policy" });
+        }
+    });
+    it("completes the bash cat call with command title and output content", () => {
+        const catUpdate = toolUpdates.find((u) => u.title === "cat notes" || u.title === "cat notes.txt");
+        expect(catUpdate).toBeDefined();
+        expect(catUpdate?.status).toBe("completed");
+        const text = catUpdate?.content?.map((c) => (c.type === "content" ? c : null)).filter(Boolean);
+        expect(JSON.stringify(text)).toContain("alpha");
+        expect(catUpdate?.rawInput).toEqual({ command: "cat notes.txt" });
+        expect(catUpdate?.rawOutput).toMatchObject({
+            command: "cat notes.txt",
+            formatted_output: "alpha",
+            exit_code: 0,
+        });
+    });
+    it("marks the failing bash command failed", () => {
+        const falseUpdate = toolUpdates.find((u) => u.title === "run false" || u.title === "false");
+        expect(falseUpdate).toBeDefined();
+        expect(falseUpdate?.status).toBe("failed");
+    });
+    it("upgrades the write_file call with the path and a location", () => {
+        const writeUpdate = toolUpdates.find((u) => u.title?.startsWith("write_file: "));
+        expect(writeUpdate).toBeDefined();
+        expect(writeUpdate?.status).toBe("completed");
+        expect(writeUpdate?.locations?.[0]?.path).toMatch(/notes\.txt$/);
+    });
+    it("surfaces argument-validation failures as one-shot failed tool_calls", () => {
+        const rejected = toolCalls.filter((u) => u.status === "failed");
+        expect(rejected.length).toBe(4);
+        for (const call of rejected) {
+            expect(JSON.stringify(call.content)).toContain("tool failed");
+        }
+    });
+    it("emits nothing for model responses and observer tasks", () => {
+        // 3 pending + 4 rejected tool_calls, 3 tool_call_updates, rest are text
+        // chunks — nothing else leaks through from 231 envelopes.
+        const other = updates.filter((u) => u.sessionUpdate !== "tool_call" && u.sessionUpdate !== "tool_call_update");
+        expect(new Set(other.map((u) => u.sessionUpdate))).toEqual(new Set(["agent_message_chunk"]));
+    });
+});
+describe("tool-call translation (synthetic edges)", () => {
+    it("records an unsupported headless approval wait", () => {
+        const translator = new TurnTranslator("acp-session");
+        expect(translator.toUpdates(envelope("approval_wait.effect.started", {
+            kind: "approval_wait_effect",
+            run_id: "run-1",
+            record: {
+                kind: "approval_wait_started",
+                pending_action_id: "pending-1",
+                task_id: "task-1",
+                tool_call_id: "call-1",
+                tool_name: "bash",
+            },
+        }))).toEqual([]);
+        expect(translator.approvalWait).toEqual({
+            toolName: "bash",
+            toolCallId: "call-1",
+        });
+    });
+    it("handles a tool.result for an unknown call id without an intent", () => {
+        const translator = new TurnTranslator("acp-session");
+        const updates = translator.toUpdates(envelope("tool.result", {
+            kind: "tool_result",
+            call_id: "call_unseen",
+            text: "tool failed: bad arguments",
+        }));
+        expect(updates).toHaveLength(1);
+        expect(updates[0].update).toMatchObject({
+            sessionUpdate: "tool_call",
+            toolCallId: "call_unseen",
+            status: "failed",
+        });
+    });
+    it("treats a result with success outcome but no intent as completed", () => {
+        const translator = new TurnTranslator("acp-session");
+        const updates = translator.toUpdates(envelope("tool.result", {
+            kind: "tool_result",
+            call_id: "call_x",
+            text: "plain output",
+            correlation_facts: { tool_name: "read_file", outcome: "success" },
+        }));
+        expect(updates[0].update).toMatchObject({
+            sessionUpdate: "tool_call",
+            status: "completed",
+            kind: "read",
+        });
+    });
+    it("normalizes a completed read_file result with its path", () => {
+        const translator = new TurnTranslator("acp-session");
+        const path = "/workspace/src/server.ts";
+        translator.toUpdates(envelope("task.lifecycle.side_effect_intent", {
+            kind: "task_lifecycle",
+            task_id: "task_read",
+            event: {
+                kind: "side_effect_intent",
+                task_id: "task_read",
+                operation: "tool:read_file",
+                idempotency_key: "tool:call_read",
+                policy_decision: "allow:policy",
+            },
+        }));
+        const updates = translator.toUpdates(envelope("tool.result", {
+            kind: "tool_result",
+            call_id: "call_read",
+            text: `Read text file \`${path}\`.\n1|export const server = true;`,
+            correlation_facts: { tool_name: "read_file", outcome: "success" },
+        }));
+        expect(updates[0].update).toMatchObject({
+            sessionUpdate: "tool_call_update",
+            status: "completed",
+            title: `read_file: ${path}`,
+            locations: [{ path }],
+            rawInput: { path },
+            rawOutput: {
+                formatted_output: `Read text file \`${path}\`.\n1|export const server = true;`,
+            },
+        });
+    });
+    it("does not invent a creation preimage from post-write readback", () => {
+        const dir = mkdtempSync(join(tmpdir(), "muse-diff-test-"));
+        const path = join(dir, "created.txt");
+        writeFileSync(path, "fresh content\n");
+        const translator = new TurnTranslator("acp-session");
+        translator.toUpdates(envelope("task.lifecycle.side_effect_intent", {
+            kind: "task_lifecycle",
+            task_id: "t9",
+            event: {
+                kind: "side_effect_intent",
+                task_id: "t9",
+                operation: "tool:write_file",
+                idempotency_key: "tool:call_w1",
+                policy_decision: "allow:policy",
+            },
+        }));
+        const updates = translator.toUpdates(envelope("tool.result", {
+            kind: "tool_result",
+            call_id: "call_w1",
+            text: `wrote 14 bytes to ${path}`,
+            correlation_facts: { tool_name: "write_file", outcome: "success" },
+        }));
+        expect(updates[0].update).toMatchObject({
+            sessionUpdate: "tool_call_update",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: `wrote 14 bytes to ${path}` } }],
+            locations: [{ path }],
+        });
+    });
+    it("falls back to text content when the written file cannot be read", () => {
+        const translator = new TurnTranslator("acp-session");
+        const updates = translator.toUpdates(envelope("tool.result", {
+            kind: "tool_result",
+            call_id: "call_w2",
+            text: "wrote 5 bytes to /nonexistent/path/gone.txt",
+            correlation_facts: { tool_name: "write_file", outcome: "success" },
+        }));
+        const update = updates[0].update;
+        expect(update.content?.[0]?.type).toBe("content");
+    });
+    it("correlates interleaved parallel tool calls by call id", () => {
+        const translator = new TurnTranslator("acp-session");
+        const intent = (task, call, tool) => envelope("task.lifecycle.side_effect_intent", {
+            kind: "task_lifecycle",
+            task_id: task,
+            event: {
+                kind: "side_effect_intent",
+                task_id: task,
+                operation: `tool:${tool}`,
+                idempotency_key: `tool:${call}`,
+                policy_decision: "allow:policy",
+            },
+        });
+        const result = (call, tool, outcome) => envelope("tool.result", {
+            kind: "tool_result",
+            call_id: call,
+            text: JSON.stringify({ command: `${tool}-cmd`, description: "", output: "out" }),
+            correlation_facts: { tool_name: tool, outcome },
+        });
+        // Both calls open before either settles; results arrive out of order.
+        const opened = [
+            ...translator.toUpdates(intent("tA", "call_A", "bash")),
+            ...translator.toUpdates(intent("tB", "call_B", "bash")),
+        ];
+        const settled = [
+            ...translator.toUpdates(result("call_B", "bash", "failure")),
+            ...translator.toUpdates(result("call_A", "bash", "success")),
+        ];
+        expect(opened.map((n) => n.update)).toMatchObject([
+            { sessionUpdate: "tool_call", toolCallId: "call_A", status: "pending" },
+            { sessionUpdate: "tool_call", toolCallId: "call_B", status: "pending" },
+        ]);
+        expect(settled.map((n) => n.update)).toMatchObject([
+            { sessionUpdate: "tool_call_update", toolCallId: "call_B", status: "failed" },
+            { sessionUpdate: "tool_call_update", toolCallId: "call_A", status: "completed" },
+        ]);
+    });
+    it("ignores non-tool side-effect intents", () => {
+        const translator = new TurnTranslator("acp-session");
+        const updates = translator.toUpdates(envelope("task.lifecycle.side_effect_intent", {
+            kind: "task_lifecycle",
+            task_id: "t1",
+            event: {
+                kind: "side_effect_intent",
+                task_id: "t1",
+                operation: "model.meta.response",
+                idempotency_key: "model:x:y",
+                policy_decision: "not_applicable",
+            },
+        }));
+        expect(updates).toEqual([]);
+    });
+});
