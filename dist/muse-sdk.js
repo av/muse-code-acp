@@ -13,7 +13,7 @@ import { isReasoningEffort } from "./config-options.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import { approvalSignature, approvalStageMetadata, approvalStallDetail, approvalToPermissionRequest, currentApprovalView, PermissionLifecycle, resolvePermissionChoice, } from "./muse-permissions.js";
 import { MuseSdkTranslator } from "./muse-sdk-events.js";
-import { settleUserInput, UserInputLifecycle, userInputToElicitation, } from "./muse-user-input.js";
+import { isElicitationUnsupported, settleUserInput, UserInputLifecycle, userInputToChatMessage, userInputToElicitation, } from "./muse-user-input.js";
 import { MuseSdkHost } from "./muse-sdk-host.js";
 export { MuseSdkHost } from "./muse-sdk-host.js";
 import { readGoalFromConnection, parseGoalObservation, } from "./goal-state.js";
@@ -386,9 +386,9 @@ export function spawnMuseSdkTurn(options) {
                         return;
                     }
                     if (options.clientCapabilities?.elicitation?.form == null) {
-                        // Kandev handles elicitation.create without advertising
-                        // elicitation.form — attempt it anyway and only fail if the RPC
-                        // itself errors (handled below).
+                        // The client did not advertise form elicitation — attempt the
+                        // elicitation anyway and fall back to asking in chat when the
+                        // endpoint does not exist (handled below).
                         options.logger.log("muse-sdk: client did not advertise form elicitation; attempting elicitation anyway");
                     }
                     try {
@@ -408,6 +408,29 @@ export function spawnMuseSdkTurn(options) {
                         await settleUserInput(connection, options.sessionId, request, response);
                     }
                     catch (error) {
+                        if (isElicitationUnsupported(error)) {
+                            // The client has no elicitation endpoint at all (e.g. Kandev
+                            // answers elicitation.create with "Method not found"). Ask
+                            // visibly in chat instead of failing the turn: the user replies
+                            // in chat and the answer arrives on the next turn.
+                            options.logger.log("muse-sdk: elicitation unsupported; asking in chat instead");
+                            await options.acpClient
+                                .sessionUpdate({
+                                sessionId: options.sessionId,
+                                update: {
+                                    sessionUpdate: "agent_message_chunk",
+                                    content: {
+                                        type: "text",
+                                        text: `${userInputToChatMessage(request)}\n\n`,
+                                    },
+                                },
+                            })
+                                .catch(() => { });
+                            await settleUserInput(connection, options.sessionId, request, {
+                                action: "cancel",
+                            });
+                            return;
+                        }
                         // Invalid answers and failed client RPCs must fail the prompt, not
                         // silently terminate a pump while Muse waits forever for input.
                         failTurn(error);

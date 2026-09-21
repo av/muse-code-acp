@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { elicitationToAnswers, userInputToElicitation } from "../muse-user-input.js";
+import { elicitationToAnswers, isElicitationUnsupported, userInputToChatMessage, userInputToElicitation, } from "../muse-user-input.js";
 import { connectTestClient, fixturesDir, newTestSession } from "./helpers.js";
 function sdkClient(mode = "userInput") {
     const binary = join(fixturesDir, "fake-msp.cjs");
@@ -95,6 +95,24 @@ describe("user-input elicitation mapping", () => {
         ]) {
             expect(() => elicitationToAnswers(multiple, { action: "accept", content: { q1: value } })).toThrow(/invalid selections/);
         }
+    });
+    it("detects a missing elicitation endpoint without swallowing validation errors", () => {
+        expect(isElicitationUnsupported({ code: -32601, message: "Method not found" })).toBe(true);
+        expect(isElicitationUnsupported(new Error("Method not found"))).toBe(true);
+        expect(isElicitationUnsupported({
+            code: -32603,
+            message: "Internal error",
+            data: { details: "Method not found" },
+        })).toBe(true);
+        expect(isElicitationUnsupported(new Error("elicitation invalid selections for q1"))).toBe(false);
+        expect(isElicitationUnsupported(new Error("elicitation selected unknown option"))).toBe(false);
+        expect(isElicitationUnsupported(null)).toBe(false);
+    });
+    it("renders questions as a chat message", () => {
+        const text = userInputToChatMessage(request);
+        expect(text).toMatch("Pick a color");
+        expect(text).toMatch("red");
+        expect(text).toMatch("Reply in chat");
     });
     it("rejects overlong free text instead of silently truncating it", () => {
         const free = { ...request, questions: [{ ...request.questions[0], options: [] }] };
@@ -201,6 +219,30 @@ describe("SDK user input over ACP elicitation", () => {
             expect(client.elicitationRequests).toHaveLength(1);
             const answer = client.requests().find((r) => r.method === "userInput/answer");
             expect(answer.params.answers).toEqual([{ questionId: "q1", selectedLabel: "blue" }]);
+        }
+        finally {
+            await client.agent.dispose();
+        }
+    });
+    it("asks in chat and ends the turn when the client has no elicitation endpoint", async () => {
+        const client = sdkClient();
+        client.setElicitationResponder(() => {
+            throw Object.assign(new Error("Method not found"), { code: -32601 });
+        });
+        const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
+        try {
+            await expect(ctx.request(methods.agent.session.prompt, {
+                sessionId,
+                prompt: [{ type: "text", text: "ask" }],
+            })).resolves.toEqual({ stopReason: "end_turn" });
+            expect(client.elicitationRequests).toHaveLength(1);
+            expect(client.requests().some((r) => r.method === "userInput/cancel")).toBe(true);
+            expect(client.requests().some((r) => r.method === "userInput/answer")).toBe(false);
+            const posted = client.updates
+                .filter((u) => u.update.sessionUpdate === "agent_message_chunk")
+                .map((u) => u.update.content.text)
+                .join("");
+            expect(posted).toMatch("Pick a color");
         }
         finally {
             await client.agent.dispose();

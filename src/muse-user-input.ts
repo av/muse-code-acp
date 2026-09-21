@@ -140,6 +140,54 @@ export function elicitationToAnswers(
   return answers;
 }
 
+/**
+ * True when an elicitation RPC failed because the client has no elicitation
+ * endpoint at all (e.g. Kandev answers `elicitation.create` with JSON-RPC
+ * -32601 "Method not found"). The error may arrive wrapped (e.g. code -32603
+ * with "Method not found" in `data.details`), so the phrase is matched
+ * anywhere in the message or data payload. Validation failures and declined
+ * answers never contain that phrase — they must keep failing the prompt.
+ */
+export function isElicitationUnsupported(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown; data?: unknown };
+  if (record.code === -32601) return true;
+  return containsMethodNotFound(record.message) || containsMethodNotFound(record.data);
+}
+
+function containsMethodNotFound(value: unknown, depth = 0): boolean {
+  if (value == null || depth > 3) return false;
+  if (typeof value === "string") return /method not found/i.test(value);
+  if (typeof value === "object") {
+    return Object.values(value).some((entry) => containsMethodNotFound(entry, depth + 1));
+  }
+  return false;
+}
+
+/**
+ * Render an MSP user-input request as a chat message, for clients without an
+ * elicitation endpoint. The user reads the question here and replies in chat;
+ * the answer arrives on the next turn.
+ */
+export function userInputToChatMessage(request: MuseUserInputRequest): string {
+  const lines: string[] = [];
+  for (const question of request.questions) {
+    const title = question.header || question.question;
+    lines.push(`**${title}**`);
+    if (title !== question.question) lines.push(question.question);
+    if (question.options.length > 0) {
+      question.options.forEach((option, index) => {
+        lines.push(`${index + 1}. ${option.label}`);
+      });
+    } else {
+      lines.push("_Reply in chat with your answer._");
+    }
+    lines.push("");
+  }
+  lines.push("_Reply in chat and I'll continue on the next turn._");
+  return lines.join("\n");
+}
+
 /** Answer or cancel a pending MSP user-input request over the public Connection API. */
 export async function settleUserInput(
   connection: Connection,
