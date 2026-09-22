@@ -126,6 +126,7 @@ import {
   readConfiguredMcpServers,
 } from "./mcp-overlay.js";
 import { mcpStatus, mcpStartupFailure } from "./mcp-status.js";
+import { kandevQuestionEndpoint } from "./kandev-question.js";
 import { SESSION_STATE_EXTENSION } from "./session-state-observer.js";
 import { BUILTIN_COMMANDS, parseSlashCommand } from "./slash-commands.js";
 import { buildReviewPrompt } from "./review-prompt.js";
@@ -1788,6 +1789,7 @@ export class MuseAcpAgent {
             ? fileReportRequest(params._meta)
             : undefined,
           isCancelled: () => session.cancelRequested,
+          kandevQuestion: kandevQuestionEndpoint(session.mcpServers),
         });
         session.activeTurn = handle;
         try {

@@ -13,13 +13,14 @@ import { isReasoningEffort } from "./config-options.js";
 import { assertSdkHostSupport, sdkHostExitMessage } from "./muse-host.js";
 import { approvalSignature, approvalStageMetadata, approvalStallDetail, approvalToPermissionRequest, currentApprovalView, PermissionLifecycle, resolvePermissionChoice, } from "./muse-permissions.js";
 import { MuseSdkTranslator } from "./muse-sdk-events.js";
-import { isElicitationUnsupported, settleUserInput, UserInputLifecycle, userInputToChatMessage, userInputToElicitation, } from "./muse-user-input.js";
+import { answerUserInput, isElicitationUnsupported, settleUserInput, UserInputLifecycle, userInputToChatMessage, userInputToElicitation, } from "./muse-user-input.js";
 import { MuseSdkHost } from "./muse-sdk-host.js";
 export { MuseSdkHost } from "./muse-sdk-host.js";
 import { readGoalFromConnection, parseGoalObservation, } from "./goal-state.js";
 import { Pushable } from "./utils.js";
 import { inputLimitMs, PendingWorkWatchdog, stallLimitMs, toolIdleMs, turnIdleMs, TurnSilenceWatchdog, } from "./pending-watchdog.js";
 import { EARLY_CONTINUE_TEXT, MAX_EARLY_CONTINUATIONS, turnStoppedEarly, } from "./turn-continuation.js";
+import { askKandevQuestion, } from "./kandev-question.js";
 /** Read authoritative saved metadata without acquiring a writer lease. */
 export async function readMuseSdkSession(options) {
     if (options.checkHost !== false)
@@ -440,6 +441,29 @@ export function spawnMuseSdkTurn(options) {
                     userInputs.resolve(request.userInputId);
                     return;
                 }
+                if (options.kandevQuestion) {
+                    kandevQuestionInFlight = true;
+                    try {
+                        const answers = await askKandevQuestion(options.kandevQuestion, request);
+                        if (!userInputs.isLive(request.userInputId, turnId, generation))
+                            return;
+                        if (answers === "cancel") {
+                            await settleUserInput(connection, options.sessionId, request, { action: "cancel" });
+                            return;
+                        }
+                        if (answers !== "reject") {
+                            await answerUserInput(connection, options.sessionId, request, answers);
+                            options.logger.log("muse-sdk: answered user input via the kandev question card");
+                            return;
+                        }
+                    }
+                    catch (error) {
+                        options.logger.log(`muse-sdk: kandev question card failed: ${error instanceof Error ? error.message : error}`);
+                    }
+                    finally {
+                        kandevQuestionInFlight = false;
+                    }
+                }
                 if (options.clientCapabilities?.elicitation?.form == null) {
                     // The client did not advertise form elicitation — attempt the
                     // elicitation anyway and fall back to asking in chat when the
@@ -538,6 +562,7 @@ export function spawnMuseSdkTurn(options) {
                 }
             };
             const watchdog = new PendingWorkWatchdog(stallLimitMs(options.env), Date.now, inputLimitMs(options.env));
+            let kandevQuestionInFlight = false;
             const silence = new TurnSilenceWatchdog(turnIdleMs(options.env));
             const toolSilence = new TurnSilenceWatchdog(toolIdleMs(options.env));
             const toolBusy = () => {
@@ -593,6 +618,13 @@ export function spawnMuseSdkTurn(options) {
             };
             const checkPendingWork = () => {
                 if (cancelled || options.isCancelled?.() || settled || finished || questionHandedOff) {
+                    return;
+                }
+                if (kandevQuestionInFlight) {
+                    // The question card stays open until the person answers. That wait
+                    // is not a stalled host and not a silent turn.
+                    silence.activity();
+                    toolSilence.activity();
                     return;
                 }
                 if (clientDeciding()) {

@@ -8,6 +8,7 @@
 - A host turn that emits nothing and is not waiting on the client fails after five minutes (`MUSE_CODE_ACP_TURN_IDLE_MS`) instead of hanging. A tool that is still running uses a separate fifteen-minute bound (`MUSE_CODE_ACP_TOOL_IDLE_MS`).
 - A completed model stop that ends on a tool call, emits no assistant text, or is cut off for length continues inside the same prompt (twice). If it is still unfinished, the prompt reports `max_turn_requests` instead of a successful `end_turn`.
 - The SDK host stays up for the life of the ACP session. It is not recycled after a prompt count or an idle timeout unless the caller sets `maxTurns` or `idleTimeoutMs`.
+- A Muse question is asked through Kandev's `ask_user_question_kandev` MCP tool, the same card Claude, Codex, and Grok use. The chat transcript is only the fallback when that server is not on the session.
 - An unrecognized `muse exec` outcome is an error. It is not reported as `end_turn`.
 - A prompt or close for a session that does not exist returns ACP `-32002` resource not found, not `-32602` invalid params.
 

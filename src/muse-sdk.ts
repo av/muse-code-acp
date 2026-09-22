@@ -39,6 +39,7 @@ import {
 import { MuseSdkTranslator } from "./muse-sdk-events.js";
 import type { MuseInputPart } from "./prompt-content.js";
 import {
+  answerUserInput,
   isElicitationUnsupported,
   MuseUserInputRequest,
   settleUserInput,
@@ -68,6 +69,10 @@ import {
   MAX_EARLY_CONTINUATIONS,
   turnStoppedEarly,
 } from "./turn-continuation.js";
+import {
+  askKandevQuestion,
+  type KandevQuestionEndpoint,
+} from "./kandev-question.js";
 
 export interface MuseSdkOptions {
   sessionId: string;
@@ -94,6 +99,8 @@ export interface MuseSdkOptions {
   hostOwner?: MuseSdkHost;
   /** Negotiated active-turn metadata for the namespaced steering request. */
   steering?: boolean;
+  /** Kandev MCP endpoint that renders the question card. */
+  kandevQuestion?: KandevQuestionEndpoint;
 }
 
 export interface MuseSdkHandle {
@@ -653,6 +660,28 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           userInputs.resolve(request.userInputId);
           return;
         }
+        if (options.kandevQuestion) {
+          kandevQuestionInFlight = true;
+          try {
+            const answers = await askKandevQuestion(options.kandevQuestion, request);
+            if (!userInputs.isLive(request.userInputId, turnId!, generation)) return;
+            if (answers === "cancel") {
+              await settleUserInput(connection, options.sessionId, request, { action: "cancel" });
+              return;
+            }
+            if (answers !== "reject") {
+              await answerUserInput(connection, options.sessionId, request, answers);
+              options.logger.log("muse-sdk: answered user input via the kandev question card");
+              return;
+            }
+          } catch (error) {
+            options.logger.log(
+              `muse-sdk: kandev question card failed: ${error instanceof Error ? error.message : error}`,
+            );
+          } finally {
+            kandevQuestionInFlight = false;
+          }
+        }
         if (options.clientCapabilities?.elicitation?.form == null) {
           // The client did not advertise form elicitation — attempt the
           // elicitation anyway and fall back to asking in chat when the
@@ -768,6 +797,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         Date.now,
         inputLimitMs(options.env),
       );
+      let kandevQuestionInFlight = false;
       const silence = new TurnSilenceWatchdog(turnIdleMs(options.env));
       const toolSilence = new TurnSilenceWatchdog(toolIdleMs(options.env));
       const toolBusy = (): boolean => {
@@ -822,6 +852,13 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       };
       const checkPendingWork = (): void => {
         if (cancelled || options.isCancelled?.() || settled || finished || questionHandedOff) {
+          return;
+        }
+        if (kandevQuestionInFlight) {
+          // The question card stays open until the person answers. That wait
+          // is not a stalled host and not a silent turn.
+          silence.activity();
+          toolSilence.activity();
           return;
         }
         if (clientDeciding()) {

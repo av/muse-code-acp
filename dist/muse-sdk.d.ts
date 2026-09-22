@@ -10,6 +10,7 @@ import type { MuseInputPart } from "./prompt-content.js";
 import { MuseSdkHost } from "./muse-sdk-host.js";
 export { MuseSdkHost } from "./muse-sdk-host.js";
 import { type GoalObservation } from "./goal-state.js";
+import { type KandevQuestionEndpoint } from "./kandev-question.js";
 export interface MuseSdkOptions {
     sessionId: string;
     cwd: string;
@@ -35,6 +36,8 @@ export interface MuseSdkOptions {
     hostOwner?: MuseSdkHost;
     /** Negotiated active-turn metadata for the namespaced steering request. */
     steering?: boolean;
+    /** Kandev MCP endpoint that renders the question card. */
+    kandevQuestion?: KandevQuestionEndpoint;
 }
 export interface MuseSdkHandle {
     updates: AsyncIterable<SessionNotification>;
