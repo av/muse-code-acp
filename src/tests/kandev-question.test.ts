@@ -1,7 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { describe, expect, it } from "vitest";
-import { askKandevQuestion, kandevQuestionEndpoint, toKandevQuestions } from "../kandev-question.js";
+import {
+  askKandevQuestion,
+  kandevQuestionEndpoint,
+  kandevResultToAnswers,
+  toKandevQuestions,
+} from "../kandev-question.js";
 import type { MuseUserInputRequest } from "../muse-user-input.js";
 
 const request: MuseUserInputRequest = {
@@ -64,6 +69,22 @@ describe("kandev question card", () => {
         ],
       })?.[0].options[0].description,
     ).toBe("Sync");
+    const blank = {
+      ...request,
+      questions: [
+        { ...request.questions[0], id: "  " },
+        { ...request.questions[0], id: "" },
+      ],
+    };
+    expect(toKandevQuestions(blank)?.map((question) => question.id)).toEqual(["q1", "q2"]);
+    expect(
+      kandevResultToAnswers(blank, {
+        structuredContent: { q1: { selected_option: "Sync" }, q2: { selected_option: "Commit" } },
+      }),
+    ).toEqual([
+      { questionId: "q1", selectedLabel: "Sync" },
+      { questionId: "q2", selectedLabel: "Commit" },
+    ]);
   });
 
   it("asks the kandev tool and returns the chosen label", async () => {

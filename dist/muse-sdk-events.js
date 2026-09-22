@@ -1,6 +1,6 @@
 import { OUTPUT_EXTENSION, outputMetadata } from "./stored-output.js";
 import { ASYNC_TASKS, workerKinds, workerText } from "./async-tasks.js";
-import { presentResult, TOOL_KINDS } from "./tool-calls.js";
+import { kandevWireArgs, presentResult, TOOL_KINDS } from "./tool-calls.js";
 const LIMIT = 64 * 1024;
 const bounded = (text) => text.length > LIMIT
     ? `${text.slice(0, LIMIT)}\n[Output truncated by adapter; full output is not included in this card.]`
@@ -145,7 +145,7 @@ export class MuseSdkTranslator {
     tool(item, previous, output) {
         const regular = item.kind === "toolCall";
         const tool = regular ? (item.tool ?? "tool") : String(item.kind);
-        const args = regular ? kandevToolArgs(tool, parseArgs(item.args)) : undefined;
+        const args = regular ? kandevWireArgs(tool, parseArgs(item.args)) : undefined;
         const notices = [];
         if (item.failureReason && !output.includes(item.failureReason))
             notices.push(`[Failure: ${bounded(item.failureReason)}]`);
@@ -161,7 +161,13 @@ export class MuseSdkTranslator {
         const searchQuery = typeof candidateQuery === "string" ? candidateQuery : undefined;
         const title = searchQuery
             ? `${tool}: ${searchQuery}`
-            : (args?.description ?? args?.command ?? args?.path ?? item.commandText);
+            : tool === "web_fetch" && typeof args?.url === "string"
+                ? `web_fetch: ${args.url}`
+                : tool === "read_skill" && typeof args?.name === "string"
+                    ? `read_skill: ${args.name}`
+                    : tool.startsWith("mcp__") && typeof args?.title === "string"
+                        ? args.title
+                        : (args?.description ?? args?.command ?? args?.path ?? item.commandText);
         const call = {
             toolCallId: item.callId ?? item.itemId,
             name: tool,
@@ -246,25 +252,6 @@ export class MuseSdkTranslator {
             ]
             : [];
     }
-}
-/**
- * Kandev's subagent card is the same shape Claude, Cursor, and OpenCode use:
- * a tool whose raw input names `_toolName: "task"` plus description, prompt,
- * and subagent_type. Muse's own spawn args stay on the call.
- */
-function kandevToolArgs(tool, args) {
-    if (tool !== "subagent_spawn" || !args)
-        return args;
-    const task = typeof args.task_name === "string" ? args.task_name : "";
-    const role = typeof args.role === "string" ? args.role : "";
-    const objective = typeof args.objective === "string" ? args.objective : "";
-    return {
-        ...args,
-        _toolName: "task",
-        description: task || role || "subagent",
-        prompt: objective,
-        subagent_type: role,
-    };
 }
 function parseArgs(text) {
     if (!text)

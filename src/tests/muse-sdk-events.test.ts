@@ -64,6 +64,48 @@ describe("MSP → ACP message and tool contracts", () => {
     expect(translator.fromItem(older)).toEqual([]);
   });
 
+  it("uses the edit and search field names Kandev's cards read", () => {
+    const translator = new MuseSdkTranslator("s1", silentLogger());
+    const edit = translator.fromItem({
+      itemId: "e",
+      callId: "e1",
+      turnId: "t1",
+      kind: "toolCall",
+      tool: "edit_file",
+      revision: 1,
+      status: "inProgress",
+      args: JSON.stringify({ path: "src/a.ts", find: "old", replace: "new" }),
+    } as unknown as FoldedItem);
+    expect(edit[0].update).toMatchObject({
+      rawInput: { path: "src/a.ts", find: "old", replace: "new", old_str_1: "old", new_str_1: "new" },
+    });
+    const search = translator.fromItem({
+      itemId: "s",
+      callId: "s1",
+      turnId: "t1",
+      kind: "toolCall",
+      tool: "search",
+      revision: 1,
+      status: "inProgress",
+      args: JSON.stringify({ pattern: "ask", paths: ["fleet", "control"] }),
+    } as unknown as FoldedItem);
+    expect(search[0].update).toMatchObject({
+      title: "search: ask",
+      rawInput: { path: "fleet", paths: ["fleet", "control"] },
+    });
+    const fetch = translator.fromItem({
+      itemId: "f",
+      callId: "f1",
+      turnId: "t1",
+      kind: "toolCall",
+      tool: "web_fetch",
+      revision: 1,
+      status: "inProgress",
+      args: JSON.stringify({ url: "https://example.com/doc" }),
+    } as unknown as FoldedItem);
+    expect(fetch[0].update).toMatchObject({ title: "web_fetch: https://example.com/doc" });
+  });
+
   it("marks a Muse subagent spawn as the task card Kandev already renders", () => {
     const translator = new MuseSdkTranslator("s1", silentLogger());
     const [update] = translator.fromItem({

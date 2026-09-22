@@ -10,6 +10,7 @@
 - The SDK host stays up for the life of the ACP session. It is not recycled after a prompt count or an idle timeout unless the caller sets `maxTurns` or `idleTimeoutMs`.
 - A Muse question is asked through Kandev's `ask_user_question_kandev` MCP tool, the same card Claude, Codex, and Grok use. Option explanations are the card descriptions. The chat transcript is only the fallback when that server is not on the session.
 - A Muse `subagent_spawn` is reported as the task card Kandev already renders for Claude, Cursor, and OpenCode (`_toolName: "task"`, with the task name, objective, and role).
+- File edits, file creates, and searches use the argument names Kandev's cards read (`old_str_1`/`new_str_1`, `file_content`, `path`). A fetch shows its URL and a skill read shows its name. A question with a blank id is still answered from the card.
 - An unrecognized `muse exec` outcome is an error. It is not reported as `end_turn`.
 - A prompt or close for a session that does not exist returns ACP `-32002` resource not found, not `-32602` invalid params.
 

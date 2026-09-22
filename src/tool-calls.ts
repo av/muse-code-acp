@@ -5,6 +5,53 @@ import {
   toolResultPayloadSchema,
 } from "./muse-events.js";
 
+/**
+ * Copy Muse tool arguments onto the field names Kandev already renders.
+ * Edit cards read `old_str_1`/`new_str_1`, creates read `file_content`,
+ * search cards read `path`, and a subagent card is a task whose raw input
+ * sets `_toolName` to `task`. Muse's own fields stay on the call.
+ */
+export function kandevWireArgs(
+  tool: string,
+  args: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!args) return args;
+  if (tool === "subagent_spawn") {
+    const task = typeof args.task_name === "string" ? args.task_name : "";
+    const role = typeof args.role === "string" ? args.role : "";
+    const objective = typeof args.objective === "string" ? args.objective : "";
+    return {
+      ...args,
+      _toolName: "task",
+      description: task || role || "subagent",
+      prompt: objective,
+      subagent_type: role,
+    };
+  }
+  if (tool === "edit_file") {
+    return {
+      ...args,
+      ...(typeof args.find === "string" && args.old_str_1 == null ? { old_str_1: args.find } : {}),
+      ...(typeof args.replace === "string" && args.new_str_1 == null
+        ? { new_str_1: args.replace }
+        : {}),
+    };
+  }
+  if (tool === "write_file" && typeof args.content === "string" && args.file_content == null) {
+    return { ...args, file_content: args.content };
+  }
+  if (tool === "search" && typeof args.path !== "string") {
+    const paths = args.paths;
+    const first = Array.isArray(paths)
+      ? paths.find((entry) => typeof entry === "string" && entry)
+      : typeof paths === "string"
+        ? paths
+        : "";
+    if (typeof first === "string" && first) return { ...args, path: first };
+  }
+  return args;
+}
+
 /** Muse tool name → ACP tool kind (icons/UI treatment in clients). */
 export const TOOL_KINDS: Record<string, ToolKind> = {
   bash: "execute",

@@ -1,4 +1,4 @@
-import { TOOL_KINDS } from "./tool-calls.js";
+import { kandevWireArgs, TOOL_KINDS } from "./tool-calls.js";
 import { TurnScopedLifecycle } from "./turn-lifecycle.js";
 export function approvalStageMetadata(stage) {
     return {
@@ -122,6 +122,7 @@ export function approvalToPermissionRequest(sessionId, request, extended = false
     catch {
         rawInput = { arguments: request.rawArgs };
     }
+    rawInput = kandevWireArgs(request.toolName, rawInput);
     const title = stagedApprovalTitle(request) ||
         (typeof rawInput?.description === "string" && rawInput.description) ||
         (typeof rawInput?.command === "string" && rawInput.command) ||

@@ -5,7 +5,7 @@ import {
   RequestPermissionResponse,
   ToolKind,
 } from "@agentclientprotocol/sdk";
-import { TOOL_KINDS } from "./tool-calls.js";
+import { kandevWireArgs, TOOL_KINDS } from "./tool-calls.js";
 import { TurnScopedLifecycle } from "./turn-lifecycle.js";
 
 /** Minimal MSP approval choice fields used by the ACP bridge. */
@@ -204,6 +204,7 @@ export function approvalToPermissionRequest(
   } catch {
     rawInput = { arguments: request.rawArgs };
   }
+  rawInput = kandevWireArgs(request.toolName, rawInput);
   const title =
     stagedApprovalTitle(request) ||
     (typeof rawInput?.description === "string" && rawInput.description) ||

@@ -19,6 +19,11 @@ export function kandevQuestionEndpoint(servers) {
         return { url: server.url, headers };
     }
 }
+/** Kandev keys answers by question id and invents q1 when the id is blank. */
+function wireQuestionId(id, index) {
+    const trimmed = id.trim();
+    return trimmed || `q${index + 1}`;
+}
 /** Map a Muse question onto Kandev's card. Free text and more than six choices cannot. */
 export function toKandevQuestions(request) {
     if (request.questions.length < 1 || request.questions.length > 4)
@@ -31,7 +36,7 @@ export function toKandevQuestions(request) {
             return;
         const title = (question.header || "").slice(0, 12);
         questions.push({
-            id: question.id,
+            id: wireQuestionId(question.id, questions.length),
             prompt: question.question,
             ...(title ? { title } : {}),
             options: question.options.map((option) => {
@@ -53,8 +58,9 @@ export function kandevResultToAnswers(request, result) {
     if (body.rejected === true)
         return "cancel";
     const answers = [];
-    for (const question of request.questions) {
-        const entry = body[question.id];
+    for (const [index, question] of request.questions.entries()) {
+        const wireId = wireQuestionId(question.id, index);
+        const entry = body[wireId];
         if (!entry || typeof entry !== "object")
             return "reject";
         const record = entry;
@@ -62,13 +68,15 @@ export function kandevResultToAnswers(request, result) {
         const custom = typeof record.custom_text === "string" ? record.custom_text.trim() : "";
         const label = question.options.find((option) => option.label === selected)?.label;
         if (label) {
-            answers.push({ questionId: question.id, selectedLabel: label });
+            const answerId = question.id.trim() || wireId;
+            answers.push({ questionId: answerId, selectedLabel: label });
             continue;
         }
         if (custom) {
+            const answerId = question.id.trim() || wireId;
             answers.push(question.options.length > 0
-                ? { questionId: question.id, selectedLabel: custom }
-                : { questionId: question.id, freeText: custom });
+                ? { questionId: answerId, selectedLabel: custom }
+                : { questionId: answerId, freeText: custom });
             continue;
         }
         if (record.answered === false)

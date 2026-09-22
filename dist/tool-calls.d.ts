@@ -1,5 +1,12 @@
 import { SessionNotification, ToolCallContent, ToolKind } from "@agentclientprotocol/sdk";
 import { MuseEnvelope } from "./muse-events.js";
+/**
+ * Copy Muse tool arguments onto the field names Kandev already renders.
+ * Edit cards read `old_str_1`/`new_str_1`, creates read `file_content`,
+ * search cards read `path`, and a subagent card is a task whose raw input
+ * sets `_toolName` to `task`. Muse's own fields stay on the call.
+ */
+export declare function kandevWireArgs(tool: string, args: Record<string, unknown> | undefined): Record<string, unknown> | undefined;
 /** Muse tool name → ACP tool kind (icons/UI treatment in clients). */
 export declare const TOOL_KINDS: Record<string, ToolKind>;
 /**
