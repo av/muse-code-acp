@@ -44,6 +44,12 @@ export declare function elicitationToAnswers(request: MuseUserInputRequest, resp
  * with "Method not found" in `data.details`), so the phrase is matched
  * anywhere in the message or data payload. Validation failures and declined
  * answers never contain that phrase — they must keep failing the prompt.
+ *
+ * Do not reroute the question through `session/request_permission`. Clients
+ * that auto-approve permissions (Kandev's Muse profile does) answer that RPC
+ * with an allow option and no person, and the model treats it as the user's
+ * choice. `userInput/cancel` is also wrong here: it unblocks the model, which
+ * then picks for the user. The SDK stops the turn and posts the question.
  */
 export declare function isElicitationUnsupported(error: unknown): boolean;
 /**
@@ -52,6 +58,10 @@ export declare function isElicitationUnsupported(error: unknown): boolean;
  * the answer arrives on the next turn.
  */
 export declare function userInputToChatMessage(request: MuseUserInputRequest): string;
+/** Answer a pending MSP user-input request over the public Connection API. */
+export declare function answerUserInput(connection: Connection, sessionId: string, request: MuseUserInputRequest, answers: MuseUserInputAnswer[]): Promise<void>;
+/** Cancel a pending MSP user-input request over the public Connection API. */
+export declare function cancelUserInput(connection: Connection, sessionId: string, request: MuseUserInputRequest, reason: string): Promise<void>;
 /** Answer or cancel a pending MSP user-input request over the public Connection API. */
 export declare function settleUserInput(connection: Connection, sessionId: string, request: MuseUserInputRequest, response: CreateElicitationResponse): Promise<void>;
 //# sourceMappingURL=muse-user-input.d.ts.map

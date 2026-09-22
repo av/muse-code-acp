@@ -80,7 +80,7 @@ describe("session/close", () => {
         sessionId,
         prompt: [{ type: "text", text: "after close" }],
       }),
-    ).rejects.toMatchObject({ code: -32602, message: expect.stringMatching(/unknown session/) });
+    ).rejects.toMatchObject({ code: -32002, message: expect.stringMatching(/not found/) });
   });
 
   it.each(["close", "dispose"] as const)(
@@ -149,7 +149,7 @@ describe("session/close", () => {
         sessionId,
         prompt: [{ type: "text", text: "Do not admit this." }],
       }),
-    ).rejects.toMatchObject({ code: -32602, message: expect.stringMatching(/unknown session/) });
+    ).rejects.toMatchObject({ code: -32002, message: expect.stringMatching(/not found/) });
     await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
     await expect(close).resolves.toEqual({});
     expect(existsSync(capture)).toBe(false);
@@ -170,8 +170,8 @@ describe("session/close", () => {
     const firstClose = testClient.agent.closeSession({ sessionId });
 
     await expect(testClient.agent.closeSession({ sessionId })).rejects.toMatchObject({
-      code: -32602,
-      message: expect.stringMatching(/unknown session/),
+      code: -32002,
+      message: expect.stringMatching(/not found/),
     });
     await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
     await expect(firstClose).resolves.toEqual({});

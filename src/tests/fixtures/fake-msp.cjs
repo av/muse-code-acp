@@ -522,6 +522,11 @@ rl.on("line", async (line) => {
         decideStaged(id, params, staged);
         break;
       }
+      if (process.env.FAKE_MSP_DECIDE_FAIL_ONCE === "internal" && !globalThis.__decideFailedOnce) {
+        globalThis.__decideFailedOnce = true;
+        write({ id, error: { code: -32603, message: "internal error", data: { kind: "internal" } } });
+        break;
+      }
       if (mode === "approvalSubmitFailure") {
         write({ id, error: { code: -32051, message: "sensitive host detail", data: { kind: "approvalNotFound" } } });
         break;

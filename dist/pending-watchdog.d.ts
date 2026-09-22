@@ -13,6 +13,13 @@
  */
 /** Default bound. Long enough that no interactive round trip reaches it. */
 export declare const DEFAULT_STALL_LIMIT_MS = 10000;
+/**
+ * Default bound for a client round trip (permission dialog, elicitation
+ * answer). Generous on purpose: a slow human deciding must never trip it.
+ * But an unanswered client call is not progress forever — without this bound
+ * a crashed or deaf client hangs the turn with no error and no recovery.
+ */
+export declare const DEFAULT_INPUT_LIMIT_MS = 300000;
 export interface PendingWorkItem {
     kind: "approval" | "userInput";
     id: string;
@@ -25,11 +32,37 @@ export interface PendingWorkItem {
 }
 /** Read the configured bound; invalid and non-positive values keep the default. */
 export declare function stallLimitMs(env?: Record<string, string | undefined>): number;
+/** Read the configured client-answer bound; invalid values keep the default. */
+export declare function inputLimitMs(env?: Record<string, string | undefined>): number;
+/**
+ * Bound for a turn that emits nothing and is not waiting on the ACP client.
+ * A slow tool or a thinking model resets it by publishing host state. A host
+ * that goes silent (hung tool, dropped stream) must fail the prompt instead
+ * of leaving the client waiting with no error. Five minutes is long enough
+ * that an ordinary command still running is not cut off, and short enough
+ * that a dead turn cannot sit for an hour.
+ */
+export declare const DEFAULT_TURN_IDLE_MS = 300000;
+/** Read the configured turn-silence bound; invalid values keep the default. */
+export declare function turnIdleMs(env?: Record<string, string | undefined>): number;
+/**
+ * Clock for host silence. `activity()` marks a host event or an open client
+ * dialog. `check()` reports once the bound elapses with neither.
+ */
+export declare class TurnSilenceWatchdog {
+    private readonly limitMs;
+    private readonly now;
+    private since;
+    constructor(limitMs?: number, now?: () => number);
+    activity(): void;
+    check(): string | undefined;
+}
 export declare class PendingWorkWatchdog {
     private readonly limitMs;
     private readonly now;
+    private readonly inputLimitMs;
     private readonly seen;
-    constructor(limitMs?: number, now?: () => number);
+    constructor(limitMs?: number, now?: () => number, inputLimitMs?: number);
     /**
      * Fold the current pending set. Returns a diagnostic message once an item has
      * gone the whole bound with no host progress and no outstanding client call.

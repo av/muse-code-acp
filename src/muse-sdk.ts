@@ -54,7 +54,14 @@ import {
   type GoalObservation,
 } from "./goal-state.js";
 import { Pushable } from "./utils.js";
-import { PendingWorkWatchdog, stallLimitMs, type PendingWorkItem } from "./pending-watchdog.js";
+import {
+  inputLimitMs,
+  PendingWorkWatchdog,
+  stallLimitMs,
+  turnIdleMs,
+  TurnSilenceWatchdog,
+  type PendingWorkItem,
+} from "./pending-watchdog.js";
 
 export interface MuseSdkOptions {
   sessionId: string;
@@ -224,6 +231,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
   let cancellationWon = false;
   let finished = false;
   let settled = false;
+  /** Question was posted to the user and the host turn was stopped on purpose. */
+  let questionHandedOff = false;
   let stopInteractions!: () => void;
   const interactionsStopped = new Promise<null>((resolve) => {
     stopInteractions = () => resolve(null);
@@ -347,7 +356,9 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
 
       const emitItem = (item: FoldedItem) => {
         // Hold publication while a gap fill is reconstituting the fold.
-        if (!session.fold.current) {
+        // After a question handoff, drop later model text so a host that
+        // keeps generating cannot invent an answer in this turn.
+        if (!session.fold.current || questionHandedOff) {
           return;
         }
         for (const update of translator.fromItem(item)) {
@@ -432,8 +443,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         if (!permissions.track(view.approvalId, view.turnId, view.toolCallId, approvalGeneration)) {
           return;
         }
+        let choiceId: string | undefined;
         try {
-          let choiceId: string;
           if (options.automaticDecision) {
             const choice = view.availableChoices.find((c) =>
               options.automaticDecision === "approve"
@@ -497,15 +508,98 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
           if (
             error instanceof MspError &&
             (error.code === STALE_APPROVAL_REQUIREMENT ||
-              (error.code === -32051 && error.data?.kind === "approvalAlreadyResolved"))
+              error.kind === "approvalRequirementStale" ||
+              error.data?.kind === "approvalRequirementStale" ||
+              error.kind === "approvalAlreadyResolved" ||
+              error.data?.kind === "approvalAlreadyResolved")
           ) {
             // The host advanced this approval while the client was deciding. The
             // refreshed requirement lands on the fold and is decided on a later
             // tick; the pending-work watchdog bounds the wait if it never does.
+            // Kind is matched as well as code: a host may report the same
+            // stale/already-resolved outcome wrapped as MSP -32603 internal.
             options.logger.log(
               `muse-sdk: approval ${view.approvalId} requirement ${view.currentRequirementId.sourceIndex} was superseded`,
             );
             return;
+          }
+          if (
+            error instanceof MspError &&
+            error.code === -32603 &&
+            !cancelled &&
+            !options.isCancelled?.()
+          ) {
+            // Internal error on decide: the decision may or may not have
+            // landed. When the fold no longer shows this exact requirement the
+            // approval resolved or advanced; let reconcile/publish handle it
+            // instead of failing the turn. Otherwise retry once with the same
+            // host-offered choice: a retry against a just-settled approval
+            // bounces benign above, while a transient failure gets a second
+            // chance without re-prompting the client.
+            const key = `${view.approvalId}:${view.currentRequirementId.sourceIndex}`;
+            const fresh = turnApprovals()
+              .map((pending) => currentApprovalView(pending))
+              .find(
+                (current) =>
+                  current.approvalId === view.approvalId &&
+                  current.currentRequirementId.sourceIndex ===
+                    view.currentRequirementId.sourceIndex,
+              );
+            if (!fresh) {
+              options.logger.log(
+                `muse-sdk: approval ${view.approvalId} requirement ${view.currentRequirementId.sourceIndex} settled despite internal error; continuing`,
+              );
+              return;
+            }
+            if (
+              choiceId === undefined ||
+              !fresh.availableChoices.some((choice) => choice.choiceId === choiceId)
+            ) {
+              askedRequirements.delete(key);
+              options.logger.log(
+                `muse-sdk: approval ${view.approvalId} requirement ${view.currentRequirementId.sourceIndex} changed during internal error; re-asking`,
+              );
+              return;
+            }
+            try {
+              await connection!.command(
+                "approval/decide",
+                {
+                  sessionId: options.sessionId,
+                  approvalId: view.approvalId,
+                  choiceId,
+                  requirementId: view.currentRequirementId,
+                },
+                { maxAttempts: 1 },
+              );
+              return;
+            } catch (retryError) {
+              if (
+                retryError instanceof MspError &&
+                (retryError.code === STALE_APPROVAL_REQUIREMENT ||
+                  retryError.kind === "approvalRequirementStale" ||
+                  retryError.data?.kind === "approvalRequirementStale" ||
+                  retryError.kind === "approvalAlreadyResolved" ||
+                  retryError.data?.kind === "approvalAlreadyResolved")
+              ) {
+                options.logger.log(
+                  `muse-sdk: approval ${view.approvalId} requirement ${view.currentRequirementId.sourceIndex} was superseded on retry`,
+                );
+                return;
+              }
+              if (cancelled || options.isCancelled?.()) {
+                return;
+              }
+              options.logger.log(
+                `muse-sdk: approval ${view.approvalId} decision retry rejected (MSP ${retryError instanceof MspError ? `${retryError.code} ${retryError.kind}` : String(retryError)})`,
+              );
+              failTurn(
+                retryError instanceof MspError
+                  ? new Error(`Muse approval decision rejected (MSP ${retryError.code})`)
+                  : retryError,
+              );
+              return;
+            }
           }
           if (cancelled || options.isCancelled?.()) {
             return;
@@ -539,6 +633,107 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       };
 
       const answeredUserInputs = new Set<string>();
+      // The client round trip runs detached from the poll loop: a client that
+      // never answers must not block the watchdog that bounds the wait.
+      // In-flight inputs stay tracked, so a stalled host request fails the
+      // turn instead of hanging it (same shape as decideApproval above).
+      const askOneUserInput = async (
+        request: MuseUserInputRequest & { userInputId: string; turnId: string },
+      ): Promise<void> => {
+        if (!connection) {
+          // Reject the ACP prompt first so turn/completed from cancel cannot
+          // win Promise.race and report a successful end_turn.
+          failTurn(new Error("Muse requested user input but there is no host connection"));
+          userInputs.resolve(request.userInputId);
+          return;
+        }
+        if (options.clientCapabilities?.elicitation?.form == null) {
+          // The client did not advertise form elicitation — attempt the
+          // elicitation anyway and fall back to asking in chat when the
+          // endpoint does not exist (handled below).
+          options.logger.log(
+            "muse-sdk: client did not advertise form elicitation; attempting elicitation anyway",
+          );
+        }
+        try {
+          if (cancelled || options.isCancelled?.()) {
+            await settleUserInput(connection, options.sessionId, request, {
+              action: "cancel",
+            });
+            return;
+          }
+          const response = await Promise.race([
+            options.acpClient.createElicitation(userInputToElicitation(options.sessionId, request)),
+            interactionsStopped,
+          ]);
+          if (!response || !userInputs.isLive(request.userInputId, turnId!, generation)) {
+            return;
+          }
+          await settleUserInput(connection, options.sessionId, request, response);
+        } catch (error) {
+          if (isElicitationUnsupported(error)) {
+            // The client has no elicitation endpoint (Kandev answers
+            // elicitation.create with "Method not found", plain or wrapped).
+            // Post the question and stop the host turn. Do not
+            // userInput/answer and do not userInput/cancel: cancel resumes
+            // generation, and request_permission is an approval the client
+            // may auto-grant. Either one lets the model pick for the user.
+            // The next user message is the answer.
+            options.logger.log(
+              "muse-sdk: elicitation unsupported; stopping the turn and asking in chat",
+            );
+            try {
+              await options.acpClient.sessionUpdate({
+                sessionId: options.sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: {
+                    type: "text",
+                    text: `${userInputToChatMessage(request)}\n\n`,
+                  },
+                },
+              });
+            } catch (postError) {
+              failTurn(postError);
+              return;
+            }
+            if (cancelled || options.isCancelled?.()) {
+              return;
+            }
+            questionHandedOff = true;
+            try {
+              await connection.command(
+                "turn/cancel",
+                { sessionId: options.sessionId, turnId: request.turnId },
+                { maxAttempts: 1 },
+              );
+            } catch (cancelError) {
+              if (!cancelled && !options.isCancelled?.()) {
+                failTurn(cancelError);
+              }
+            }
+            return;
+          }
+          // Invalid answers and failed client RPCs must fail the prompt, not
+          // silently terminate a pump while Muse waits forever for input.
+          failTurn(error);
+          await connection
+            .command(
+              "userInput/cancel",
+              {
+                sessionId: options.sessionId,
+                userInputId: request.userInputId,
+                reason: "client input failed validation or delivery",
+              },
+              { maxAttempts: 1 },
+            )
+            .catch(() => {});
+          return;
+        } finally {
+          userInputs.resolve(request.userInputId);
+        }
+      };
+
       const handlePendingUserInputs = async () => {
         for (const pendingInput of session.fold.pendingUserInputs()) {
           const request = pendingInput as unknown as MuseUserInputRequest & {
@@ -558,84 +753,25 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
             continue;
           }
           answeredUserInputs.add(request.userInputId);
-          if (!connection) {
-            // Reject the ACP prompt first so turn/completed from cancel cannot
-            // win Promise.race and report a successful end_turn.
-            failTurn(new Error("Muse requested user input but there is no host connection"));
-            userInputs.resolve(request.userInputId);
-            return;
-          }
-          if (options.clientCapabilities?.elicitation?.form == null) {
-            // The client did not advertise form elicitation — attempt the
-            // elicitation anyway and fall back to asking in chat when the
-            // endpoint does not exist (handled below).
-            options.logger.log(
-              "muse-sdk: client did not advertise form elicitation; attempting elicitation anyway",
-            );
-          }
-          try {
-            if (cancelled || options.isCancelled?.()) {
-              await settleUserInput(connection, options.sessionId, request, {
-                action: "cancel",
-              });
-              return;
-            }
-            const response = await Promise.race([
-              options.acpClient.createElicitation(
-                userInputToElicitation(options.sessionId, request),
-              ),
-              interactionsStopped,
-            ]);
-            if (!response || !userInputs.isLive(request.userInputId, turnId!, generation)) {
-              return;
-            }
-            await settleUserInput(connection, options.sessionId, request, response);
-          } catch (error) {
-            if (isElicitationUnsupported(error)) {
-              // The client has no elicitation endpoint at all (e.g. Kandev
-              // answers elicitation.create with "Method not found"). Ask
-              // visibly in chat instead of failing the turn: the user replies
-              // in chat and the answer arrives on the next turn.
-              options.logger.log("muse-sdk: elicitation unsupported; asking in chat instead");
-              await options.acpClient
-                .sessionUpdate({
-                  sessionId: options.sessionId,
-                  update: {
-                    sessionUpdate: "agent_message_chunk",
-                    content: {
-                      type: "text",
-                      text: `${userInputToChatMessage(request)}\n\n`,
-                    },
-                  },
-                })
-                .catch(() => {});
-              await settleUserInput(connection, options.sessionId, request, {
-                action: "cancel",
-              });
-              return;
-            }
-            // Invalid answers and failed client RPCs must fail the prompt, not
-            // silently terminate a pump while Muse waits forever for input.
-            failTurn(error);
-            await connection
-              .command(
-                "userInput/cancel",
-                {
-                  sessionId: options.sessionId,
-                  userInputId: request.userInputId,
-                  reason: "client input failed validation or delivery",
-                },
-                { maxAttempts: 1 },
-              )
-              .catch(() => {});
-            return;
-          } finally {
-            userInputs.resolve(request.userInputId);
-          }
+          void askOneUserInput(request).catch(failTurn);
         }
       };
 
-      const watchdog = new PendingWorkWatchdog(stallLimitMs(options.env));
+      const watchdog = new PendingWorkWatchdog(
+        stallLimitMs(options.env),
+        Date.now,
+        inputLimitMs(options.env),
+      );
+      const silence = new TurnSilenceWatchdog(turnIdleMs(options.env));
+      const clientDeciding = (): boolean => {
+        if (decidingApprovals.size > 0) return true;
+        if (!session.fold.current || !turnId) return false;
+        for (const pendingInput of session.fold.pendingUserInputs()) {
+          const request = pendingInput as unknown as { userInputId: string; turnId: string };
+          if (request.turnId === turnId && userInputs.has(request.userInputId)) return true;
+        }
+        return false;
+      };
       const pendingWork = (): PendingWorkItem[] => {
         const items: PendingWorkItem[] = [];
         if (!session.fold.current || !turnId) {
@@ -666,8 +802,33 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
         return items;
       };
       const checkPendingWork = (): void => {
-        if (cancelled || options.isCancelled?.() || settled || finished) {
+        if (cancelled || options.isCancelled?.() || settled || finished || questionHandedOff) {
           return;
+        }
+        if (clientDeciding()) {
+          // An open permission or elicitation dialog is the user's time, not
+          // host silence. The input bound above still fails a client that
+          // never answers.
+          silence.activity();
+        } else {
+          const silent = silence.check();
+          if (silent) {
+            failTurn(
+              new Error(
+                `${silent}. The Muse host stopped emitting progress; the turn was stopped instead of hanging.`,
+              ),
+            );
+            if (connection && turnId) {
+              void connection
+                .command(
+                  "turn/cancel",
+                  { sessionId: options.sessionId, turnId },
+                  { maxAttempts: 1 },
+                )
+                .catch(() => {});
+            }
+            return;
+          }
         }
         const stalled = watchdog.check(pendingWork());
         if (!stalled) {
@@ -695,6 +856,7 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       let foldWasCurrent = session.fold.current;
       const pumpItems = (async () => {
         for await (const item of turn.items()) {
+          silence.activity();
           await handlePendingUserInputs();
           // Replay held items only when a gap fill restores currency.
           if (!foldWasCurrent && session.fold.current) {
@@ -706,7 +868,8 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       })();
       const pumpDeltas = (async () => {
         for await (const delta of turn.deltas()) {
-          if (!session.fold.current) {
+          silence.activity();
+          if (!session.fold.current || questionHandedOff) {
             continue;
           }
           for (const update of translator.fromDelta(delta)) {
@@ -741,7 +904,17 @@ export function spawnMuseSdkTurn(options: MuseSdkOptions): MuseSdkHandle {
       flushFold();
       publishApprovalResults();
       await owner.observeSessionState();
-      const response = sdkTerminalResponse(outcome, options.env);
+      let response = sdkTerminalResponse(outcome, options.env);
+      if (
+        questionHandedOff &&
+        !cancelled &&
+        !options.isCancelled?.() &&
+        (response.stopReason === "cancelled" || response.stopReason === "end_turn")
+      ) {
+        // The question is already in the transcript and the model was stopped
+        // before it could choose. The user's next message is the answer.
+        response = { stopReason: "end_turn" };
+      }
       successful = response.stopReason === "end_turn";
       if (successful && turnId) owner.retainProgress(turnId, translator);
       const goal = parseGoalObservation(session.fold.sessionState.get("session/goalChanged")?.goal);

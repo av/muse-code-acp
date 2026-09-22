@@ -26,37 +26,37 @@ MUSE_CODE_ACP_BACKEND=exec muse-code-acp
 
 ## ACP surface (advertised)
 
-| Capability                            | Advertised?                                    | Contract owner                                                                    |
-| ------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| Protocol major 1                      | yes (always returned as our supported version) | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts`                      |
-| Prompt: text + resource_link          | baseline (no capability flag required)         | `src/prompt-content.ts`                                                           |
-| Prompt: embedded text resource        | yes (`embeddedContext`)                        | attributed text; binary resources rejected                                        |
-| Prompt: audio                         | **no**                                         | rejected with invalid params                                                      |
-| MCP stdio                             | stdio and HTTP (SDK); SSE not advertised       | `docs/mcp-passthrough.md`                                                         |
-| `session/load`, `session/list`        | yes                                            | public paginated list; complete export-based load                                 |
-| Auth logout                           | yes                                            | `src/auth.ts`                                                                     |
-| Terminal auth method                  | only if `clientCapabilities.auth.terminal`     | `src/auth.ts`                                                                     |
-| Interactive permissions (SDK backend) | yes                                            | `src/muse-permissions.ts` + live approval suite                                   |
-| Form elicitation (SDK user input)     | yes when client advertises `elicitation.form`  | `src/muse-user-input.ts`                                                          |
-| fs / terminal RPC                     | **no**                                         | omitted client caps never invoked                                                 |
-| Session fork                          | **yes** (SDK host 1.1.1-R2514.1)               | native history with verified restart continuity; see [branching](session-fork.md) |
-| Session delete                        | **no**                                         | unadvertised                                                                      |
+| Capability                            | Advertised?                                                                                  | Contract owner                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Protocol major 1                      | yes (always returned as our supported version)                                               | `src/acp-agent.ts` initialize + `src/tests/acp-wire.test.ts`                      |
+| Prompt: text + resource_link          | baseline (no capability flag required)                                                       | `src/prompt-content.ts`                                                           |
+| Prompt: embedded text resource        | yes (`embeddedContext`)                                                                      | attributed text; binary resources rejected                                        |
+| Prompt: audio                         | **no**                                                                                       | rejected with invalid params                                                      |
+| MCP stdio                             | stdio and HTTP (SDK); SSE not advertised                                                     | `docs/mcp-passthrough.md`                                                         |
+| `session/load`, `session/list`        | yes                                                                                          | public paginated list; complete export-based load                                 |
+| Auth logout                           | yes                                                                                          | `src/auth.ts`                                                                     |
+| Terminal auth method                  | only if `clientCapabilities.auth.terminal`                                                   | `src/auth.ts`                                                                     |
+| Interactive permissions (SDK backend) | yes                                                                                          | `src/muse-permissions.ts` + live approval suite                                   |
+| Form elicitation (SDK user input)     | yes (`elicitation.form` preferred; otherwise the question is posted and the turn is stopped) | `src/muse-user-input.ts`                                                          |
+| fs / terminal RPC                     | **no**                                                                                       | omitted client caps never invoked                                                 |
+| Session fork                          | **yes** (SDK host 1.1.1-R2514.1)                                                             | native history with verified restart continuity; see [branching](session-fork.md) |
+| Session delete                        | **no**                                                                                       | unadvertised                                                                      |
 
 ## Public SDK API map
 
-| ACP / adapter behavior | Public SDK / MSP API                                                                             | Fallback                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Spawn MSP host         | `spawnMspConnection` + `MuseClient`                                                              | —                                                                                               |
-| Handshake / durability | `initialize` + `readSessionDurability`                                                           | fingerprint mismatch is advisory                                                                |
-| Start / resume session | `MuseClient.startSession` / `resumeSession`                                                      | missing session (`-32020`) → start; in-use/busy/wrong workspace fail closed                     |
-| Approval mode          | `startSession({ approvalMode: "onRequest" })` + resume `setApprovalMode`                         | host default is `promptUnmatched`                                                               |
-| Set model              | `Connection.command("session/setModel")`                                                         | facade has no setModel                                                                          |
-| Submit turn            | `Session.sendUserTurn`                                                                           | —                                                                                               |
-| Stream items / deltas  | `Turn.items()` / `Turn.deltas()` (+ fold catch-up for pre-ack deltas)                            | —                                                                                               |
-| Cancel                 | `Connection.command("turn/cancel")`                                                              | close host if cancel fails                                                                      |
-| Approvals              | fold `pendingApprovals` (+`latestUpdate`) → ACP `session/request_permission` → `approval/decide` | cancel/deny map to a host-offered deny choice; no fabricated grants; `-32053` re-reads the fold |
-| User input             | fold `pendingUserInputs` + `userInput/answer`\|`cancel`                                          | clients without form elicitation cancel and fail the turn                                       |
-| View gaps              | Session gap-fill (`view/page`) + `onGapError`                                                    | stalled/failed fill fails the prompt; no extra `turn/start`                                     |
+| ACP / adapter behavior | Public SDK / MSP API                                                                             | Fallback                                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Spawn MSP host         | `spawnMspConnection` + `MuseClient`                                                              | —                                                                                                                                                                  |
+| Handshake / durability | `initialize` + `readSessionDurability`                                                           | fingerprint mismatch is advisory                                                                                                                                   |
+| Start / resume session | `MuseClient.startSession` / `resumeSession`                                                      | missing session (`-32020`) → start; in-use/busy/wrong workspace fail closed                                                                                        |
+| Approval mode          | `startSession({ approvalMode: "onRequest" })` + resume `setApprovalMode`                         | host default is `promptUnmatched`                                                                                                                                  |
+| Set model              | `Connection.command("session/setModel")`                                                         | facade has no setModel                                                                                                                                             |
+| Submit turn            | `Session.sendUserTurn`                                                                           | —                                                                                                                                                                  |
+| Stream items / deltas  | `Turn.items()` / `Turn.deltas()` (+ fold catch-up for pre-ack deltas)                            | —                                                                                                                                                                  |
+| Cancel                 | `Connection.command("turn/cancel")`                                                              | close host if cancel fails                                                                                                                                         |
+| Approvals              | fold `pendingApprovals` (+`latestUpdate`) → ACP `session/request_permission` → `approval/decide` | cancel/deny map to a host-offered deny choice; no fabricated grants; `-32053` re-reads the fold                                                                    |
+| User input             | fold `pendingUserInputs` + `userInput/answer`\|`cancel`                                          | no elicitation endpoint: post the question and `turn/cancel` (no permission auto-answer, no `userInput/cancel`); a silent host fails the prompt instead of hanging |
+| View gaps              | Session gap-fill (`view/page`) + `onGapError`                                                    | stalled/failed fill fails the prompt; no extra `turn/start`                                                                                                        |
 
 ## Retained CLI / store helpers
 
@@ -120,8 +120,15 @@ Named profile identity is preserved in discovery, but effective routing is unver
 named-profile selections are unavailable with an actionable explanation.
 
 Form elicitation supports single selections, bounded multiple selections, and
-free text up to 500 characters. Invalid responses fail the turn and cancel the
-input request. Cancelling a turn never waits for a still-open client dialog.
+free text up to 500 characters. When the client has no elicitation endpoint,
+the question is posted in chat and the host turn is cancelled so the model
+cannot choose. `session/request_permission` is not used for questions: an
+auto-approve client would answer it with no person. `userInput/cancel` is not
+used either: it resumes generation. Invalid elicitation responses still fail
+the turn and cancel the input request. A host that emits nothing and is not
+waiting on the client fails the prompt after `MUSE_CODE_ACP_TURN_IDLE_MS`
+(default five minutes) instead of hanging. Cancelling a turn never waits for
+a still-open client dialog.
 
 | Mode              | SDK | Exec | Notes                                                   |
 | ----------------- | --- | ---- | ------------------------------------------------------- |

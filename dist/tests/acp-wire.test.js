@@ -112,7 +112,7 @@ describe("ACP stdio wire contracts", () => {
             await expect(wire.ctx.request(methods.agent.session.prompt, {
                 sessionId: "missing",
                 prompt: [{ type: "text", text: "x" }],
-            })).rejects.toMatchObject({ code: -32602 });
+            })).rejects.toMatchObject({ code: -32002, message: expect.stringMatching(/not found/) });
             const init = await wire.ctx.request(methods.agent.initialize, {
                 protocolVersion: PROTOCOL_VERSION + 9,
             });

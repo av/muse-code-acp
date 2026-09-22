@@ -9,9 +9,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_INPUT_LIMIT_MS,
   DEFAULT_STALL_LIMIT_MS,
+  DEFAULT_TURN_IDLE_MS,
+  inputLimitMs,
   PendingWorkWatchdog,
   stallLimitMs,
+  turnIdleMs,
+  TurnSilenceWatchdog,
   type PendingWorkItem,
 } from "../pending-watchdog.js";
 import { connectTestClient, fixturesDir, newTestSession } from "./helpers.js";
@@ -81,6 +86,24 @@ describe("pending work watchdog", () => {
     expect(stallLimitMs({ MUSE_CODE_ACP_STALL_MS: "250" })).toBe(250);
     expect(stallLimitMs({ MUSE_CODE_ACP_STALL_MS: "0" })).toBe(DEFAULT_STALL_LIMIT_MS);
     expect(stallLimitMs({ MUSE_CODE_ACP_STALL_MS: "later" })).toBe(DEFAULT_STALL_LIMIT_MS);
+  });
+
+  it("reads the configured client-answer bound and ignores unusable values", () => {
+    expect(inputLimitMs({})).toBe(DEFAULT_INPUT_LIMIT_MS);
+    expect(inputLimitMs({ MUSE_CODE_ACP_INPUT_MS: "250" })).toBe(250);
+    expect(inputLimitMs({ MUSE_CODE_ACP_INPUT_MS: "0" })).toBe(DEFAULT_INPUT_LIMIT_MS);
+    expect(inputLimitMs({ MUSE_CODE_ACP_INPUT_MS: "later" })).toBe(DEFAULT_INPUT_LIMIT_MS);
+  });
+
+  it("fails an unanswered client call after the input bound, not the stall bound", () => {
+    let now = 0;
+    const watchdog = new PendingWorkWatchdog(1_000, () => now, 5_000);
+    for (let tick = 0; tick < 5; tick++) {
+      now += 1_000;
+      expect(watchdog.check([item({ inFlight: true })])).toBeUndefined();
+    }
+    now += 1_000;
+    expect(watchdog.check([item({ inFlight: true })])).toMatch(/no client answer for 5s/);
   });
 });
 
@@ -162,5 +185,52 @@ describe("stalled host requests fail the prompt", () => {
       }),
     ).resolves.toEqual({ stopReason: "end_turn" });
     expect(client.permissionRequests).toHaveLength(3);
+  }, 20_000);
+});
+
+describe("turn silence watchdog", () => {
+  it("reports silence only after the bound, and activity resets it", () => {
+    let now = 1_000;
+    const silence = new TurnSilenceWatchdog(5_000, () => now);
+    expect(silence.check()).toBeUndefined();
+    now += 4_999;
+    expect(silence.check()).toBeUndefined();
+    silence.activity();
+    now += 4_999;
+    expect(silence.check()).toBeUndefined();
+    now += 1;
+    expect(silence.check()).toMatch(/no host progress for 5s/);
+  });
+
+  it("keeps the default unless the env value is a positive number", () => {
+    expect(turnIdleMs({})).toBe(DEFAULT_TURN_IDLE_MS);
+    expect(turnIdleMs({ MUSE_CODE_ACP_TURN_IDLE_MS: "0" })).toBe(DEFAULT_TURN_IDLE_MS);
+    expect(turnIdleMs({ MUSE_CODE_ACP_TURN_IDLE_MS: "nope" })).toBe(DEFAULT_TURN_IDLE_MS);
+    expect(turnIdleMs({ MUSE_CODE_ACP_TURN_IDLE_MS: "1500" })).toBe(1500);
+  });
+
+  it("fails a turn the host never finishes, instead of hanging", async () => {
+    const binary = join(fixturesDir, "fake-msp.cjs");
+    chmodSync(binary, 0o755);
+    const client = connectTestClient({
+      backend: "sdk",
+      museBinary: binary,
+      skipSdkHostCheck: true,
+      env: {
+        ...process.env,
+        FAKE_MSP_MODE: "block",
+        MUSE_CODE_ACP_TURN_IDLE_MS: "400",
+      },
+    });
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "hang" }],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("no host progress"),
+    });
+    expect(client.agent.sessions.get(sessionId)?.activeTurn).toBeNull();
   }, 20_000);
 });

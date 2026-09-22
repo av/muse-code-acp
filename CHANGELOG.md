@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixes
+
+- Ask-user questions no longer go through `session/request_permission` or `userInput/cancel` when the client has no elicitation endpoint. Auto-approved permissions and a cancelled input both let the model pick an answer the user never gave. The question is posted and the host turn is stopped; the next user message is the answer.
+- A host turn that emits nothing and is not waiting on the client fails after five minutes (`MUSE_CODE_ACP_TURN_IDLE_MS`) instead of hanging.
+- An unrecognized `muse exec` outcome is an error. It is not reported as `end_turn`.
+- A prompt or close for a session that does not exist returns ACP `-32002` resource not found, not `-32602` invalid params.
+
 ## [0.6.1](https://github.com/bex-co/muse-code-acp/compare/v0.6.0...v0.6.1) (2026-09-16)
 
 ### Fixes

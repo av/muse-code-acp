@@ -1,4 +1,4 @@
-import { methods } from "@agentclientprotocol/sdk";
+import { methods, RequestError } from "@agentclientprotocol/sdk";
 import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -266,11 +266,14 @@ describe("SDK user input over ACP elicitation", () => {
     }
   });
 
-  it("asks in chat and ends the turn when the client has no elicitation endpoint", async () => {
+  it("asks in chat and stops the turn when the client has no elicitation endpoint", async () => {
     const client = sdkClient();
     client.setElicitationResponder(() => {
       throw Object.assign(new Error("Method not found"), { code: -32601 });
     });
+    client.setPermissionResponder(() => ({
+      outcome: { outcome: "selected", optionId: "blue" },
+    }));
     const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
     try {
       await expect(
@@ -280,8 +283,10 @@ describe("SDK user input over ACP elicitation", () => {
         }),
       ).resolves.toEqual({ stopReason: "end_turn" });
       expect(client.elicitationRequests).toHaveLength(1);
-      expect(client.requests().some((r) => r.method === "userInput/cancel")).toBe(true);
+      expect(client.permissionRequests).toHaveLength(0);
+      expect(client.requests().some((r) => r.method === "userInput/cancel")).toBe(false);
       expect(client.requests().some((r) => r.method === "userInput/answer")).toBe(false);
+      expect(client.requests().some((r) => r.method === "turn/cancel")).toBe(true);
       const posted = client.updates
         .filter(
           (
@@ -296,6 +301,124 @@ describe("SDK user input over ACP elicitation", () => {
         .map((u) => u.update.content.text)
         .join("");
       expect(posted).toMatch("Pick a color");
+      expect(posted).not.toMatch("hello world");
+    } finally {
+      await client.agent.dispose();
+    }
+  });
+
+  it("stops the same way when Method not found is wrapped as an internal error", async () => {
+    const client = sdkClient();
+    client.setElicitationResponder(() => {
+      throw RequestError.internalError({ details: "Method not found" });
+    });
+    client.setPermissionResponder(() => ({
+      outcome: { outcome: "selected", optionId: "red" },
+    }));
+    const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
+    try {
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "ask" }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      expect(client.permissionRequests).toHaveLength(0);
+      expect(client.requests().some((r) => r.method === "userInput/answer")).toBe(false);
+      expect(client.requests().some((r) => r.method === "turn/cancel")).toBe(true);
+    } finally {
+      await client.agent.dispose();
+    }
+  });
+});
+
+describe("SDK user input when elicitation is unavailable", () => {
+  it("fails instead of hanging when the client never answers elicitation", async () => {
+    const binary = join(fixturesDir, "fake-msp.cjs");
+    chmodSync(binary, 0o755);
+    const capture = join(mkdtempSync(join(tmpdir(), "muse-ui-")), "requests.jsonl");
+    const client = connectTestClient({
+      backend: "sdk",
+      museBinary: binary,
+      skipSdkHostCheck: true,
+      env: {
+        ...process.env,
+        FAKE_MSP_MODE: "userInput",
+        FAKE_MSP_CAPTURE: capture,
+        MUSE_CODE_ACP_STALL_MS: "300",
+        MUSE_CODE_ACP_INPUT_MS: "300",
+      },
+    });
+    client.setElicitationResponder(() => new Promise<never>(() => {}));
+    const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
+    try {
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "ask" }],
+        }),
+      ).rejects.toThrow(/still pending/);
+      expect(client.agent.sessions.get(sessionId)?.activeTurn).toBeNull();
+    } finally {
+      await client.agent.dispose();
+    }
+  });
+
+  it("does not hang on a permission dialog that would never be answered", async () => {
+    const binary = join(fixturesDir, "fake-msp.cjs");
+    chmodSync(binary, 0o755);
+    const capture = join(mkdtempSync(join(tmpdir(), "muse-ui-")), "requests.jsonl");
+    const client = connectTestClient({
+      backend: "sdk",
+      museBinary: binary,
+      skipSdkHostCheck: true,
+      env: {
+        ...process.env,
+        FAKE_MSP_MODE: "userInput",
+        FAKE_MSP_CAPTURE: capture,
+        MUSE_CODE_ACP_STALL_MS: "300",
+        MUSE_CODE_ACP_INPUT_MS: "300",
+      },
+    });
+    client.setElicitationResponder(() => {
+      throw Object.assign(new Error("Method not found"), { code: -32601 });
+    });
+    client.setPermissionResponder(() => new Promise<never>(() => {}));
+    const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
+    try {
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "ask" }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      expect(client.permissionRequests).toHaveLength(0);
+      expect(client.agent.sessions.get(sessionId)?.activeTurn).toBeNull();
+    } finally {
+      await client.agent.dispose();
+    }
+  });
+
+  it("stops a multi-select question in chat without cancelling it into the model", async () => {
+    const client = sdkClient("userInputMultiple");
+    client.setElicitationResponder(() => {
+      throw Object.assign(new Error("Method not found"), { code: -32601 });
+    });
+    client.setPermissionResponder(() => {
+      throw new Error("request_permission must not be called for a question");
+    });
+    const { ctx, sessionId } = await newTestSession(client, { auth: { terminal: true } });
+    try {
+      await expect(
+        ctx.request(methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: "ask" }],
+        }),
+      ).resolves.toEqual({ stopReason: "end_turn" });
+      expect(client.permissionRequests).toHaveLength(0);
+      expect(client.requests().some((r) => r.method === "userInput/cancel")).toBe(false);
+      expect(client.requests().some((r) => r.method === "userInput/answer")).toBe(false);
+      expect(client.requests().some((r) => r.method === "turn/cancel")).toBe(true);
     } finally {
       await client.agent.dispose();
     }

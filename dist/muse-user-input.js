@@ -105,6 +105,12 @@ export function elicitationToAnswers(request, response) {
  * with "Method not found" in `data.details`), so the phrase is matched
  * anywhere in the message or data payload. Validation failures and declined
  * answers never contain that phrase — they must keep failing the prompt.
+ *
+ * Do not reroute the question through `session/request_permission`. Clients
+ * that auto-approve permissions (Kandev's Muse profile does) answer that RPC
+ * with an allow option and no person, and the model treats it as the user's
+ * choice. `userInput/cancel` is also wrong here: it unblocks the model, which
+ * then picks for the user. The SDK stops the turn and posts the question.
  */
 export function isElicitationUnsupported(error) {
     if (!error || typeof error !== "object")
@@ -146,15 +152,23 @@ export function userInputToChatMessage(request) {
         }
         lines.push("");
     }
-    lines.push("_Reply in chat and I'll continue on the next turn._");
+    lines.push("_I stopped here so I do not pick for you. Reply in chat with your choice and I will continue on the next turn._");
     return lines.join("\n");
+}
+/** Answer a pending MSP user-input request over the public Connection API. */
+export async function answerUserInput(connection, sessionId, request, answers) {
+    await connection.command("userInput/answer", { sessionId, userInputId: request.userInputId, answers }, { maxAttempts: 1 });
+}
+/** Cancel a pending MSP user-input request over the public Connection API. */
+export async function cancelUserInput(connection, sessionId, request, reason) {
+    await connection.command("userInput/cancel", { sessionId, userInputId: request.userInputId, reason }, { maxAttempts: 1 });
 }
 /** Answer or cancel a pending MSP user-input request over the public Connection API. */
 export async function settleUserInput(connection, sessionId, request, response) {
     const answers = elicitationToAnswers(request, response);
     if (answers === "cancel") {
-        await connection.command("userInput/cancel", { sessionId, userInputId: request.userInputId, reason: "client declined" }, { maxAttempts: 1 });
+        await cancelUserInput(connection, sessionId, request, "client declined");
         return;
     }
-    await connection.command("userInput/answer", { sessionId, userInputId: request.userInputId, answers }, { maxAttempts: 1 });
+    await answerUserInput(connection, sessionId, request, answers);
 }

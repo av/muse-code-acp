@@ -63,7 +63,7 @@ describe("session/close", () => {
         await expect(ctx.request(methods.agent.session.prompt, {
             sessionId,
             prompt: [{ type: "text", text: "after close" }],
-        })).rejects.toMatchObject({ code: -32602, message: expect.stringMatching(/unknown session/) });
+        })).rejects.toMatchObject({ code: -32002, message: expect.stringMatching(/not found/) });
     });
     it.each(["close", "dispose"])("waits for active turn and image cleanup on %s", async (method) => {
         const capture = capturePath();
@@ -118,7 +118,7 @@ describe("session/close", () => {
         await expect(testClient.agent.prompt({
             sessionId,
             prompt: [{ type: "text", text: "Do not admit this." }],
-        })).rejects.toMatchObject({ code: -32602, message: expect.stringMatching(/unknown session/) });
+        })).rejects.toMatchObject({ code: -32002, message: expect.stringMatching(/not found/) });
         await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
         await expect(close).resolves.toEqual({});
         expect(existsSync(capture)).toBe(false);
@@ -136,8 +136,8 @@ describe("session/close", () => {
         });
         const firstClose = testClient.agent.closeSession({ sessionId });
         await expect(testClient.agent.closeSession({ sessionId })).rejects.toMatchObject({
-            code: -32602,
-            message: expect.stringMatching(/unknown session/),
+            code: -32002,
+            message: expect.stringMatching(/not found/),
         });
         await expect(prompt).resolves.toEqual({ stopReason: "cancelled" });
         await expect(firstClose).resolves.toEqual({});

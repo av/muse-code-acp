@@ -3,6 +3,9 @@ import * as store from "../session-store.js";
 import * as sdk from "../muse-sdk.js";
 import * as review from "../review-prompt.js";
 import * as history from "../session-export.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { connectTestClient, fakeMuseBinary, newTestSession } from "./helpers.js";
 describe("session binding races", () => {
     it("rejects close, prompt and duplicate load while history is being read", async () => {
@@ -202,10 +205,14 @@ it("waits for an in-flight replay update and stops the rest on disposal", async 
     }
 });
 it("cancelling while review-start delivery waits emits a cancelled terminal without starting a turn", async () => {
+    // Isolate ambient user config: /review rejects when
+    // $XDG_CONFIG_HOME/muse/settings.json declares MCP servers.
+    const configHome = mkdtempSync(join(tmpdir(), "muse-review-test-"));
     const client = connectTestClient({
         backend: "sdk",
         museBinary: fakeMuseBinary(),
         skipSdkHostCheck: true,
+        env: { ...process.env, XDG_CONFIG_HOME: configHome },
     });
     const { sessionId } = await newTestSession(client, { _meta: { "muse/review": 1 } });
     const entered = Promise.withResolvers();

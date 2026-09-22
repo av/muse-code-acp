@@ -159,6 +159,37 @@ describe("SDK approvals over ACP", () => {
         })).resolves.toEqual({ stopReason: "end_turn" });
         expect(client.requests().find((r) => r.method === "approval/decide").params.choiceId).toBe("deny-once");
     });
+    it("retries once after a transient internal decide error without re-prompting", async () => {
+        const binary = join(fixturesDir, "fake-msp.cjs");
+        chmodSync(binary, 0o755);
+        const capture = join(mkdtempSync(join(tmpdir(), "muse-perm-")), "requests.jsonl");
+        const retryClient = connectTestClient({
+            backend: "sdk",
+            museBinary: binary,
+            skipSdkHostCheck: true,
+            env: {
+                ...process.env,
+                FAKE_MSP_MODE: "approval",
+                FAKE_MSP_CAPTURE: capture,
+                FAKE_MSP_DECIDE_FAIL_ONCE: "internal",
+            },
+        });
+        const requests = () => readFileSync(capture, "utf8")
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line));
+        retryClient.setPermissionResponder(() => ({
+            outcome: { outcome: "selected", optionId: "allow-once" },
+        }));
+        const { ctx, sessionId } = await newTestSession(retryClient);
+        await expect(ctx.request(methods.agent.session.prompt, {
+            sessionId,
+            prompt: [{ type: "text", text: "transient internal error" }],
+        })).resolves.toEqual({ stopReason: "end_turn" });
+        expect(retryClient.permissionRequests).toHaveLength(1);
+        expect(requests().filter((r) => r.method === "approval/decide")).toHaveLength(2);
+    });
     it("keeps concurrent approvals correlated by request id, not tool name", async () => {
         const client = sdkClient("concurrentApprovals");
         const seen = [];

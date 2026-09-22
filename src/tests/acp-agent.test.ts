@@ -88,6 +88,6 @@ describe("session/prompt (pre-t005)", () => {
         sessionId: "does-not-exist",
         prompt: [{ type: "text", text: "hi" }],
       }),
-    ).rejects.toMatchObject({ code: -32602 });
+    ).rejects.toMatchObject({ code: -32002, message: expect.stringMatching(/not found/) });
   });
 });

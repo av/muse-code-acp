@@ -1460,7 +1460,8 @@ export class MuseAcpAgent {
                     throw this.turnFailure(outcome.code, terminal);
                 }
                 default:
-                    return (unreachable(outcome, this.logger), { stopReason: "end_turn" });
+                    unreachable(outcome, this.logger);
+                    throw RequestError.internalError(undefined, "Muse exec ended in an unrecognized state; the turn is not a success");
             }
         }
         finally {
@@ -1573,7 +1574,9 @@ export class MuseAcpAgent {
         this.assertRunning();
         const session = this.sessions.get(sessionId);
         if (!session) {
-            throw RequestError.invalidParams(undefined, `unknown session: ${sessionId}`);
+            // A missing session is a resource, not a malformed parameter.
+            // ACP -32002 is "resource not found"; -32602 is reserved for bad params.
+            throw RequestError.resourceNotFound(sessionId);
         }
         if (this.bindingSessions.has(sessionId))
             throw RequestError.invalidRequest(undefined, "session binding operation in progress");

@@ -15,7 +15,7 @@ it("runs skills, rename and logout locally without a model turn", async () => {
         await prompt("/logout");
         expect(JSON.stringify(w.updates)).toContain("Credentials remain configured");
         expect(w.getTranscript().mspRequests.filter((r) => r.method === "turn/start")).toHaveLength(0);
-        await expect(prompt("after logout")).rejects.toMatchObject({ code: -32602 });
+        await expect(prompt("after logout")).rejects.toMatchObject({ code: -32002 });
     }
     finally {
         await w.dispose();
