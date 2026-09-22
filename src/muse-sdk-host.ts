@@ -251,18 +251,23 @@ export class MuseSdkHost {
                 i.status === "inProgress" &&
                 ["toolCall", "workflow", "subagent", "userShell"].includes(String(i.kind)),
             )));
+    // A prompt count or an idle timer closes the host only when the caller
+    // sets one. The session host otherwise stays up until the ACP session
+    // closes it or the fold is unsafe to reuse.
+    const turnCap = this.options.maxTurns;
     if (
       !keepAlive ||
       !safeToReuse ||
       this.stopped ||
-      this.completedTurns >= (this.options.maxTurns ?? 200)
+      (turnCap !== undefined && this.completedTurns >= turnCap)
     ) {
       await this.close();
       return;
     }
-    // Bound retention after foreground release even when Muse continues goal work.
-    this.idleTimer = setTimeout(() => void this.close(), this.options.idleTimeoutMs ?? 60_000);
-    this.idleTimer.unref();
+    if (this.options.idleTimeoutMs !== undefined) {
+      this.idleTimer = setTimeout(() => void this.close(), this.options.idleTimeoutMs);
+      this.idleTimer.unref();
+    }
   }
 
   close(): Promise<void> {

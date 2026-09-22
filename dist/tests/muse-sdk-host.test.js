@@ -45,8 +45,8 @@ function fixture(mode = "complete", idleTimeoutMs = 60_000, maxTurns = 32, obser
     };
     const owner = new MuseSdkHost({
         ...options,
-        idleTimeoutMs,
-        maxTurns,
+        ...(idleTimeoutMs != null ? { idleTimeoutMs } : {}),
+        ...(maxTurns != null ? { maxTurns } : {}),
         ...(observeGoal ? { onGoal: () => { } } : {}),
         onClose: async () => {
             closed++;
@@ -174,6 +174,22 @@ test("unknown steering status is not success and closing settles a hung acknowle
     await f.owner.close();
     await Promise.all([steeringFailure, turnFailure]);
     expect(f.closed()).toBe(1);
+});
+test("an uncapped host stays up across prompts until the session closes it", async () => {
+    const f = fixture("complete", null, null);
+    for (let i = 0; i < 3; i++) {
+        expect(await spawnMuseSdkTurn({ ...f.options, hostOwner: f.owner }).done).toEqual({
+            stopReason: "end_turn",
+        });
+        expect(f.owner.reusable).toBe(true);
+        expect(f.owner.closed).toBe(false);
+    }
+    expect(f.requests().filter((r) => r.method === "initialize")).toHaveLength(1);
+    expect(f.requests().filter((r) => r.method === "turn/start")).toHaveLength(3);
+    expect(f.closed()).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(f.owner.closed).toBe(false);
+    expect(() => process.kill(f.pid(), 0)).not.toThrow();
 });
 test("bounded successful turns rotate an idle host and release its resources", async () => {
     const f = fixture("complete", 60_000, 2);
