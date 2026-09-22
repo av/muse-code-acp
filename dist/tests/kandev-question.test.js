@@ -13,7 +13,10 @@ const request = {
             id: "q1",
             header: "Next",
             question: "What should I do next?",
-            options: [{ label: "Sync" }, { label: "Commit" }],
+            options: [
+                { label: "Sync", description: "Sync with latest changes" },
+                { label: "Commit", description: "Commit current changes" },
+            ],
             selection: { mode: "single" },
         },
     ],
@@ -34,14 +37,23 @@ describe("kandev question card", () => {
         });
     });
     it("refuses a question the card cannot show", () => {
-        expect(toKandevQuestions(request)?.[0].options.map((option) => option.option_id)).toEqual([
-            "Sync",
-            "Commit",
+        expect(toKandevQuestions(request)?.[0].options).toEqual([
+            { label: "Sync", description: "Sync with latest changes", option_id: "Sync" },
+            { label: "Commit", description: "Commit current changes", option_id: "Commit" },
         ]);
         expect(toKandevQuestions({
             ...request,
             questions: [{ ...request.questions[0], options: [{ label: "Only" }] }],
         })).toBeUndefined();
+        expect(toKandevQuestions({
+            ...request,
+            questions: [
+                {
+                    ...request.questions[0],
+                    options: [{ label: "Sync" }, { label: "Commit" }],
+                },
+            ],
+        })?.[0].options[0].description).toBe("Sync");
     });
     it("asks the kandev tool and returns the chosen label", async () => {
         const seen = [];

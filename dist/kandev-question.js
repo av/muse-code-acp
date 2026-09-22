@@ -34,11 +34,14 @@ export function toKandevQuestions(request) {
             id: question.id,
             prompt: question.question,
             ...(title ? { title } : {}),
-            options: question.options.map((option) => ({
-                label: option.label,
-                description: option.label,
-                option_id: option.label,
-            })),
+            options: question.options.map((option) => {
+                const description = option.description?.trim() || option.label;
+                return {
+                    label: option.label,
+                    description,
+                    option_id: option.label,
+                };
+            }),
         });
     }
     return questions;

@@ -144,7 +144,10 @@ export function userInputToChatMessage(request) {
             lines.push(question.question);
         if (question.options.length > 0) {
             question.options.forEach((option, index) => {
-                lines.push(`${index + 1}. ${option.label}`);
+                const detail = option.description?.trim();
+                lines.push(detail && detail !== option.label
+                    ? `${index + 1}. ${option.label} — ${detail}`
+                    : `${index + 1}. ${option.label}`);
             });
         }
         else {

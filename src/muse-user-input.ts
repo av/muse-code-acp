@@ -11,7 +11,7 @@ export interface MuseUserInputQuestion {
   id: string;
   header: string;
   question: string;
-  options: Array<{ label: string }>;
+  options: Array<{ label: string; description?: string }>;
   selection: { mode: "single" | "multiple"; minSelections?: number; maxSelections?: number };
 }
 
@@ -183,7 +183,12 @@ export function userInputToChatMessage(request: MuseUserInputRequest): string {
     if (title !== question.question) lines.push(question.question);
     if (question.options.length > 0) {
       question.options.forEach((option, index) => {
-        lines.push(`${index + 1}. ${option.label}`);
+        const detail = option.description?.trim();
+        lines.push(
+          detail && detail !== option.label
+            ? `${index + 1}. ${option.label} — ${detail}`
+            : `${index + 1}. ${option.label}`,
+        );
       });
     } else {
       lines.push("_Reply in chat with your answer._");

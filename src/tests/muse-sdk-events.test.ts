@@ -64,6 +64,36 @@ describe("MSP → ACP message and tool contracts", () => {
     expect(translator.fromItem(older)).toEqual([]);
   });
 
+  it("marks a Muse subagent spawn as the task card Kandev already renders", () => {
+    const translator = new MuseSdkTranslator("s1", silentLogger());
+    const [update] = translator.fromItem({
+      itemId: "sub",
+      callId: "sub-1",
+      turnId: "t1",
+      kind: "toolCall",
+      tool: "subagent_spawn",
+      revision: 1,
+      status: "inProgress",
+      args: JSON.stringify({
+        command_id: "robot-iter-1",
+        role: "Game systems engineer",
+        task_name: "Iteration 2 limbs",
+        objective: "Add limb customization.",
+      }),
+    } as unknown as FoldedItem);
+    expect(update.update).toMatchObject({
+      sessionUpdate: "tool_call",
+      title: "Iteration 2 limbs",
+      rawInput: {
+        _toolName: "task",
+        description: "Iteration 2 limbs",
+        prompt: "Add limb customization.",
+        subagent_type: "Game systems engineer",
+        command_id: "robot-iter-1",
+      },
+    });
+  });
+
   it("does not map reasoning or usage items", () => {
     const translator = new MuseSdkTranslator("s1", silentLogger());
     const reasoning = {

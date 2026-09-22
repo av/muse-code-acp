@@ -7,6 +7,7 @@ export interface MuseUserInputQuestion {
     question: string;
     options: Array<{
         label: string;
+        description?: string;
     }>;
     selection: {
         mode: "single" | "multiple";

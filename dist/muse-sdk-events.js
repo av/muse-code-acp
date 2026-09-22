@@ -145,7 +145,7 @@ export class MuseSdkTranslator {
     tool(item, previous, output) {
         const regular = item.kind === "toolCall";
         const tool = regular ? (item.tool ?? "tool") : String(item.kind);
-        const args = regular ? parseArgs(item.args) : undefined;
+        const args = regular ? kandevToolArgs(tool, parseArgs(item.args)) : undefined;
         const notices = [];
         if (item.failureReason && !output.includes(item.failureReason))
             notices.push(`[Failure: ${bounded(item.failureReason)}]`);
@@ -246,6 +246,25 @@ export class MuseSdkTranslator {
             ]
             : [];
     }
+}
+/**
+ * Kandev's subagent card is the same shape Claude, Cursor, and OpenCode use:
+ * a tool whose raw input names `_toolName: "task"` plus description, prompt,
+ * and subagent_type. Muse's own spawn args stay on the call.
+ */
+function kandevToolArgs(tool, args) {
+    if (tool !== "subagent_spawn" || !args)
+        return args;
+    const task = typeof args.task_name === "string" ? args.task_name : "";
+    const role = typeof args.role === "string" ? args.role : "";
+    const objective = typeof args.objective === "string" ? args.objective : "";
+    return {
+        ...args,
+        _toolName: "task",
+        description: task || role || "subagent",
+        prompt: objective,
+        subagent_type: role,
+    };
 }
 function parseArgs(text) {
     if (!text)
