@@ -32,6 +32,43 @@ function sdkClient(mode = "complete") {
 }
 
 describe("SDK backend over ACP", () => {
+  it("continues a turn that stopped on a tool call, inside the same prompt", async () => {
+    const client = sdkClient("earlyStop");
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "where am I" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    const starts = client.requests().filter((r) => r.method === "turn/start");
+    expect(starts).toHaveLength(2);
+    expect(starts[1].params.input[0].text).toMatch(/Continue from the exact point/);
+    const text = client.updates
+      .map((n) => n.update)
+      .filter(
+        (u): u is typeof u & { content: { type: "text"; text: string } } =>
+          u.sessionUpdate === "agent_message_chunk" &&
+          "content" in u &&
+          u.content.type === "text",
+      )
+      .map((u) => u.content.text)
+      .join("");
+    expect(text).toMatch(/finished the reply/);
+  });
+
+  it("reports a turn limit when every continuation still stops on a tool", async () => {
+    const client = sdkClient("alwaysEarly");
+    const { ctx, sessionId } = await newTestSession(client);
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "keep going" }],
+      }),
+    ).resolves.toEqual({ stopReason: "max_turn_requests" });
+    expect(client.requests().filter((r) => r.method === "turn/start")).toHaveLength(3);
+  });
+
   it("preserves image order and bytes through MSP", async () => {
     const client = sdkClient();
     const { ctx, sessionId } = await newTestSession(client);

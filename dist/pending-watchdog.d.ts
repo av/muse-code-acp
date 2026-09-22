@@ -46,6 +46,14 @@ export declare const DEFAULT_TURN_IDLE_MS = 300000;
 /** Read the configured turn-silence bound; invalid values keep the default. */
 export declare function turnIdleMs(env?: Record<string, string | undefined>): number;
 /**
+ * Bound for one in-progress tool that publishes nothing new. A running tool
+ * is not the short turn-silence clock: builds and test suites sit quiet for
+ * minutes. Fifteen minutes without a new host frame is a hung tool.
+ */
+export declare const DEFAULT_TOOL_IDLE_MS = 900000;
+/** Read the configured in-progress-tool bound; invalid values keep the default. */
+export declare function toolIdleMs(env?: Record<string, string | undefined>): number;
+/**
  * Clock for host silence. `activity()` marks a host event or an open client
  * dialog. `check()` reports once the bound elapses with neither.
  */

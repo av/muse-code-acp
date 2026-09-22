@@ -45,6 +45,17 @@ export function turnIdleMs(env = process.env) {
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TURN_IDLE_MS;
 }
 /**
+ * Bound for one in-progress tool that publishes nothing new. A running tool
+ * is not the short turn-silence clock: builds and test suites sit quiet for
+ * minutes. Fifteen minutes without a new host frame is a hung tool.
+ */
+export const DEFAULT_TOOL_IDLE_MS = 900_000;
+/** Read the configured in-progress-tool bound; invalid values keep the default. */
+export function toolIdleMs(env = process.env) {
+    const raw = Number(env.MUSE_CODE_ACP_TOOL_IDLE_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TOOL_IDLE_MS;
+}
+/**
  * Clock for host silence. `activity()` marks a host event or an open client
  * dialog. `check()` reports once the bound elapses with neither.
  */

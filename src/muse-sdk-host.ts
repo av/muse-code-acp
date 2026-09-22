@@ -255,7 +255,7 @@ export class MuseSdkHost {
       !keepAlive ||
       !safeToReuse ||
       this.stopped ||
-      this.completedTurns >= (this.options.maxTurns ?? 32)
+      this.completedTurns >= (this.options.maxTurns ?? 200)
     ) {
       await this.close();
       return;

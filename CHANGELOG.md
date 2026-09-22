@@ -5,7 +5,9 @@
 ### Fixes
 
 - Ask-user questions no longer go through `session/request_permission` or `userInput/cancel` when the client has no elicitation endpoint. Auto-approved permissions and a cancelled input both let the model pick an answer the user never gave. The question is posted and the host turn is stopped; the next user message is the answer.
-- A host turn that emits nothing and is not waiting on the client fails after five minutes (`MUSE_CODE_ACP_TURN_IDLE_MS`) instead of hanging.
+- A host turn that emits nothing and is not waiting on the client fails after five minutes (`MUSE_CODE_ACP_TURN_IDLE_MS`) instead of hanging. A tool that is still running uses a separate fifteen-minute bound (`MUSE_CODE_ACP_TOOL_IDLE_MS`).
+- A completed model stop that ends on a tool call, emits no assistant text, or is cut off for length continues inside the same prompt (twice). If it is still unfinished, the prompt reports `max_turn_requests` instead of a successful `end_turn`.
+- An idle SDK host is kept for 200 prompts, so a long thread is not recycled at 32.
 - An unrecognized `muse exec` outcome is an error. It is not reported as `end_turn`.
 - A prompt or close for a session that does not exist returns ACP `-32002` resource not found, not `-32602` invalid params.
 

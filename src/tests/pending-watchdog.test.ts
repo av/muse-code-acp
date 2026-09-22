@@ -209,6 +209,31 @@ describe("turn silence watchdog", () => {
     expect(turnIdleMs({ MUSE_CODE_ACP_TURN_IDLE_MS: "1500" })).toBe(1500);
   });
 
+  it("does not use the short silence clock while a tool is still running", async () => {
+    const binary = join(fixturesDir, "fake-msp.cjs");
+    chmodSync(binary, 0o755);
+    const client = connectTestClient({
+      backend: "sdk",
+      museBinary: binary,
+      skipSdkHostCheck: true,
+      env: {
+        ...process.env,
+        FAKE_MSP_MODE: "toolHang",
+        MUSE_CODE_ACP_TURN_IDLE_MS: "300",
+        MUSE_CODE_ACP_TOOL_IDLE_MS: "900",
+      },
+    });
+    const { ctx, sessionId } = await newTestSession(client);
+    const started = Date.now();
+    await expect(
+      ctx.request(methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: "long tool" }],
+      }),
+    ).rejects.toThrow(/tool was still running/);
+    expect(Date.now() - started).toBeGreaterThan(600);
+  }, 20_000);
+
   it("fails a turn the host never finishes, instead of hanging", async () => {
     const binary = join(fixturesDir, "fake-msp.cjs");
     chmodSync(binary, 0o755);

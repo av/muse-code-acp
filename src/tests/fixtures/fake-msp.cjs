@@ -498,6 +498,42 @@ rl.on("line", async (line) => {
         terminal("failed", { error: { kind: "stepLimit", message: "step limit", retryable: false } });
       } else if (mode === "malformed") {
         console.log("{not-json");
+      } else if (mode === "earlyStop" || mode === "alwaysEarly") {
+        const continued = globalThis.__museEarlyStops ?? 0;
+        globalThis.__museEarlyStops = continued + 1;
+        if (mode === "alwaysEarly" || continued === 0) {
+          notify("item/completed", {
+            item: {
+              itemId: `tool-${turnId}`,
+              turnId,
+              kind: "toolCall",
+              revision: 1,
+              status: "completed",
+              text: "pwd",
+              toolName: "bash",
+              callId: "c1",
+            },
+          });
+          terminal("completed");
+        } else {
+          notify("item/completed", {
+            item: { ...item, revision: 2, status: "completed", text: "finished the reply" },
+          });
+          terminal("completed");
+        }
+      } else if (mode === "toolHang") {
+        notify("item/started", {
+          item: {
+            itemId: `tool-${turnId}`,
+            turnId,
+            kind: "toolCall",
+            revision: 1,
+            status: "inProgress",
+            text: "",
+            toolName: "bash",
+            callId: "call-hang",
+          },
+        });
       } else if (mode !== "block" && mode !== "approval" && mode !== "approvalSubmitFailure" && mode !== "approvalAllow" && mode !== "approvalDeny" && mode !== "concurrentApprovals" && mode !== "userInput" && mode !== "gapRecoverable") {
         if (mode === "nativeGoal")
           notify("session/goalChanged", { goal: { objective: "Native work", status: "active", percentComplete: 10 } });

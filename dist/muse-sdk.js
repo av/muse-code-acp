@@ -18,7 +18,8 @@ import { MuseSdkHost } from "./muse-sdk-host.js";
 export { MuseSdkHost } from "./muse-sdk-host.js";
 import { readGoalFromConnection, parseGoalObservation, } from "./goal-state.js";
 import { Pushable } from "./utils.js";
-import { inputLimitMs, PendingWorkWatchdog, stallLimitMs, turnIdleMs, TurnSilenceWatchdog, } from "./pending-watchdog.js";
+import { inputLimitMs, PendingWorkWatchdog, stallLimitMs, toolIdleMs, turnIdleMs, TurnSilenceWatchdog, } from "./pending-watchdog.js";
+import { EARLY_CONTINUE_TEXT, MAX_EARLY_CONTINUATIONS, turnStoppedEarly, } from "./turn-continuation.js";
 /** Read authoritative saved metadata without acquiring a writer lease. */
 export async function readMuseSdkSession(options) {
     if (options.checkHost !== false)
@@ -538,6 +539,17 @@ export function spawnMuseSdkTurn(options) {
             };
             const watchdog = new PendingWorkWatchdog(stallLimitMs(options.env), Date.now, inputLimitMs(options.env));
             const silence = new TurnSilenceWatchdog(turnIdleMs(options.env));
+            const toolSilence = new TurnSilenceWatchdog(toolIdleMs(options.env));
+            const toolBusy = () => {
+                if (!turnId || !session.fold.current)
+                    return false;
+                return session.fold.items.list().some((item) => item.turnId === turnId &&
+                    item.status === "inProgress" &&
+                    (item.kind === "toolCall" ||
+                        item.kind === "userShell" ||
+                        item.kind === "workflow" ||
+                        item.kind === "subagent"));
+            };
             const clientDeciding = () => {
                 if (decidingApprovals.size > 0)
                     return true;
@@ -588,8 +600,26 @@ export function spawnMuseSdkTurn(options) {
                     // host silence. The input bound above still fails a client that
                     // never answers.
                     silence.activity();
+                    toolSilence.activity();
+                }
+                else if (toolBusy()) {
+                    // A running tool is progress even when it publishes nothing for a
+                    // while. The short silence clock must not cut off a long command.
+                    // A tool that never publishes again still fails, on the longer bound.
+                    silence.activity();
+                    const hungTool = toolSilence.check();
+                    if (hungTool) {
+                        failTurn(new Error(`${hungTool}. A tool was still running and published nothing further; the turn was stopped instead of hanging.`));
+                        if (connection && turnId) {
+                            void connection
+                                .command("turn/cancel", { sessionId: options.sessionId, turnId }, { maxAttempts: 1 })
+                                .catch(() => { });
+                        }
+                        return;
+                    }
                 }
                 else {
+                    toolSilence.activity();
                     const silent = silence.check();
                     if (silent) {
                         failTurn(new Error(`${silent}. The Muse host stopped emitting progress; the turn was stopped instead of hanging.`));
@@ -619,64 +649,101 @@ export function spawnMuseSdkTurn(options) {
             // deltas() is live-only; catch up anything folded before the turn ack.
             flushFold();
             let foldWasCurrent = session.fold.current;
-            const pumpItems = (async () => {
-                for await (const item of turn.items()) {
-                    silence.activity();
-                    await handlePendingUserInputs();
-                    // Replay held items only when a gap fill restores currency.
-                    if (!foldWasCurrent && session.fold.current) {
-                        flushFold();
+            const watchTurn = (active) => {
+                const items = (async () => {
+                    for await (const item of active.items()) {
+                        silence.activity();
+                        toolSilence.activity();
+                        await handlePendingUserInputs();
+                        // Replay held items only when a gap fill restores currency.
+                        if (!foldWasCurrent && session.fold.current) {
+                            flushFold();
+                        }
+                        foldWasCurrent = session.fold.current;
+                        emitItem(item);
                     }
-                    foldWasCurrent = session.fold.current;
-                    emitItem(item);
-                }
-            })();
-            const pumpDeltas = (async () => {
-                for await (const delta of turn.deltas()) {
-                    silence.activity();
-                    if (!session.fold.current || questionHandedOff) {
-                        continue;
+                })();
+                const deltas = (async () => {
+                    for await (const delta of active.deltas()) {
+                        silence.activity();
+                        toolSilence.activity();
+                        if (!session.fold.current || questionHandedOff) {
+                            continue;
+                        }
+                        for (const update of translator.fromDelta(delta)) {
+                            updates.push(update);
+                        }
                     }
-                    for (const update of translator.fromDelta(delta)) {
-                        updates.push(update);
+                })();
+                void items.catch(failTurn);
+                void deltas.catch(failTurn);
+                return { items, deltas };
+            };
+            const watchClient = () => {
+                const loop = (async () => {
+                    while (!finished && !settled && !cancelled) {
+                        reconcileApprovals();
+                        await handlePendingUserInputs();
+                        publishApprovalResults();
+                        checkPendingWork();
+                        await new Promise((resolve) => setTimeout(resolve, 25));
                     }
+                })();
+                void loop.catch(failTurn);
+                return loop;
+            };
+            let activeTurn = turn;
+            let streams = watchTurn(activeTurn);
+            let clientLoop = watchClient();
+            let continuations = 0;
+            let response;
+            for (;;) {
+                const outcome = await operation.wait(activeTurn.completed);
+                settled = true;
+                watchdog.reset();
+                await Promise.all([
+                    streams.items.catch(() => { }),
+                    streams.deltas.catch(() => { }),
+                    clientLoop.catch(() => { }),
+                ]);
+                flushFold();
+                publishApprovalResults();
+                response = sdkTerminalResponse(outcome, options.env);
+                if (questionHandedOff &&
+                    !cancelled &&
+                    !options.isCancelled?.() &&
+                    (response.stopReason === "cancelled" || response.stopReason === "end_turn")) {
+                    // The question is already in the transcript and the model was stopped
+                    // before it could choose. The user's next message is the answer.
+                    response = { stopReason: "end_turn" };
                 }
-            })();
-            const pumpUserInput = (async () => {
-                while (!finished && !settled && !cancelled) {
-                    reconcileApprovals();
-                    await handlePendingUserInputs();
-                    publishApprovalResults();
-                    checkPendingWork();
-                    await new Promise((resolve) => setTimeout(resolve, 25));
+                const usage = session.fold.sessionState.get("session/tokenUsage");
+                const finishReason = usage?.turnId === activeTurn.turnId ? usage.finishReason : undefined;
+                const unfinished = response.stopReason === "end_turn" &&
+                    !questionHandedOff &&
+                    !cancelled &&
+                    !options.isCancelled?.() &&
+                    turnStoppedEarly(session.fold.items.list(), activeTurn.turnId, finishReason);
+                if (!unfinished || continuations >= MAX_EARLY_CONTINUATIONS) {
+                    if (unfinished)
+                        response = { stopReason: "max_turn_requests" };
+                    break;
                 }
-            })();
-            // Observe pump failures immediately, before waiting for turn completion.
-            void pumpItems.catch(failTurn);
-            void pumpDeltas.catch(failTurn);
-            void pumpUserInput.catch(failTurn);
-            const outcome = await operation.wait(turn.completed);
-            settled = true;
-            watchdog.reset();
-            stopInteractions();
-            await Promise.all([
-                pumpItems.catch(() => { }),
-                pumpDeltas.catch(() => { }),
-                pumpUserInput.catch(() => { }),
-            ]);
-            // Flush any items that arrived only through gap fill after the last yield.
-            flushFold();
-            publishApprovalResults();
-            await owner.observeSessionState();
-            let response = sdkTerminalResponse(outcome, options.env);
-            if (questionHandedOff &&
-                !cancelled &&
-                !options.isCancelled?.() &&
-                (response.stopReason === "cancelled" || response.stopReason === "end_turn")) {
-                // The question is already in the transcript and the model was stopped
-                // before it could choose. The user's next message is the answer.
-                response = { stopReason: "end_turn" };
+                continuations++;
+                options.logger.log("muse-sdk: model stopped before the reply was finished; continuing");
+                settled = false;
+                silence.activity();
+                toolSilence.activity();
+                const next = await operation.wait(session.sendUserTurn({
+                    input: [{ type: "text", text: EARLY_CONTINUE_TEXT }],
+                }));
+                adoptTurn(next.turnId);
+                activeTurn = next;
+                streams = watchTurn(activeTurn);
+                clientLoop = watchClient();
             }
+            stopInteractions();
+            await owner.observeSessionState();
             successful = response.stopReason === "end_turn";
             if (successful && turnId)
                 owner.retainProgress(turnId, translator);
